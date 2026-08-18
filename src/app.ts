@@ -12,10 +12,14 @@ export const app = express();
 
 app.disable('x-powered-by');
 app.use(helmet());
+// CORS_ORIGIN="*" يسمح لأي أصل — مطلوب لأن التطبيق يعمل داخل Capacitor WebView
+// (أصله capacitor://localhost أو http://localhost حسب النظام) وكذلك للتطوير المحلي.
+// عند تقييد الأصول: ضع قائمة مفصولة بفواصل في CORS_ORIGIN وستُطبَّق حرفيًا.
+const allowAnyOrigin = env.corsOrigins.includes('*');
 app.use(
   cors({
-    origin: env.corsOrigins,
-    credentials: true,
+    origin: allowAnyOrigin ? true : env.corsOrigins,
+    credentials: !allowAnyOrigin, // credentials مع "*" ممنوع في المتصفحات — نستخدم Bearer tokens وليس cookies
   }),
 );
 app.use(express.json({ limit: '2mb' }));
