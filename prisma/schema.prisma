@@ -1,0 +1,323 @@
+// CEA Backend — Prisma schema (MySQL)
+// يعيد بناء نفس نموذج البيانات الموجود في localStorage/Supabase الحالي بشكل مطبَّع (normalized)
+// راجع E:\fabel max cea project\SYSTEM_REFERENCE.md قسم 7 لمقارنة كل كيان بمصدره الأصلي.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  ENGINEER
+}
+
+// نفس النصوص العربية المستخدمة حرفيًا في app.js (qtyType/rateType) — القيم الفعلية في العمود
+// عبر @map حتى لا تتغير القيم المُرسلة/المستقبلة من الواجهة الأمامية بأي شكل
+enum RateType {
+  DAILY   @map("يومية")
+  HOURLY  @map("ساعة")
+  LUMPSUM @map("مقطوعية")
+}
+
+// ── المستخدمون والمصادقة (بديل Supabase Auth) ──
+
+model User {
+  id           BigInt   @id @default(autoincrement())
+  email        String   @unique @db.VarChar(190)
+  passwordHash String   @map("password_hash") @db.VarChar(255)
+  role         Role     @default(ENGINEER)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  refreshTokens        RefreshToken[]
+  passwordResetTokens  PasswordResetToken[]
+  accountSettings      AccountSettings?
+  contractors          Contractor[]
+  places               Place[]
+  inspectors           Inspector[]
+  items                Item[]
+  records              Record[]
+  irRecords            IrRecord[]
+  todos                Todo[]
+  execRecords          ExecRecord[]
+  dailyRecords         DailyRecord[]
+  files                File[]
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id        BigInt    @id @default(autoincrement())
+  userId    BigInt    @map("user_id")
+  tokenHash String    @unique @map("token_hash") @db.VarChar(255)
+  expiresAt DateTime  @map("expires_at")
+  revokedAt DateTime? @map("revoked_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model PasswordResetToken {
+  id        BigInt    @id @default(autoincrement())
+  userId    BigInt    @map("user_id")
+  tokenHash String    @unique @map("token_hash") @db.VarChar(255)
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("password_reset_tokens")
+}
+
+// إعدادات الحساب: PIN المحلي + رابط توقيع المهندس (بديل حقلي pin_hash/engineer_signature في cea_sync_meta)
+model AccountSettings {
+  id              BigInt   @id @default(autoincrement())
+  userId          BigInt   @unique @map("user_id")
+  pinHash         String?  @map("pin_hash") @db.VarChar(64)
+  signatureFileId BigInt?  @unique @map("signature_file_id")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  user          User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  signatureFile File? @relation(fields: [signatureFileId], references: [id], onDelete: SetNull)
+
+  @@map("account_settings")
+}
+
+// ── بيانات مرجعية (كانت JSON blobs داخل cea_sync_meta) ──
+
+model Contractor {
+  id        BigInt    @id @default(autoincrement())
+  userId    BigInt    @map("user_id")
+  name      String    @db.VarChar(190)
+  spec      String?   @db.VarChar(190)
+  rate      Decimal?  @db.Decimal(10, 2)
+  rateType  RateType? @map("rate_type")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  records Record[]
+
+  @@unique([userId, name])
+  @@map("contractors")
+}
+
+model Place {
+  id        BigInt   @id @default(autoincrement())
+  userId    BigInt   @map("user_id")
+  name      String   @db.VarChar(190)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  records Record[]
+
+  @@unique([userId, name])
+  @@map("places")
+}
+
+model Inspector {
+  id        BigInt   @id @default(autoincrement())
+  userId    BigInt   @map("user_id")
+  name      String   @db.VarChar(190)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, name])
+  @@map("inspectors")
+}
+
+model Item {
+  id        BigInt   @id @default(autoincrement())
+  userId    BigInt   @map("user_id")
+  category  String   @db.VarChar(190)
+  name      String   @db.VarChar(255)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user   User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  stages ItemStage[]
+
+  @@index([userId, category])
+  @@map("items")
+}
+
+model ItemStage {
+  id       BigInt @id @default(autoincrement())
+  itemId   BigInt @map("item_id")
+  name     String @db.VarChar(190)
+  pct      Int
+  position Int    @default(0)
+
+  item Item @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@index([itemId])
+  @@map("item_stages")
+}
+
+// ── السجلات الرئيسية ("سراكي") ──
+
+model Record {
+  id             BigInt   @id @default(autoincrement())
+  userId         BigInt   @map("user_id")
+  contractorId   BigInt?  @map("contractor_id")
+  contractorName String   @map("contractor_name") @db.VarChar(190) // نسخة نصية وقت التسجيل — لا تتأثر بحذف/تعديل المقاول لاحقًا
+  placeId        BigInt?  @map("place_id")
+  placeName      String   @map("place_name") @db.VarChar(190)
+  day            String   @db.VarChar(20)
+  date           DateTime @db.Date
+  spec           String?  @db.VarChar(190)
+  qty            Decimal  @db.Decimal(10, 2)
+  qtyType        RateType @default(DAILY) @map("qty_type")
+  price          Decimal  @db.Decimal(10, 2)
+  discount       Decimal  @default(0) @db.Decimal(10, 2)
+  total          Decimal  @db.Decimal(10, 2)
+  notes          String?  @db.Text
+  deductNote     String?  @map("deduct_note") @db.VarChar(255)
+  done           Boolean  @default(false)
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  user        User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contractor  Contractor?        @relation(fields: [contractorId], references: [id], onDelete: SetNull)
+  place       Place?             @relation(fields: [placeId], references: [id], onDelete: SetNull)
+  deductions  RecordDeduction[]
+
+  @@index([userId, date])
+  @@index([userId, contractorId])
+  @@map("records")
+}
+
+model RecordDeduction {
+  id       BigInt @id @default(autoincrement())
+  recordId BigInt @map("record_id")
+  name     String @db.VarChar(190)
+
+  record Record @relation(fields: [recordId], references: [id], onDelete: Cascade)
+
+  @@index([recordId])
+  @@map("record_deductions")
+}
+
+// ── طلبات الفحص (IR) ──
+
+model IrRecord {
+  id        BigInt   @id @default(autoincrement())
+  userId    BigInt   @map("user_id")
+  date      DateTime @db.Date
+  item      String   @db.VarChar(255)
+  place     String   @db.VarChar(190)
+  inspector String   @db.VarChar(190)
+  status    String   @db.VarChar(50)
+  notes     String?  @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, date])
+  @@map("ir_records")
+}
+
+// ── المهام ──
+
+model Todo {
+  id        BigInt   @id @default(autoincrement())
+  userId    BigInt   @map("user_id")
+  date      DateTime @db.Date
+  notes     String   @db.Text
+  place     String?  @db.VarChar(190)
+  priority  String   @db.VarChar(20)
+  done      Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, done])
+  @@map("todos")
+}
+
+// ── الموقف التنفيذي (نسب الإنجاز) ──
+
+model ExecRecord {
+  id        BigInt   @id @default(autoincrement())
+  userId    BigInt   @map("user_id")
+  item      String   @db.VarChar(255)
+  place     String   @db.VarChar(190)
+  pct       Decimal  @db.Decimal(5, 2)
+  notes     String?  @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user   User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  stages ExecRecordStage[]
+
+  @@index([userId, place])
+  @@map("exec_records")
+}
+
+model ExecRecordStage {
+  id           BigInt  @id @default(autoincrement())
+  execRecordId BigInt  @map("exec_record_id")
+  name         String  @db.VarChar(190)
+  pct          Int
+  done         Boolean @default(false)
+
+  execRecord ExecRecord @relation(fields: [execRecordId], references: [id], onDelete: Cascade)
+
+  @@index([execRecordId])
+  @@map("exec_record_stages")
+}
+
+// ── التقارير اليومية (بالصور) — غير متزامنة في Supabase حاليًا، تُبنى هنا من الصفر ──
+
+model DailyRecord {
+  id          BigInt   @id @default(autoincrement())
+  userId      BigInt   @map("user_id")
+  date        DateTime @db.Date
+  day         String   @db.VarChar(20)
+  contractor  String?  @db.VarChar(190)
+  spec        String?  @db.VarChar(190)
+  work        String?  @db.Text
+  place       String?  @db.VarChar(190)
+  photoFileId BigInt?  @unique @map("photo_file_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  user      User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  photoFile File? @relation(fields: [photoFileId], references: [id], onDelete: SetNull)
+
+  @@index([userId, date])
+  @@map("daily_records")
+}
+
+// ── الملفات (بديل تخزين base64 داخل الأعمدة — تجريد يسمح لاحقًا بـ Local/S3/R2) ──
+
+model File {
+  id        BigInt   @id @default(autoincrement())
+  userId    BigInt   @map("user_id")
+  fileName  String   @map("file_name") @db.VarChar(255)
+  filePath  String   @map("file_path") @db.VarChar(500)
+  mimeType  String   @map("mime_type") @db.VarChar(100)
+  fileSize  Int      @map("file_size")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accountSettings  AccountSettings?
+  dailyRecord      DailyRecord?
+
+  @@index([userId])
+  @@map("files")
+}
