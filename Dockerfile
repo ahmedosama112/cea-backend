@@ -2,6 +2,7 @@
 # مرحلتان: بناء TypeScript ثم صورة تشغيل خفيفة بدون devDependencies
 
 FROM node:20-alpine AS build
+RUN apk add --no-cache openssl
 WORKDIR /app
 COPY package*.json ./
 COPY prisma ./prisma
@@ -11,6 +12,7 @@ COPY src ./src
 RUN npx prisma generate && npm run build
 
 FROM node:20-alpine
+RUN apk add --no-cache openssl
 WORKDIR /app
 ENV NODE_ENV=production
 COPY package*.json ./
