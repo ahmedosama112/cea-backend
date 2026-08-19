@@ -11,6 +11,11 @@ import { authenticate, requireRole } from '../middlewares/auth';
 import { validate } from '../middlewares/validate';
 import { idParamSchema } from '../utils/crudFactory';
 
+// multer بيفك اسم الملف كـ latin1 — أسماء عربية بتبقى mojibake؛ نرجّعها UTF-8
+function fixFileName(name: string): string {
+  try { const fixed = Buffer.from(name, 'latin1').toString('utf8'); return fixed.includes('�') ? name : fixed; } catch { return name; }
+}
+
 // تسليمات الكشوف المعتمدة — بديل Google Form:
 // المهندس يبعت الكشف (ملف Excel + بياناته) بعد مراجعته والموافقة عليه،
 // الأدمن يشوف كل التسليمات ويعتمد/يرفض بملاحظة، والمهندس يتابع حالة تسليماته.
@@ -63,9 +68,10 @@ submissionsRoutes.post(
     if (!XLSX_MIME.has(f.mimetype) && !f.originalname.toLowerCase().endsWith('.xlsx')) throw AppError.validation('الملف لازم يكون Excel (.xlsx)');
     const meta = metaSchema.parse(req.body);
 
-    const { storedPath } = await storage.save(f.buffer, f.originalname);
+    const originalName = fixFileName(f.originalname);
+    const { storedPath } = await storage.save(f.buffer, originalName);
     const file = await prisma.file.create({
-      data: { userId: req.user!.id, fileName: f.originalname, filePath: storedPath, mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', fileSize: f.size },
+      data: { userId: req.user!.id, fileName: originalName, filePath: storedPath, mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', fileSize: f.size },
     });
     const sub = await prisma.submission.create({
       data: {

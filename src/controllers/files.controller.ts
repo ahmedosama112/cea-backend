@@ -30,11 +30,12 @@ export const filesController = {
     if (!f) throw AppError.validation('لم يتم إرفاق ملف');
     if (!ALLOWED_MIME.has(f.mimetype)) throw AppError.validation('نوع الملف غير مدعوم — الصور فقط (JPEG/PNG/WebP)');
 
-    const { storedPath } = await storage.save(f.buffer, f.originalname);
+    const originalName = (()=>{ try { const x = Buffer.from(f.originalname, 'latin1').toString('utf8'); return x.includes('�') ? f.originalname : x; } catch { return f.originalname; } })();
+    const { storedPath } = await storage.save(f.buffer, originalName);
     const row = await prisma.file.create({
       data: {
         userId: req.user!.id,
-        fileName: f.originalname,
+        fileName: originalName,
         filePath: storedPath,
         mimeType: f.mimetype,
         fileSize: f.size,
