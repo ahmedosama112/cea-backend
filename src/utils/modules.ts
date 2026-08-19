@@ -2,11 +2,12 @@
 // يحددها الأدمن من "إدارة الحسابات". الواجهة فيها نسخة مطابقة من نفس القائمة (app.js: FEATURES).
 
 // ── الوحدات: بتقفل الشاشة كلها + السيرفر يرفض مساراتها ──
-export const ALL_MODULES = ['records', 'ir', 'site_daily', 'site_exec', 'todo', 'summary'] as const;
+export const ALL_MODULES = ['records', 'submissions', 'ir', 'site_daily', 'site_exec', 'todo', 'summary'] as const;
 export type ModuleKey = (typeof ALL_MODULES)[number];
-export const DEFAULT_MODULES: ModuleKey[] = ['records', 'todo', 'summary'];
+export const DEFAULT_MODULES: ModuleKey[] = ['records', 'submissions', 'todo', 'summary'];
 export const MODULE_LABELS: Record<ModuleKey, string> = {
   records: 'السراكي (تسجيل + قائمة)',
+  submissions: 'التسليمات (إرسال الكشوف للاعتماد)',
   ir: 'طلبات الفحص (IR)',
   site_daily: 'التقرير اليومي',
   site_exec: 'الموقف التنفيذي',
@@ -24,7 +25,6 @@ export const ALL_FEATURES = [
   // السراكي
   { key: 'records_export', label: 'أزرار التصدير (Excel / PDF / المعتمد)', group: 'السراكي' },
   { key: 'records_filters', label: 'فلاتر البحث والترتيب', group: 'السراكي' },
-  { key: 'records_submissions', label: 'تسليماتي (حالة الكشوف المرسلة)', group: 'السراكي' },
   // الإعدادات
   { key: 'set_appearance', label: 'المظهر (الوضع الداكن)', group: 'الإعدادات' },
   { key: 'set_contractors', label: 'إدارة المقاولين', group: 'الإعدادات' },
@@ -50,6 +50,7 @@ export const DEFAULT_FEATURES: FeatureKey[] = FEATURE_KEYS.filter(
 // أي مسار API تابع لأنهي وحدة (للحماية على السيرفر)
 export const ROUTE_MODULE: Record<string, ModuleKey> = {
   '/records': 'records',
+  '/submissions': 'submissions',
   '/ir-records': 'ir',
   '/daily-records': 'site_daily',
   '/exec-records': 'site_exec',

@@ -22,9 +22,9 @@ router.use('/places', placesRouter);
 router.use('/inspectors', inspectorsRouter);
 router.use('/items', itemsRoutes);
 router.use('/files', filesRoutes);
-router.use('/submissions', submissionsRoutes);
 // وحدات قابلة للتفعيل/الإخفاء لكل حساب — محمية على السيرفر
 router.use('/records', authenticate, requireModule('records'), recordsRoutes);
+router.use('/submissions', authenticate, requireModule('submissions'), submissionsRoutes);
 router.use('/ir-records', authenticate, requireModule('ir'), irRouter);
 router.use('/todos', authenticate, requireModule('todo'), todosRouter);
 router.use('/exec-records', authenticate, requireModule('site_exec'), execRoutes);

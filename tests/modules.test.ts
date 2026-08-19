@@ -16,7 +16,7 @@ describe('الوحدات لكل حساب (feature flags)', () => {
 
   it('الافتراضي لمهندس جديد: السراكي والمهام والملخص فقط — IR مقفول', async () => {
     const s = await request(app).get('/api/account/settings').set(auth(eng.token));
-    expect(s.body.data.enabledModules).toEqual(['records', 'todo', 'summary']);
+    expect(s.body.data.enabledModules).toEqual(['records', 'submissions', 'todo', 'summary']);
 
     const ir = await request(app).get('/api/ir-records').set(auth(eng.token));
     expect(ir.status).toBe(403);
