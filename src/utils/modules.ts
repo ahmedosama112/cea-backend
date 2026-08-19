@@ -1,11 +1,10 @@
-// الوحدات القابلة للتفعيل/الإخفاء لكل حساب — يحددها الأدمن من "إدارة الحسابات"
-// المفتاح = اسم الوحدة في الواجهة، والمسارات = الـ API endpoints المحمية بيها
+// الوحدات (شاشات كاملة) + الكروت (أجزاء داخل الشاشات) القابلة للتفعيل/الإخفاء لكل حساب —
+// يحددها الأدمن من "إدارة الحسابات". الواجهة فيها نسخة مطابقة من نفس القائمة (app.js: FEATURES).
+
+// ── الوحدات: بتقفل الشاشة كلها + السيرفر يرفض مساراتها ──
 export const ALL_MODULES = ['records', 'ir', 'site_daily', 'site_exec', 'todo', 'summary'] as const;
 export type ModuleKey = (typeof ALL_MODULES)[number];
-
-// الافتراضي لحساب جديد (لو enabledModules = null): الوحدات الأساسية الجاهزة فقط
 export const DEFAULT_MODULES: ModuleKey[] = ['records', 'todo', 'summary'];
-
 export const MODULE_LABELS: Record<ModuleKey, string> = {
   records: 'السراكي (تسجيل + قائمة)',
   ir: 'طلبات الفحص (IR)',
@@ -14,6 +13,38 @@ export const MODULE_LABELS: Record<ModuleKey, string> = {
   todo: 'المهام',
   summary: 'الملخص',
 };
+
+// ── الكروت: إخفاء/إظهار أجزاء داخل الشاشات (واجهة فقط — البيانات لسه محمية بالوحدات) ──
+// المفتاح = data-feature في الـ HTML. group = الشاشة اللي فيها الكارت (للعرض في الإدارة).
+export const ALL_FEATURES = [
+  // الرئيسية
+  { key: 'home_stats', label: 'بطاقات الأرقام (اليوم/الأسبوع/المهام/الإنجاز)', group: 'الرئيسية' },
+  { key: 'home_recent', label: 'آخر السجلات', group: 'الرئيسية' },
+  { key: 'home_todos', label: 'مهام اليوم', group: 'الرئيسية' },
+  // السراكي
+  { key: 'records_export', label: 'أزرار التصدير (Excel / PDF / المعتمد)', group: 'السراكي' },
+  { key: 'records_filters', label: 'فلاتر البحث والترتيب', group: 'السراكي' },
+  // الإعدادات
+  { key: 'set_appearance', label: 'المظهر (الوضع الداكن)', group: 'الإعدادات' },
+  { key: 'set_contractors', label: 'إدارة المقاولين', group: 'الإعدادات' },
+  { key: 'set_places', label: 'إدارة أماكن الأعمال', group: 'الإعدادات' },
+  { key: 'set_inspectors', label: 'إدارة الاستشاريين', group: 'الإعدادات' },
+  { key: 'set_items', label: 'إدارة بنود المقايسة', group: 'الإعدادات' },
+  { key: 'set_items_import', label: 'استيراد بنود من Excel', group: 'الإعدادات' },
+  { key: 'set_records_import', label: 'استرداد السجلات من Excel', group: 'الإعدادات' },
+  { key: 'set_backup', label: 'النسخة الاحتياطية', group: 'الإعدادات' },
+  { key: 'set_account', label: 'الحساب', group: 'الإعدادات' },
+  { key: 'set_pin', label: 'حماية PIN', group: 'الإعدادات' },
+  { key: 'set_sync', label: 'مزامنة السجلات', group: 'الإعدادات' },
+  { key: 'set_signature', label: 'توقيع المهندس', group: 'الإعدادات' },
+  { key: 'set_danger', label: 'منطقة الخطر (حذف/تهيئة)', group: 'الإعدادات' },
+] as const;
+export type FeatureKey = (typeof ALL_FEATURES)[number]['key'];
+const FEATURE_KEYS = ALL_FEATURES.map((f) => f.key) as FeatureKey[];
+// الافتراضي: كل الكروت ظاهرة ماعدا الخطرة/الإدارية اللي المهندس مش محتاجها
+export const DEFAULT_FEATURES: FeatureKey[] = FEATURE_KEYS.filter(
+  (k) => !['set_danger', 'set_records_import', 'set_items_import'].includes(k),
+);
 
 // أي مسار API تابع لأنهي وحدة (للحماية على السيرفر)
 export const ROUTE_MODULE: Record<string, ModuleKey> = {
@@ -27,4 +58,8 @@ export const ROUTE_MODULE: Record<string, ModuleKey> = {
 export function normalizeModules(input: unknown): ModuleKey[] {
   if (!Array.isArray(input)) return DEFAULT_MODULES;
   return ALL_MODULES.filter((m) => input.includes(m));
+}
+export function normalizeFeatures(input: unknown): FeatureKey[] {
+  if (!Array.isArray(input)) return DEFAULT_FEATURES;
+  return FEATURE_KEYS.filter((k) => input.includes(k));
 }

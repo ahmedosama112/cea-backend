@@ -60,7 +60,25 @@ describe('الوحدات لكل حساب (feature flags)', () => {
     const bad = await request(app).put(`/api/admin/users/${eng.id}/settings`).set(auth(admin.token)).send({ enabledModules: ['hack'] });
     expect(bad.status).toBe(400);
     const list = await request(app).get('/api/admin/modules').set(auth(admin.token));
-    expect(list.body.data.map((m: { key: string }) => m.key)).toContain('site_daily');
+    expect(list.body.data.modules.map((m: { key: string }) => m.key)).toContain('site_daily');
+    expect(list.body.data.features.map((f: { key: string }) => f.key)).toContain('set_danger');
+  });
+
+  it('الكروت (features): الأدمن يخفي كارت لمهندس، والمهندس يقرأها ولا يعدلها', async () => {
+    const def = await request(app).get('/api/account/settings').set(auth(eng.token));
+    expect(def.body.data.enabledFeatures).toContain('set_contractors');
+    expect(def.body.data.enabledFeatures).not.toContain('set_danger'); // مخفي افتراضيًا
+
+    const set = await request(app).put(`/api/admin/users/${eng.id}/settings`).set(auth(admin.token))
+      .send({ enabledFeatures: ['set_account', 'home_recent'] });
+    expect(set.status).toBe(200);
+    expect(set.body.data.enabledFeatures).toEqual(['home_recent', 'set_account']); // بترتيب القائمة الأصلية
+
+    const engSelf = await request(app).put('/api/account/settings').set(auth(eng.token)).send({ enabledFeatures: ['set_danger'] });
+    expect(engSelf.status).toBe(403);
+
+    const bad = await request(app).put(`/api/admin/users/${eng.id}/settings`).set(auth(admin.token)).send({ enabledFeatures: ['nope'] });
+    expect(bad.status).toBe(400);
   });
 
   it('الأدمن ينشئ مهندسًا بوحدات محددة من الأول + يعيد تعيين كلمة سره', async () => {

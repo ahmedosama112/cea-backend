@@ -87,6 +87,8 @@ model AccountSettings {
   signatureFileId BigInt?  @unique @map("signature_file_id")
   // الوحدات المفعّلة للحساب (يحددها الأدمن) — JSON مصفوفة أسماء، null = الافتراضي
   enabledModules  Json?    @map("enabled_modules")
+  // الكروت الظاهرة داخل الشاشات (يحددها الأدمن) — JSON مصفوفة مفاتيح، null = الافتراضي
+  enabledFeatures Json?    @map("enabled_features")
   updatedAt       DateTime @updatedAt @map("updated_at")
 
   user          User  @relation(fields: [userId], references: [id], onDelete: Cascade)

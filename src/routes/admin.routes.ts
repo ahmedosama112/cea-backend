@@ -7,7 +7,7 @@ import { asyncHandler } from '../utils/asyncHandler';
 import { authenticate, requireRole } from '../middlewares/auth';
 import { validate } from '../middlewares/validate';
 import { accountSettingsSchema, upsertSettings } from '../controllers/account.controller';
-import { ALL_MODULES, DEFAULT_MODULES, MODULE_LABELS } from '../utils/modules';
+import { ALL_MODULES, DEFAULT_MODULES, MODULE_LABELS, ALL_FEATURES, DEFAULT_FEATURES } from '../utils/modules';
 import { authService } from '../services/auth.service';
 import { placeCreateSchema } from '../schema/entities.schema';
 
@@ -113,18 +113,24 @@ adminRoutes.put(
 adminRoutes.get(
   '/modules',
   asyncHandler(async (_req: Request, res: Response) => {
-    res.json({ success: true, data: ALL_MODULES.map((key) => ({ key, label: MODULE_LABELS[key], default: DEFAULT_MODULES.includes(key) })) });
+    res.json({
+      success: true,
+      data: {
+        modules: ALL_MODULES.map((key) => ({ key, label: MODULE_LABELS[key], default: DEFAULT_MODULES.includes(key) })),
+        features: ALL_FEATURES.map((f) => ({ key: f.key, label: f.label, group: f.group, default: (DEFAULT_FEATURES as readonly string[]).includes(f.key) })),
+      },
+    });
   }),
 );
 
 // ── إنشاء حساب مهندس (بديل register بتوكن الأدمن — نفس المنطق، مسار أوضح للواجهة) ──
 adminRoutes.post(
   '/users',
-  validate({ body: z.object({ email: z.string().email().max(190), password: z.string().min(8).max(128), enabledModules: z.array(z.enum(ALL_MODULES)).optional() }) }),
+  validate({ body: z.object({ email: z.string().email().max(190), password: z.string().min(8).max(128), enabledModules: z.array(z.enum(ALL_MODULES)).optional(), enabledFeatures: z.array(z.string()).optional() }) }),
   asyncHandler(async (req: Request, res: Response) => {
     const result = await authService.register(req.body.email, req.body.password, req.user);
     const userId = BigInt(result.user.id);
-    if (req.body.enabledModules) await upsertSettings(userId, { enabledModules: req.body.enabledModules }, [req.user!.id, userId]);
+    if (req.body.enabledModules || req.body.enabledFeatures) await upsertSettings(userId, { enabledModules: req.body.enabledModules, enabledFeatures: req.body.enabledFeatures }, [req.user!.id, userId]);
     res.status(201).json({ success: true, data: result.user });
   }),
 );
