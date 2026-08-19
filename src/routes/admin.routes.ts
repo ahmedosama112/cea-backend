@@ -34,7 +34,7 @@ adminRoutes.get(
   '/users',
   asyncHandler(async (_req: Request, res: Response) => {
     const users = await prisma.user.findMany({
-      select: { id: true, email: true, role: true, title: true, createdAt: true },
+      select: { id: true, email: true, role: true, title: true, lastSeenAt: true, createdAt: true },
       orderBy: { id: 'asc' },
     });
     res.json({ success: true, data: users });

@@ -1,6 +1,7 @@
 import { NextFunction, Request, Response } from 'express';
 import { AppError } from '../utils/AppError';
 import { verifyAccessToken } from '../utils/tokens';
+import { prisma } from '../config/prisma';
 
 export interface AuthUser {
   id: bigint;
@@ -17,6 +18,16 @@ declare global {
   }
 }
 
+// تحديث "آخر ظهور" — خفيف: مرة كل دقيقة لكل مستخدم على الأكتر (مش مع كل طلب)
+const lastSeenTouched = new Map<string, number>();
+function touchLastSeen(userId: bigint) {
+  const k = userId.toString();
+  const now = Date.now();
+  if ((lastSeenTouched.get(k) ?? 0) > now - 60_000) return;
+  lastSeenTouched.set(k, now);
+  prisma.user.update({ where: { id: userId }, data: { lastSeenAt: new Date() } }).catch(() => undefined);
+}
+
 // كل route كتابة/قراءة على بيانات المستخدم لازم يمر من هنا أولاً — التحقق على مستوى الـ API
 // وليس فقط إخفاء أزرار في الواجهة
 export function authenticate(req: Request, _res: Response, next: NextFunction) {
@@ -28,6 +39,7 @@ export function authenticate(req: Request, _res: Response, next: NextFunction) {
   try {
     const payload = verifyAccessToken(token);
     req.user = { id: BigInt(payload.sub), email: payload.email, role: payload.role };
+    touchLastSeen(req.user.id);
     next();
   } catch {
     next(AppError.unauthorized('انتهت صلاحية الجلسة أو التوكن غير صالح'));
