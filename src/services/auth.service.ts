@@ -31,7 +31,8 @@ async function issueTokens(user: { id: bigint; email: string; role: 'ADMIN' | 'E
 export const authService = {
   // إنشاء الحسابات بمعرفة الأدمن فقط — نفس سياسة النظام القديم (لوحة Supabase).
   // استثناء التمهيد (bootstrap): أول حساب في نظام فاضي يُنشأ بدون أدمن ويصبح ADMIN.
-  async register(email: string, password: string, requester?: { role: 'ADMIN' | 'ENGINEER' }): Promise<AuthResult> {
+  // role: الأدمن يقدر يحدد دور الحساب الجديد (ADMIN يملك كل صلاحيات الإدارة — استخدمه بحذر)
+  async register(email: string, password: string, requester?: { role: 'ADMIN' | 'ENGINEER' }, role?: 'ADMIN' | 'ENGINEER'): Promise<AuthResult> {
     const userCount = await prisma.user.count();
     if (userCount > 0 && requester?.role !== 'ADMIN') {
       throw AppError.forbidden('إنشاء الحسابات متاح للأدمن فقط');
@@ -43,7 +44,7 @@ export const authService = {
       data: {
         email: email.toLowerCase(),
         passwordHash: await hashPassword(password),
-        role: userCount === 0 ? 'ADMIN' : 'ENGINEER',
+        role: userCount === 0 ? 'ADMIN' : (requester?.role === 'ADMIN' && role === 'ADMIN' ? 'ADMIN' : 'ENGINEER'),
       },
     });
     return issueTokens(user);

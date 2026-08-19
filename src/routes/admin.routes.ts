@@ -190,9 +190,9 @@ adminRoutes.get(
 // ── إنشاء حساب مهندس (بديل register بتوكن الأدمن — نفس المنطق، مسار أوضح للواجهة) ──
 adminRoutes.post(
   '/users',
-  validate({ body: z.object({ email: z.string().email().max(190), password: z.string().min(8).max(128), enabledModules: z.array(z.enum(ALL_MODULES)).optional(), enabledFeatures: z.array(z.string()).optional() }) }),
+  validate({ body: z.object({ email: z.string().email().max(190), password: z.string().min(8).max(128), enabledModules: z.array(z.enum(ALL_MODULES)).optional(), enabledFeatures: z.array(z.string()).optional(), role: z.enum(['ADMIN','ENGINEER']).optional() }) }),
   asyncHandler(async (req: Request, res: Response) => {
-    const result = await authService.register(req.body.email, req.body.password, req.user);
+    const result = await authService.register(req.body.email, req.body.password, req.user, req.body.role);
     const userId = BigInt(result.user.id);
     if (req.body.enabledModules || req.body.enabledFeatures) await upsertSettings(userId, { enabledModules: req.body.enabledModules, enabledFeatures: req.body.enabledFeatures }, [req.user!.id, userId]);
     res.status(201).json({ success: true, data: result.user });

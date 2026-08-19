@@ -81,6 +81,14 @@ describe('الوحدات لكل حساب (feature flags)', () => {
     expect(bad.status).toBe(400);
   });
 
+  it('الأدمن ينشئ أدمن تاني لو حدد role=ADMIN، والمهندس لا يقدر', async () => {
+    const a2 = await request(app).post('/api/admin/users').set(auth(admin.token)).send({ email: 'admin2@test.com', password: 'password123', role: 'ADMIN' });
+    expect(a2.status).toBe(201);
+    expect(a2.body.data.role).toBe('ADMIN');
+    const engTry = await request(app).post('/api/admin/users').set(auth(eng.token)).send({ email: 'x@test.com', password: 'password123', role: 'ADMIN' });
+    expect(engTry.status).toBe(403);
+  });
+
   it('الأدمن ينشئ مهندسًا بوحدات محددة من الأول + يعيد تعيين كلمة سره', async () => {
     const created = await request(app)
       .post('/api/admin/users')
