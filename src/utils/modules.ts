@@ -24,6 +24,7 @@ export const ALL_FEATURES = [
   // السراكي
   { key: 'records_export', label: 'أزرار التصدير (Excel / PDF / المعتمد)', group: 'السراكي' },
   { key: 'records_filters', label: 'فلاتر البحث والترتيب', group: 'السراكي' },
+  { key: 'records_submissions', label: 'تسليماتي (حالة الكشوف المرسلة)', group: 'السراكي' },
   // الإعدادات
   { key: 'set_appearance', label: 'المظهر (الوضع الداكن)', group: 'الإعدادات' },
   { key: 'set_contractors', label: 'إدارة المقاولين', group: 'الإعدادات' },
