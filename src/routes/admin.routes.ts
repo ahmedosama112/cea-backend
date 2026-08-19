@@ -11,6 +11,7 @@ import { ALL_MODULES, DEFAULT_MODULES, MODULE_LABELS, ALL_FEATURES, DEFAULT_FEAT
 import { authService } from '../services/auth.service';
 import { placeCreateSchema, contractorCreateSchema, contractorUpdateSchema } from '../schema/entities.schema';
 import { arabizeRateTypes, toEnum, RateTypeAr } from '../utils/rateType';
+import { storage } from '../services/storage';
 
 // إدارة الأدمن لحسابات المهندسين — البديل الرسمي للوحة تحكم Supabase:
 // الأدمن ينشئ الحسابات (عبر /api/auth/register بتوكنه) ويزرع لكل مهندس:
@@ -216,6 +217,44 @@ adminRoutes.patch(
     // تغيير الصلاحية يُبطل جلسات الحساب (التوكن فيه الدور القديم)
     if (req.body.role !== undefined) await prisma.refreshToken.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: new Date() } });
     res.json({ success: true, data: u });
+  }),
+);
+
+// ── ملخص بيانات حساب (للعرض قبل الحذف) ──
+adminRoutes.get(
+  '/users/:userId/summary',
+  validate({ params: userIdParam }),
+  asyncHandler(async (req: Request, res: Response) => {
+    const userId = BigInt(req.params.userId);
+    await assertUserExists(userId);
+    const w = { where: { userId } };
+    const [records, contractors, places, todos, irRecords, execRecords, dailyRecords, files] = await Promise.all([
+      prisma.record.count(w), prisma.contractor.count(w), prisma.place.count(w), prisma.todo.count(w),
+      prisma.irRecord.count(w), prisma.execRecord.count(w), prisma.dailyRecord.count(w), prisma.file.count(w),
+    ]);
+    res.json({ success: true, data: { records, contractors, places, todos, irRecords, execRecords, dailyRecords, files } });
+  }),
+);
+
+// ── حذف حساب نهائيًا مع كل بياناته ──
+// حماية: لازم يبعت إيميل الحساب مطابقًا (تأكيد ثانٍ على السيرفر)، ولا يقدر يحذف نفسه، ولا آخر أدمن
+adminRoutes.delete(
+  '/users/:userId',
+  validate({ params: userIdParam, body: z.object({ confirmEmail: z.string().email() }) }),
+  asyncHandler(async (req: Request, res: Response) => {
+    const userId = BigInt(req.params.userId);
+    const user = await assertUserExists(userId);
+    if (userId === req.user!.id) throw AppError.validation('لا يمكنك حذف حسابك أنت من هنا');
+    if (user.email.toLowerCase() !== req.body.confirmEmail.trim().toLowerCase()) throw AppError.validation('الإيميل غير مطابق — لم يتم الحذف');
+    if (user.role === 'ADMIN') {
+      const admins = await prisma.user.count({ where: { role: 'ADMIN' } });
+      if (admins <= 1) throw AppError.validation('لا يمكن حذف آخر مدير نظام');
+    }
+    // ملفات التخزين (صور/توقيع) تُحذف من القرص؛ صفوف DB تُحذف cascade مع المستخدم
+    const files = await prisma.file.findMany({ where: { userId }, select: { filePath: true } });
+    for (const f of files) await storage.remove(f.filePath).catch(() => undefined);
+    await prisma.user.delete({ where: { id: userId } });
+    res.json({ success: true, data: { deleted: user.email, filesRemoved: files.length } });
   }),
 );
 

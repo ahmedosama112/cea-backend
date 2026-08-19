@@ -95,6 +95,24 @@ describe('الوحدات لكل حساب (feature flags)', () => {
     expect(self.status).toBe(400);
   });
 
+  it('حذف حساب: يرفض بدون إيميل مطابق، ويمسح كل بياناته cascade، ولا يحذف نفسه', async () => {
+    const c = await request(app).post('/api/admin/users').set(auth(admin.token)).send({ email: 'todelete@test.com', password: 'password123' });
+    const id = c.body.data.id;
+    await request(app).post(`/api/admin/users/${id}/places`).set(auth(admin.token)).send({ name: 'مكان للحذف' });
+    const sum = await request(app).get(`/api/admin/users/${id}/summary`).set(auth(admin.token));
+    expect(sum.body.data.places).toBe(1);
+    const wrong = await request(app).delete(`/api/admin/users/${id}`).set(auth(admin.token)).send({ confirmEmail: 'other@test.com' });
+    expect(wrong.status).toBe(400);
+    const self = await request(app).delete(`/api/admin/users/${admin.id}`).set(auth(admin.token)).send({ confirmEmail: admin.email });
+    expect(self.status).toBe(400);
+    const ok = await request(app).delete(`/api/admin/users/${id}`).set(auth(admin.token)).send({ confirmEmail: 'todelete@test.com' });
+    expect(ok.status).toBe(200);
+    const gone = await prisma.user.findUnique({ where: { id: BigInt(id) } });
+    expect(gone).toBeNull();
+    const placesLeft = await prisma.place.count({ where: { userId: BigInt(id) } });
+    expect(placesLeft).toBe(0);
+  });
+
   it('الأدمن ينشئ أدمن تاني لو حدد role=ADMIN، والمهندس لا يقدر', async () => {
     const a2 = await request(app).post('/api/admin/users').set(auth(admin.token)).send({ email: 'admin2@test.com', password: 'password123', role: 'ADMIN' });
     expect(a2.status).toBe(201);
