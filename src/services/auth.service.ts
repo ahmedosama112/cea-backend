@@ -10,19 +10,19 @@ import {
 } from '../utils/tokens';
 
 interface AuthResult {
-  user: { id: string; email: string; role: 'ADMIN' | 'ENGINEER' };
+  user: { id: string; email: string; role: 'ADMIN' | 'ENGINEER'; title: string | null };
   accessToken: string;
   refreshToken: string;
 }
 
-async function issueTokens(user: { id: bigint; email: string; role: 'ADMIN' | 'ENGINEER' }): Promise<AuthResult> {
+async function issueTokens(user: { id: bigint; email: string; role: 'ADMIN' | 'ENGINEER'; title?: string | null }): Promise<AuthResult> {
   const accessToken = signAccessToken({ sub: user.id.toString(), email: user.email, role: user.role });
   const refreshToken = generateOpaqueToken();
   await prisma.refreshToken.create({
     data: { userId: user.id, tokenHash: hashToken(refreshToken), expiresAt: refreshTokenExpiry() },
   });
   return {
-    user: { id: user.id.toString(), email: user.email, role: user.role },
+    user: { id: user.id.toString(), email: user.email, role: user.role, title: user.title ?? null },
     accessToken,
     refreshToken,
   };
@@ -32,7 +32,7 @@ export const authService = {
   // إنشاء الحسابات بمعرفة الأدمن فقط — نفس سياسة النظام القديم (لوحة Supabase).
   // استثناء التمهيد (bootstrap): أول حساب في نظام فاضي يُنشأ بدون أدمن ويصبح ADMIN.
   // role: الأدمن يقدر يحدد دور الحساب الجديد (ADMIN يملك كل صلاحيات الإدارة — استخدمه بحذر)
-  async register(email: string, password: string, requester?: { role: 'ADMIN' | 'ENGINEER' }, role?: 'ADMIN' | 'ENGINEER'): Promise<AuthResult> {
+  async register(email: string, password: string, requester?: { role: 'ADMIN' | 'ENGINEER' }, role?: 'ADMIN' | 'ENGINEER', title?: string | null): Promise<AuthResult> {
     const userCount = await prisma.user.count();
     if (userCount > 0 && requester?.role !== 'ADMIN') {
       throw AppError.forbidden('إنشاء الحسابات متاح للأدمن فقط');
@@ -45,6 +45,7 @@ export const authService = {
         email: email.toLowerCase(),
         passwordHash: await hashPassword(password),
         role: userCount === 0 ? 'ADMIN' : (requester?.role === 'ADMIN' && role === 'ADMIN' ? 'ADMIN' : 'ENGINEER'),
+        title: title?.trim() || null,
       },
     });
     return issueTokens(user);

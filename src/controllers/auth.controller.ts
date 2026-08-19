@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { authService } from '../services/auth.service';
+import { prisma } from '../config/prisma';
 import { asyncHandler } from '../utils/asyncHandler';
 
 export const authController = {
@@ -27,7 +28,8 @@ export const authController = {
   }),
 
   me: asyncHandler(async (req: Request, res: Response) => {
-    res.json({ success: true, data: { id: req.user!.id.toString(), email: req.user!.email, role: req.user!.role } });
+    const u = await prisma.user.findUnique({ where: { id: req.user!.id }, select: { title: true } });
+    res.json({ success: true, data: { id: req.user!.id.toString(), email: req.user!.email, role: req.user!.role, title: u?.title ?? null } });
   }),
 
   requestPasswordReset: asyncHandler(async (req: Request, res: Response) => {

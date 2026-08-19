@@ -33,7 +33,7 @@ adminRoutes.get(
   '/users',
   asyncHandler(async (_req: Request, res: Response) => {
     const users = await prisma.user.findMany({
-      select: { id: true, email: true, role: true, createdAt: true },
+      select: { id: true, email: true, role: true, title: true, createdAt: true },
       orderBy: { id: 'asc' },
     });
     res.json({ success: true, data: users });
@@ -190,12 +190,32 @@ adminRoutes.get(
 // ── إنشاء حساب مهندس (بديل register بتوكن الأدمن — نفس المنطق، مسار أوضح للواجهة) ──
 adminRoutes.post(
   '/users',
-  validate({ body: z.object({ email: z.string().email().max(190), password: z.string().min(8).max(128), enabledModules: z.array(z.enum(ALL_MODULES)).optional(), enabledFeatures: z.array(z.string()).optional(), role: z.enum(['ADMIN','ENGINEER']).optional() }) }),
+  validate({ body: z.object({ email: z.string().email().max(190), password: z.string().min(8).max(128), enabledModules: z.array(z.enum(ALL_MODULES)).optional(), enabledFeatures: z.array(z.string()).optional(), role: z.enum(['ADMIN','ENGINEER']).optional(), title: z.string().trim().max(100).optional() }) }),
   asyncHandler(async (req: Request, res: Response) => {
-    const result = await authService.register(req.body.email, req.body.password, req.user, req.body.role);
+    const result = await authService.register(req.body.email, req.body.password, req.user, req.body.role, req.body.title);
     const userId = BigInt(result.user.id);
     if (req.body.enabledModules || req.body.enabledFeatures) await upsertSettings(userId, { enabledModules: req.body.enabledModules, enabledFeatures: req.body.enabledFeatures }, [req.user!.id, userId]);
     res.status(201).json({ success: true, data: result.user });
+  }),
+);
+
+// ── تعديل بيانات حساب: المسمى الوظيفي و/أو الصلاحية ──
+adminRoutes.patch(
+  '/users/:userId',
+  validate({ params: userIdParam, body: z.object({ title: z.string().trim().max(100).nullable().optional(), role: z.enum(['ADMIN', 'ENGINEER']).optional() }) }),
+  asyncHandler(async (req: Request, res: Response) => {
+    const userId = BigInt(req.params.userId);
+    await assertUserExists(userId);
+    // حماية: الأدمن لا يقدر ينزّل نفسه لمهندس (عشان ما يقفلش الإدارة على نفسه)
+    if (req.body.role === 'ENGINEER' && userId === req.user!.id) throw AppError.validation('لا يمكنك إزالة صلاحية الإدارة من حسابك أنت');
+    const data = {
+      ...(req.body.title !== undefined ? { title: req.body.title?.trim() || null } : {}),
+      ...(req.body.role !== undefined ? { role: req.body.role } : {}),
+    };
+    const u = await prisma.user.update({ where: { id: userId }, data, select: { id: true, email: true, role: true, title: true } });
+    // تغيير الصلاحية يُبطل جلسات الحساب (التوكن فيه الدور القديم)
+    if (req.body.role !== undefined) await prisma.refreshToken.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: new Date() } });
+    res.json({ success: true, data: u });
   }),
 );
 

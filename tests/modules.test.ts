@@ -81,6 +81,20 @@ describe('الوحدات لكل حساب (feature flags)', () => {
     expect(bad.status).toBe(400);
   });
 
+  it('المسمى الوظيفي: يُحدد عند الإنشاء ويُعدَّل بعدها، ويظهر في /me', async () => {
+    const c = await request(app).post('/api/admin/users').set(auth(admin.token)).send({ email: 'titled@test.com', password: 'password123', title: 'مهندس مكتب فني' });
+    expect(c.status).toBe(201);
+    expect(c.body.data.title).toBe('مهندس مكتب فني');
+    const upd = await request(app).patch(`/api/admin/users/${c.body.data.id}`).set(auth(admin.token)).send({ title: 'مساح' });
+    expect(upd.body.data.title).toBe('مساح');
+    const login = await request(app).post('/api/auth/login').send({ email: 'titled@test.com', password: 'password123' });
+    const me = await request(app).get('/api/auth/me').set(auth(login.body.data.accessToken));
+    expect(me.body.data.title).toBe('مساح');
+    // الأدمن لا ينزّل نفسه
+    const self = await request(app).patch(`/api/admin/users/${admin.id}`).set(auth(admin.token)).send({ role: 'ENGINEER' });
+    expect(self.status).toBe(400);
+  });
+
   it('الأدمن ينشئ أدمن تاني لو حدد role=ADMIN، والمهندس لا يقدر', async () => {
     const a2 = await request(app).post('/api/admin/users').set(auth(admin.token)).send({ email: 'admin2@test.com', password: 'password123', role: 'ADMIN' });
     expect(a2.status).toBe(201);

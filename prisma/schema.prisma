@@ -31,6 +31,8 @@ model User {
   email        String   @unique @db.VarChar(190)
   passwordHash String   @map("password_hash") @db.VarChar(255)
   role         Role     @default(ENGINEER)
+  // المسمى الوظيفي (نص حر يحدده الأدمن: مهندس تنفيذ، مهندس مكتب فني، مساح...) — للعرض فقط، الصلاحيات من role
+  title        String?  @db.VarChar(100)
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
