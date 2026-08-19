@@ -85,6 +85,8 @@ model AccountSettings {
   userId          BigInt   @unique @map("user_id")
   pinHash         String?  @map("pin_hash") @db.VarChar(64)
   signatureFileId BigInt?  @unique @map("signature_file_id")
+  // الوحدات المفعّلة للحساب (يحددها الأدمن) — JSON مصفوفة أسماء، null = الافتراضي
+  enabledModules  Json?    @map("enabled_modules")
   updatedAt       DateTime @updatedAt @map("updated_at")
 
   user          User  @relation(fields: [userId], references: [id], onDelete: Cascade)

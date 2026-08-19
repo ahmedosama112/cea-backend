@@ -112,6 +112,14 @@ export const authService = {
     ]);
   },
 
+  // الأدمن يعيد تعيين كلمة سر حساب (بدون الحاجة للقديمة) — ويُبطل جلسات الحساب
+  async adminSetPassword(userId: bigint, newPassword: string): Promise<void> {
+    await prisma.$transaction([
+      prisma.user.update({ where: { id: userId }, data: { passwordHash: await hashPassword(newPassword) } }),
+      prisma.refreshToken.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: new Date() } }),
+    ]);
+  },
+
   async changePassword(userId: bigint, currentPassword: string, newPassword: string): Promise<void> {
     const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
     const ok = await verifyPassword(currentPassword, user.passwordHash);

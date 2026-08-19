@@ -3,42 +3,62 @@ import { z } from 'zod';
 import { prisma } from '../config/prisma';
 import { AppError } from '../utils/AppError';
 import { asyncHandler } from '../utils/asyncHandler';
+import { ALL_MODULES, normalizeModules } from '../utils/modules';
+import { invalidateModulesCache } from '../middlewares/moduleGuard';
 
-// إعدادات الحساب: PIN hash (نفس SHA-256 المحسوب في الواجهة حاليًا) + ملف التوقيع
-// بديل حقلي pin_hash/engineer_signature اللذين كانا في cea_sync_meta
+// إعدادات الحساب: PIN hash + ملف التوقيع + الوحدات المفعّلة (يديرها الأدمن)
 
 export const accountSettingsSchema = z.object({
   pinHash: z.string().trim().length(64, 'PIN hash يجب أن يكون SHA-256 hex (64 حرف)').nullable().optional(),
   signatureFileId: z.coerce.bigint().nullable().optional(),
+  enabledModules: z.array(z.enum(ALL_MODULES)).optional(),
 });
+
+// شكل الاستجابة الموحد — enabledModules دايمًا مصفوفة (الافتراضي لو null)
+export function serializeSettings(s: { pinHash?: string | null; signatureFileId?: bigint | null; enabledModules?: unknown } | null) {
+  return {
+    pinHash: s?.pinHash ?? null,
+    signatureFileId: s?.signatureFileId ?? null,
+    enabledModules: normalizeModules(s?.enabledModules),
+  };
+}
+
+// upsert جزئي مشترك — يستخدمه المستخدم (لنفسه) والأدمن (لأي حساب)
+export async function upsertSettings(
+  targetUserId: bigint,
+  body: { pinHash?: string | null; signatureFileId?: bigint | null; enabledModules?: string[] },
+  allowedFileOwners: bigint[],
+) {
+  if (body.signatureFileId) {
+    const file = await prisma.file.findFirst({ where: { id: body.signatureFileId, userId: { in: allowedFileOwners } } });
+    if (!file) throw AppError.validation('ملف التوقيع غير موجود');
+  }
+  const data = {
+    ...(body.pinHash !== undefined ? { pinHash: body.pinHash } : {}),
+    ...(body.signatureFileId !== undefined ? { signatureFileId: body.signatureFileId } : {}),
+    ...(body.enabledModules !== undefined ? { enabledModules: normalizeModules(body.enabledModules) } : {}),
+  };
+  const settings = await prisma.accountSettings.upsert({
+    where: { userId: targetUserId },
+    create: { userId: targetUserId, ...data },
+    update: data,
+  });
+  if (body.enabledModules !== undefined) invalidateModulesCache(targetUserId);
+  return serializeSettings(settings);
+}
 
 export const accountController = {
   get: asyncHandler(async (req: Request, res: Response) => {
     const settings = await prisma.accountSettings.findUnique({ where: { userId: req.user!.id } });
-    res.json({
-      success: true,
-      data: settings ?? { pinHash: null, signatureFileId: null },
-    });
+    const data = serializeSettings(settings);
+    // الأدمن يشوف كل الوحدات دايمًا (هو اللي يدير التفعيل) — إلا لو حدد لنفسه قائمة صراحةً
+    if (req.user!.role === 'ADMIN' && !Array.isArray(settings?.enabledModules)) data.enabledModules = [...ALL_MODULES];
+    res.json({ success: true, data });
   }),
 
-  // upsert جزئي — نفس فكرة pushMetaField في الواجهة الحالية (تحديث حقل واحد دون المساس بالباقي)
+  // الأدمن فقط (الراوت محمي بـ requireRole) — لنفسه
   update: asyncHandler(async (req: Request, res: Response) => {
-    const { pinHash, signatureFileId } = req.body as { pinHash?: string | null; signatureFileId?: bigint | null };
-
-    if (signatureFileId) {
-      const file = await prisma.file.findFirst({ where: { id: signatureFileId, userId: req.user!.id } });
-      if (!file) throw AppError.validation('ملف التوقيع غير موجود');
-    }
-
-    const data = {
-      ...(pinHash !== undefined ? { pinHash } : {}),
-      ...(signatureFileId !== undefined ? { signatureFileId } : {}),
-    };
-    const settings = await prisma.accountSettings.upsert({
-      where: { userId: req.user!.id },
-      create: { userId: req.user!.id, ...data },
-      update: data,
-    });
-    res.json({ success: true, data: settings });
+    const data = await upsertSettings(req.user!.id, req.body, [req.user!.id]);
+    res.json({ success: true, data });
   }),
 };

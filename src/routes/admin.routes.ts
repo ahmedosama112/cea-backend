@@ -6,7 +6,9 @@ import { AppError } from '../utils/AppError';
 import { asyncHandler } from '../utils/asyncHandler';
 import { authenticate, requireRole } from '../middlewares/auth';
 import { validate } from '../middlewares/validate';
-import { accountSettingsSchema } from '../controllers/account.controller';
+import { accountSettingsSchema, upsertSettings } from '../controllers/account.controller';
+import { ALL_MODULES, DEFAULT_MODULES, MODULE_LABELS } from '../utils/modules';
+import { authService } from '../services/auth.service';
 import { placeCreateSchema } from '../schema/entities.schema';
 
 // إدارة الأدمن لحسابات المهندسين — البديل الرسمي للوحة تحكم Supabase:
@@ -101,25 +103,40 @@ adminRoutes.put(
   asyncHandler(async (req: Request, res: Response) => {
     const userId = BigInt(req.params.userId);
     await assertUserExists(userId);
-    const { pinHash, signatureFileId } = req.body as { pinHash?: string | null; signatureFileId?: bigint | null };
-
     // ملف التوقيع لازم يكون مملوكًا للأدمن نفسه (هو اللي رفعه) أو للمستخدم الهدف
-    if (signatureFileId) {
-      const file = await prisma.file.findFirst({
-        where: { id: signatureFileId, userId: { in: [req.user!.id, userId] } },
-      });
-      if (!file) throw AppError.validation('ملف التوقيع غير موجود');
-    }
+    const data = await upsertSettings(userId, req.body, [req.user!.id, userId]);
+    res.json({ success: true, data });
+  }),
+);
 
-    const data = {
-      ...(pinHash !== undefined ? { pinHash } : {}),
-      ...(signatureFileId !== undefined ? { signatureFileId } : {}),
-    };
-    const settings = await prisma.accountSettings.upsert({
-      where: { userId },
-      create: { userId, ...data },
-      update: data,
-    });
-    res.json({ success: true, data: settings });
+// ── قائمة الوحدات المتاحة (للواجهة) ──
+adminRoutes.get(
+  '/modules',
+  asyncHandler(async (_req: Request, res: Response) => {
+    res.json({ success: true, data: ALL_MODULES.map((key) => ({ key, label: MODULE_LABELS[key], default: DEFAULT_MODULES.includes(key) })) });
+  }),
+);
+
+// ── إنشاء حساب مهندس (بديل register بتوكن الأدمن — نفس المنطق، مسار أوضح للواجهة) ──
+adminRoutes.post(
+  '/users',
+  validate({ body: z.object({ email: z.string().email().max(190), password: z.string().min(8).max(128), enabledModules: z.array(z.enum(ALL_MODULES)).optional() }) }),
+  asyncHandler(async (req: Request, res: Response) => {
+    const result = await authService.register(req.body.email, req.body.password, req.user);
+    const userId = BigInt(result.user.id);
+    if (req.body.enabledModules) await upsertSettings(userId, { enabledModules: req.body.enabledModules }, [req.user!.id, userId]);
+    res.status(201).json({ success: true, data: result.user });
+  }),
+);
+
+// ── إعادة تعيين كلمة سر مهندس (الأدمن يحدد كلمة جديدة ويسلّمها له) ──
+adminRoutes.post(
+  '/users/:userId/reset-password',
+  validate({ params: userIdParam, body: z.object({ newPassword: z.string().min(8).max(128) }) }),
+  asyncHandler(async (req: Request, res: Response) => {
+    const userId = BigInt(req.params.userId);
+    await assertUserExists(userId);
+    await authService.adminSetPassword(userId, req.body.newPassword);
+    res.json({ success: true, data: null });
   }),
 );
