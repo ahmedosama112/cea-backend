@@ -29,14 +29,29 @@ describe('Entities + admin-managed data', () => {
       expect(updated.body.data.rateType).toBe('مقطوعية');
     });
 
-    it('اسم مكرر لنفس المستخدم = 409، ومسموح لمستخدم مختلف', async () => {
+    it('اسم مكرر لنفس المستخدم = 409', async () => {
       const dup = await request(app).post('/api/contractors').set(auth(admin.token))
         .send({ name: 'مقاول جديد' });
       expect(dup.status).toBe(409);
+    });
 
-      const other = await request(app).post('/api/contractors').set(auth(eng.token))
-        .send({ name: 'مقاول جديد' });
-      expect(other.status).toBe(201);
+    it('المقاولون بيانات يديرها الأدمن: المهندس يقرأ فقط، والأدمن يزرع له وينسخ مقاوليه', async () => {
+      const engAdd = await request(app).post('/api/contractors').set(auth(eng.token)).send({ name: 'ممنوع' });
+      expect(engAdd.status).toBe(403);
+
+      const seed = await request(app).post(`/api/admin/users/${eng.id}/contractors`).set(auth(admin.token))
+        .send({ name: 'مقاول للمهندس', spec: 'نقاش', rateType: 'ساعة' });
+      expect(seed.status).toBe(201);
+      expect(seed.body.data.rateType).toBe('ساعة');
+
+      const copy = await request(app).post(`/api/admin/users/${eng.id}/contractors/copy-mine`).set(auth(admin.token));
+      expect(copy.status).toBe(200);
+      expect(copy.body.data.added).toBeGreaterThanOrEqual(1);
+
+      const engView = await request(app).get('/api/contractors').set(auth(eng.token));
+      const names = engView.body.data.map((c: { name: string }) => c.name);
+      expect(names).toContain('مقاول للمهندس');
+      expect(names).toContain('مقاول جديد'); // اتنسخ من الأدمن
     });
   });
 

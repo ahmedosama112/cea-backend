@@ -16,6 +16,8 @@ import {
 
 // كل راوتر هنا CRUD قياسي مملوك للمستخدم — بديل مباشر للمصفوفات التي كانت JSON blobs في cea_sync_meta
 
+// المقاولون: بيانات مرجعية يديرها الأدمن (زي الأماكن) — المهندس يقرأها ويستخدمها فقط
+// الأدمن يزرعها في حسابات المهندسين عبر /api/admin/users/:userId/contractors
 export const contractorsRouter = crudRouter({
   delegate: prisma.contractor,
   createSchema: contractorCreateSchema,
@@ -23,6 +25,7 @@ export const contractorsRouter = crudRouter({
   orderBy: { name: 'asc' },
   toData: (b) => ({ ...b, ...(b.rateType ? { rateType: toEnum(b.rateType as RateTypeAr) } : {}) }),
   serialize: arabizeRateTypes,
+  writeRoles: ['ADMIN'],
 });
 
 // الأماكن: المهندس يقرأها فقط — الإضافة/التعديل/الحذف للأدمن (بديل حماية الـ PIN بس على مستوى السيرفر)

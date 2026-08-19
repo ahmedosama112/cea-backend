@@ -6,10 +6,11 @@ import { AppError } from '../utils/AppError';
 import { asyncHandler } from '../utils/asyncHandler';
 import { authenticate, requireRole } from '../middlewares/auth';
 import { validate } from '../middlewares/validate';
-import { accountSettingsSchema, upsertSettings } from '../controllers/account.controller';
+import { accountSettingsSchema, upsertSettings, serializeSettings } from '../controllers/account.controller';
 import { ALL_MODULES, DEFAULT_MODULES, MODULE_LABELS, ALL_FEATURES, DEFAULT_FEATURES } from '../utils/modules';
 import { authService } from '../services/auth.service';
-import { placeCreateSchema } from '../schema/entities.schema';
+import { placeCreateSchema, contractorCreateSchema, contractorUpdateSchema } from '../schema/entities.schema';
+import { arabizeRateTypes, toEnum, RateTypeAr } from '../utils/rateType';
 
 // إدارة الأدمن لحسابات المهندسين — البديل الرسمي للوحة تحكم Supabase:
 // الأدمن ينشئ الحسابات (عبر /api/auth/register بتوكنه) ويزرع لكل مهندس:
@@ -86,6 +87,69 @@ adminRoutes.delete(
   }),
 );
 
+// ── مقاولو مستخدم معيّن (الأدمن يزرعهم — المهندس يقرأهم فقط) ──
+const contractorToData = (b: Record<string, unknown>) => ({ ...b, ...(b.rateType ? { rateType: toEnum(b.rateType as RateTypeAr) } : {}) });
+
+adminRoutes.get(
+  '/users/:userId/contractors',
+  validate({ params: userIdParam }),
+  asyncHandler(async (req: Request, res: Response) => {
+    await assertUserExists(BigInt(req.params.userId));
+    const rows = await prisma.contractor.findMany({ where: { userId: BigInt(req.params.userId) }, orderBy: { name: 'asc' } });
+    res.json({ success: true, data: arabizeRateTypes(rows) });
+  }),
+);
+
+adminRoutes.post(
+  '/users/:userId/contractors',
+  validate({ params: userIdParam, body: contractorCreateSchema }),
+  asyncHandler(async (req: Request, res: Response) => {
+    await assertUserExists(BigInt(req.params.userId));
+    const row = await prisma.contractor.create({ data: { ...(contractorToData(req.body) as object), userId: BigInt(req.params.userId) } as never });
+    res.status(201).json({ success: true, data: arabizeRateTypes(row) });
+  }),
+);
+
+adminRoutes.put(
+  '/users/:userId/contractors/:id',
+  validate({ params: userAndIdParam, body: contractorUpdateSchema }),
+  asyncHandler(async (req: Request, res: Response) => {
+    const existing = await prisma.contractor.findFirst({ where: { id: BigInt(req.params.id), userId: BigInt(req.params.userId) } });
+    if (!existing) throw AppError.notFound('المقاول غير موجود');
+    const row = await prisma.contractor.update({ where: { id: existing.id }, data: contractorToData(req.body) as never });
+    res.json({ success: true, data: arabizeRateTypes(row) });
+  }),
+);
+
+adminRoutes.delete(
+  '/users/:userId/contractors/:id',
+  validate({ params: userAndIdParam }),
+  asyncHandler(async (req: Request, res: Response) => {
+    const existing = await prisma.contractor.findFirst({ where: { id: BigInt(req.params.id), userId: BigInt(req.params.userId) } });
+    if (!existing) throw AppError.notFound('المقاول غير موجود');
+    await prisma.contractor.delete({ where: { id: existing.id } });
+    res.json({ success: true, data: null });
+  }),
+);
+
+// نسخ كل مقاولي الأدمن لحساب مهندس دفعة واحدة (يتخطى الموجود بنفس الاسم)
+adminRoutes.post(
+  '/users/:userId/contractors/copy-mine',
+  validate({ params: userIdParam }),
+  asyncHandler(async (req: Request, res: Response) => {
+    const userId = BigInt(req.params.userId);
+    await assertUserExists(userId);
+    const mine = await prisma.contractor.findMany({ where: { userId: req.user!.id } });
+    const theirs = await prisma.contractor.findMany({ where: { userId }, select: { name: true } });
+    const have = new Set(theirs.map((c) => c.name));
+    const toCreate = mine.filter((c) => !have.has(c.name));
+    if (toCreate.length) {
+      await prisma.contractor.createMany({ data: toCreate.map((c) => ({ userId, name: c.name, spec: c.spec, rate: c.rate, rateType: c.rateType })) });
+    }
+    res.json({ success: true, data: { added: toCreate.length, skipped: mine.length - toCreate.length } });
+  }),
+);
+
 // ── إعدادات مستخدم معيّن (PIN hash + التوقيع) ──
 adminRoutes.get(
   '/users/:userId/settings',
@@ -93,7 +157,7 @@ adminRoutes.get(
   asyncHandler(async (req: Request, res: Response) => {
     await assertUserExists(BigInt(req.params.userId));
     const settings = await prisma.accountSettings.findUnique({ where: { userId: BigInt(req.params.userId) } });
-    res.json({ success: true, data: settings ?? { pinHash: null, signatureFileId: null } });
+    res.json({ success: true, data: serializeSettings(settings) });
   }),
 );
 
