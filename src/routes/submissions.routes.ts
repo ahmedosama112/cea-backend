@@ -173,6 +173,26 @@ submissionsRoutes.patch(
   }),
 );
 
+// ── إعادة محاولة الرفع لجوجل شيت (صاحب التسليم أو الأدمن) — لو الرفع الأول فشل ──
+submissionsRoutes.post(
+  '/:id/gsync',
+  validate({ params: idParamSchema }),
+  asyncHandler(async (req: Request, res: Response) => {
+    const sub = await prisma.submission.findUnique({ where: { id: BigInt(req.params.id) }, include: { file: true, user: { select: { email: true, project: true } } } });
+    if (!sub) throw AppError.notFound('التسليم غير موجود');
+    if (sub.userId !== req.user!.id && req.user!.role !== 'ADMIN') throw AppError.notFound('التسليم غير موجود');
+    if (!googleSyncEnabled()) throw AppError.validation('ربط جوجل شيت غير مفعّل على السيرفر');
+    if (sub.gsheetRow) { res.json({ success: true, data: { alreadySynced: true, gsheetRow: sub.gsheetRow } }); return; }
+
+    const buffer = await storage.read(sub.file.filePath);
+    // متزامن هنا (مش خلفية) عشان نرجّع النتيجة الفعلية للواجهة — بياخد لدقيقة
+    await pushSubmissionToGoogle(sub.id, buffer, sub.file.fileName, sub.user.email.split('@')[0], sub.user.project ?? null);
+    const fresh = await prisma.submission.findUnique({ where: { id: sub.id }, select: { gsheetRow: true, gdriveFileId: true } });
+    if (!fresh?.gsheetRow) throw AppError.validation('فشل الرفع لجوجل — راجع الـ URL والـ secret في إعدادات السيرفر وسجل السكربت');
+    res.json({ success: true, data: { gsheetRow: fresh.gsheetRow, gdriveFileId: fresh.gdriveFileId } });
+  }),
+);
+
 // ── المهندس: حذف تسليم لسه "مُرسَل" (قبل المراجعة) عشان يعيد إرساله ──
 submissionsRoutes.delete(
   '/:id',
