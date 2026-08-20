@@ -10,6 +10,7 @@ import { asyncHandler } from '../utils/asyncHandler';
 import { authenticate, requireRole } from '../middlewares/auth';
 import { validate } from '../middlewares/validate';
 import { idParamSchema } from '../utils/crudFactory';
+import { pushSubmissionToGoogle, fetchSheetStatuses, googleSyncEnabled } from '../services/googleSheet';
 
 // multer بيفك اسم الملف كـ latin1 — أسماء عربية بتبقى mojibake؛ نرجّعها UTF-8
 function fixFileName(name: string): string {
@@ -88,6 +89,11 @@ submissionsRoutes.post(
       include: SUB_INCLUDE,
     });
     res.status(201).json({ success: true, data: shape(sub as never) });
+
+    // ☁️ إرسال لجوجل شيت في الخلفية (زي الفورم القديم بالظبط) — فشله ما يأثرش على التسليم المحلي
+    const engineerName = req.user!.email.split('@')[0];
+    const u = await prisma.user.findUnique({ where: { id: req.user!.id }, select: { project: true } });
+    void pushSubmissionToGoogle(sub.id, f.buffer, originalName, engineerName, u?.project ?? null);
   }),
 );
 
@@ -96,7 +102,17 @@ submissionsRoutes.get(
   '/mine',
   asyncHandler(async (req: Request, res: Response) => {
     const rows = await prisma.submission.findMany({ where: { userId: req.user!.id }, include: SUB_INCLUDE, orderBy: { createdAt: 'desc' }, take: 200 });
-    res.json({ success: true, data: rows.map((r) => shape(r as never)) });
+    // حالة الاعتماد الحية من جوجل شيت (لو الربط مفعّل) — أحدث 30 تسليم مرتبط بس، best-effort
+    const linked = rows.filter((r) => r.gsheetRow).slice(0, 30);
+    const statuses = await fetchSheetStatuses(linked.map((r) => r.gsheetRow as number));
+    res.json({
+      success: true,
+      data: rows.map((r) => ({
+        ...shape(r as never),
+        sheet: r.gsheetRow ? (statuses[r.gsheetRow] ?? null) : null,
+        googleSyncEnabled: googleSyncEnabled(),
+      })),
+    });
   }),
 );
 
@@ -128,7 +144,9 @@ submissionsRoutes.get(
       orderBy: { createdAt: 'desc' },
       take: q.limit,
     });
-    res.json({ success: true, data: rows.map((r) => shape(r as never)) });
+    const linked = rows.filter((r) => r.gsheetRow).slice(0, 30);
+    const statuses = await fetchSheetStatuses(linked.map((r) => r.gsheetRow as number));
+    res.json({ success: true, data: rows.map((r) => ({ ...shape(r as never), sheet: r.gsheetRow ? (statuses[r.gsheetRow] ?? null) : null })) });
   }),
 );
 

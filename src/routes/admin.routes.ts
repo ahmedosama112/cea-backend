@@ -34,7 +34,7 @@ adminRoutes.get(
   '/users',
   asyncHandler(async (_req: Request, res: Response) => {
     const users = await prisma.user.findMany({
-      select: { id: true, email: true, role: true, title: true, lastSeenAt: true, createdAt: true },
+      select: { id: true, email: true, role: true, title: true, project: true, lastSeenAt: true, createdAt: true },
       orderBy: { id: 'asc' },
     });
     res.json({ success: true, data: users });
@@ -203,7 +203,7 @@ adminRoutes.post(
 // ── تعديل بيانات حساب: المسمى الوظيفي و/أو الصلاحية ──
 adminRoutes.patch(
   '/users/:userId',
-  validate({ params: userIdParam, body: z.object({ title: z.string().trim().max(100).nullable().optional(), role: z.enum(['ADMIN', 'ENGINEER']).optional() }) }),
+  validate({ params: userIdParam, body: z.object({ title: z.string().trim().max(100).nullable().optional(), role: z.enum(['ADMIN', 'ENGINEER']).optional(), project: z.enum(['سكني', 'تجاري']).nullable().optional() }) }),
   asyncHandler(async (req: Request, res: Response) => {
     const userId = BigInt(req.params.userId);
     await assertUserExists(userId);
@@ -212,8 +212,9 @@ adminRoutes.patch(
     const data = {
       ...(req.body.title !== undefined ? { title: req.body.title?.trim() || null } : {}),
       ...(req.body.role !== undefined ? { role: req.body.role } : {}),
+      ...(req.body.project !== undefined ? { project: req.body.project } : {}),
     };
-    const u = await prisma.user.update({ where: { id: userId }, data, select: { id: true, email: true, role: true, title: true } });
+    const u = await prisma.user.update({ where: { id: userId }, data, select: { id: true, email: true, role: true, title: true, project: true } });
     // تغيير الصلاحية يُبطل جلسات الحساب (التوكن فيه الدور القديم)
     if (req.body.role !== undefined) await prisma.refreshToken.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: new Date() } });
     res.json({ success: true, data: u });
