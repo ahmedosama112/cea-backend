@@ -12,6 +12,7 @@ import { authService } from '../services/auth.service';
 import { placeCreateSchema, contractorCreateSchema, contractorUpdateSchema } from '../schema/entities.schema';
 import { arabizeRateTypes, toEnum, RateTypeAr } from '../utils/rateType';
 import { storage } from '../services/storage';
+import { runBackupToDrive } from '../services/backup';
 
 // إدارة الأدمن لحسابات المهندسين — البديل الرسمي للوحة تحكم Supabase:
 // الأدمن ينشئ الحسابات (عبر /api/auth/register بتوكنه) ويزرع لكل مهندس:
@@ -171,6 +172,16 @@ adminRoutes.put(
     // ملف التوقيع لازم يكون مملوكًا للأدمن نفسه (هو اللي رفعه) أو للمستخدم الهدف
     const data = await upsertSettings(userId, req.body, [req.user!.id, userId]);
     res.json({ success: true, data });
+  }),
+);
+
+// ── نسخة احتياطية فورية لقاعدة البيانات → Drive (يدوي — والجدولة اليومية تلقائية) ──
+adminRoutes.post(
+  '/backup-now',
+  asyncHandler(async (_req: Request, res: Response) => {
+    const r = await runBackupToDrive();
+    if (!r.ok) throw AppError.validation('فشل النسخ الاحتياطي: ' + r.detail);
+    res.json({ success: true, data: { detail: r.detail } });
   }),
 );
 
