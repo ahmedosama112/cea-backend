@@ -124,7 +124,7 @@ submissionsRoutes.get(
     const sub = await prisma.submission.findUnique({ where: { id: BigInt(req.params.id) }, include: { file: true } });
     if (!sub) throw AppError.notFound('التسليم غير موجود');
     if (sub.userId !== req.user!.id && req.user!.role !== 'ADMIN') throw AppError.notFound('التسليم غير موجود');
-    const buffer = await storage.read(sub.file.filePath);
+    const buffer = await storage.read(sub.file.filePath).catch(() => { throw AppError.notFound('ملف التسليم لم يعد موجودًا على السيرفر — تأكد من وجود Volume دائم على /data ثم أعد الإرسال'); });
     res.setHeader('Content-Type', sub.file.mimeType);
     res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(sub.file.fileName)}`);
     res.send(buffer);
@@ -184,7 +184,7 @@ submissionsRoutes.post(
     if (!googleSyncEnabled()) throw AppError.validation('ربط جوجل شيت غير مفعّل على السيرفر');
     if (sub.gsheetRow) { res.json({ success: true, data: { alreadySynced: true, gsheetRow: sub.gsheetRow } }); return; }
 
-    const buffer = await storage.read(sub.file.filePath);
+    const buffer = await storage.read(sub.file.filePath).catch(() => { throw AppError.notFound('ملف التسليم لم يعد موجودًا على السيرفر (التخزين غير دائم) — أعد إرسال الكشف من التطبيق'); });
     // متزامن هنا (مش خلفية) عشان نرجّع النتيجة الفعلية للواجهة — بياخد لدقيقة
     await pushSubmissionToGoogle(sub.id, buffer, sub.file.fileName, sub.user.email.split('@')[0], sub.user.project ?? null);
     const fresh = await prisma.submission.findUnique({ where: { id: sub.id }, select: { gsheetRow: true, gdriveFileId: true } });
