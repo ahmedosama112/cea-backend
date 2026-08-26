@@ -7,8 +7,6 @@ import { validate } from '../middlewares/validate';
 import {
   changePasswordSchema,
   loginSchema,
-  passwordResetConfirmSchema,
-  passwordResetRequestSchema,
   refreshSchema,
   registerSchema,
 } from '../schema/auth.schema';
@@ -21,6 +19,7 @@ const authLimiter = rateLimit({
   max: env.authRateLimitMax,
   standardHeaders: true,
   legacyHeaders: false,
+  skipSuccessfulRequests: true, // الدخول الناجح لا يستهلك رصيد الحماية من التخمين
 });
 
 // إنشاء الحسابات: أدمن فقط (optionalAuthenticate يقرأ التوكن، والخدمة ترفض غير الأدمن —
@@ -30,6 +29,7 @@ authRoutes.post('/login', authLimiter, validate({ body: loginSchema }), authCont
 authRoutes.post('/refresh', validate({ body: refreshSchema }), authController.refresh);
 authRoutes.post('/logout', validate({ body: refreshSchema }), authController.logout);
 authRoutes.get('/me', authenticate, authController.me);
-authRoutes.post('/password-reset/request', authLimiter, validate({ body: passwordResetRequestSchema }), authController.requestPasswordReset);
-authRoutes.post('/password-reset/confirm', authLimiter, validate({ body: passwordResetConfirmSchema }), authController.confirmPasswordReset);
+// ⛔ مسارا password-reset/* مُعطَّلان عمدًا: بدون نظام بريد، كان التوكن يُعاد في الاستجابة
+// لأي شخص يعرف الإيميل = استيلاء على أي حساب. استعادة كلمة السر تتم عبر الأدمن فقط:
+// POST /api/admin/users/:userId/reset-password. أعد تفعيلهما فقط بعد ربط SMTP يُرسل التوكن ولا يُرجعه.
 authRoutes.post('/change-password', authenticate, validate({ body: changePasswordSchema }), authController.changePassword);

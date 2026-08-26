@@ -35,6 +35,9 @@ model User {
   title        String?  @db.VarChar(100)
   // نوع المشروع (سكني/تجاري) — يحدده الأدمن، بيتبعت مع تسليمات المهندس لجوجل شيت لاختيار توقيع مدير التنفيذ
   project      String?  @db.VarChar(20)
+  // الموقع/المشروع المنفصل (1 أو 2) — كل موقع له Google Sheet وApps Script ومديرين مختلفين؛
+  // بيحدد أي Web App تستقبل تسليمات المهندس (GOOGLE_WEBAPP_URL أو GOOGLE_WEBAPP_URL_2)
+  site         Int      @default(1)
   // آخر مرة التطبيق تواصل فيها مع السيرفر (فتح/مزامنة) — لمؤشر النشاط في إدارة الحسابات
   lastSeenAt   DateTime? @map("last_seen_at")
   createdAt    DateTime @default(now()) @map("created_at")
@@ -64,6 +67,9 @@ model RefreshToken {
   tokenHash String    @unique @map("token_hash") @db.VarChar(255)
   expiresAt DateTime  @map("expires_at")
   revokedAt DateTime? @map("revoked_at")
+  // true = أُلغي بسبب تدوير عادي (refresh) — يستفيد من مهلة السماح.
+  // false = إلغاء أمني (logout / تغيير كلمة سر / كشف سرقة) — لا سماح إطلاقًا.
+  rotated   Boolean   @default(false)
   createdAt DateTime  @default(now()) @map("created_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -359,6 +365,9 @@ model Submission {
   // مزامنة Google (المرحلة 2): id الملف في Drive + رقم الصف في الـ Sheet
   gdriveFileId   String?          @map("gdrive_file_id") @db.VarChar(120)
   gsheetRow      Int?             @map("gsheet_row")
+  // الموقع الذي أُرسل له التسليم وقت الإنشاء — gsheetRow رقم صف داخل شيت هذا الموقع تحديدًا،
+  // فبنثبّته هنا عشان لو الأدمن نقل المهندس لموقع تاني، متابعة حالة التسليمات القديمة تفضل صح
+  site           Int              @default(1)
   createdAt      DateTime         @default(now()) @map("created_at")
   updatedAt      DateTime         @updatedAt @map("updated_at")
 

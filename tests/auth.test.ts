@@ -57,18 +57,26 @@ describe('Auth', () => {
     expect(me.body.data.email).toBe('admin@test.com');
   });
 
-  it('تدوير refresh token: التجديد ينجح مرة، وإعادة استخدام القديم تُرفض وتبطل السلسلة', async () => {
+  it('التجديد بدون تدوير: نفس التوكن يفضل صالح، وأي عدد تجديدات متزامنة تنجح', async () => {
+    // التجديد بيرجّع نفس refresh token (مش بيدوّره) — يمنع سباقات تعدد الأجهزة/التبويبات
     const r1 = await request(app).post('/api/auth/refresh').send({ refreshToken: adminRefresh });
     expect(r1.status).toBe(200);
-    const newRefresh = r1.body.data.refreshToken;
+    expect(r1.body.data.refreshToken).toBe(adminRefresh);
+    expect(r1.body.data.accessToken).toBeTruthy();
 
-    // إعادة استخدام القديم (الملغي) = كشف سرقة → 401 وإبطال كل الجلسات
-    const reuse = await request(app).post('/api/auth/refresh').send({ refreshToken: adminRefresh });
-    expect(reuse.status).toBe(401);
+    // تجديدات متزامنة بنفس التوكن — كلها تنجح، مفيش إلغاء جماعي
+    const many = await Promise.all(
+      Array.from({ length: 5 }, () => request(app).post('/api/auth/refresh').send({ refreshToken: adminRefresh })),
+    );
+    many.forEach((r) => {
+      expect(r.status).toBe(200);
+      expect(r.body.data.refreshToken).toBe(adminRefresh);
+    });
 
-    // الجديد نفسه اتبطل احترازيًا ضمن السلسلة
-    const r2 = await request(app).post('/api/auth/refresh').send({ refreshToken: newRefresh });
-    expect(r2.status).toBe(401);
+    // بعد logout التوكن يُلغى فورًا → التجديد يفشل
+    await request(app).post('/api/auth/logout').send({ refreshToken: adminRefresh });
+    const afterLogout = await request(app).post('/api/auth/refresh').send({ refreshToken: adminRefresh });
+    expect(afterLogout.status).toBe(401);
   });
 
   it('تغيير كلمة السر يبطل كل الجلسات القائمة', async () => {

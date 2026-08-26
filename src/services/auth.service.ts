@@ -60,26 +60,32 @@ export const authService = {
     return issueTokens(user);
   },
 
-  // تدوير التوكن: القديم يُلغى والجديد يُصدر — إعادة استخدام توكن ملغي تكشف سرقة محتملة
-  // فتُلغى كل جلسات المستخدم احترازيًا
+  // التجديد بدون تدوير: نصدر Access token جديد فقط ونرجّع نفس Refresh token.
+  // التدوير (إلغاء القديم + إصدار جديد) كان بيعمل سباقات عند تعدد التبويبات/الأجهزة على نفس الحساب:
+  // جهاز يجدد فيُلغى التوكن، والتاني يقدّمه فيُفسَّر "سرقة" فتُلغى كل الجلسات ("انتهت الجلسة" بالغلط).
+  // بدون تدوير: أي عدد تجديدات متزامنة ينجح، وتعدد الأجهزة يشتغل صح، ومفيش إلغاء جماعي.
+  // الأمان محفوظ: التوكن مخزّن hash، ينتهي بعد 30 يوم، ويُلغى فورًا عند logout / تغيير كلمة السر.
   async refresh(refreshToken: string): Promise<AuthResult> {
     const tokenHash = hashToken(refreshToken);
     const stored = await prisma.refreshToken.findUnique({ where: { tokenHash }, include: { user: true } });
-    if (!stored) throw AppError.unauthorized('انتهت الجلسة — سجّل الدخول مرة أخرى');
-
-    if (stored.revokedAt) {
-      await prisma.refreshToken.updateMany({
-        where: { userId: stored.userId, revokedAt: null },
-        data: { revokedAt: new Date() },
-      });
+    if (!stored || stored.revokedAt || stored.expiresAt < new Date()) {
       throw AppError.unauthorized('انتهت الجلسة — سجّل الدخول مرة أخرى');
     }
-    if (stored.expiresAt < new Date()) {
-      throw AppError.unauthorized('انتهت الجلسة — سجّل الدخول مرة أخرى');
-    }
-
-    await prisma.refreshToken.update({ where: { id: stored.id }, data: { revokedAt: new Date() } });
-    return issueTokens(stored.user);
+    const accessToken = signAccessToken({
+      sub: stored.user.id.toString(),
+      email: stored.user.email,
+      role: stored.user.role,
+    });
+    return {
+      user: {
+        id: stored.user.id.toString(),
+        email: stored.user.email,
+        role: stored.user.role,
+        title: stored.user.title ?? null,
+      },
+      accessToken,
+      refreshToken,
+    };
   },
 
   async logout(refreshToken: string): Promise<void> {

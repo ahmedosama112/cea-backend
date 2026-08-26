@@ -4,29 +4,41 @@ import { prisma } from '../config/prisma';
 // السكربت منشور كـ Web App بيشتغل بحساب الأدمن — السيرفر بيبعت له الملف + البيانات
 // وهو بينفّذ نفس مسار الفورم القديم (حفظ في Drive → تحويل → صف في الشيت).
 // الميزة معطّلة تلقائيًا لو المتغيرات مش موجودة (GOOGLE_WEBAPP_URL / GOOGLE_WEBAPP_SECRET).
+//
+// دعم مشروعين منفصلين (2026-08-26): كل موقع (site 1 أو 2) له شيت وApps Script ومديرين مختلفين.
+// الموقع 1 = المتغيرات الأصلية، الموقع 2 = GOOGLE_WEBAPP_URL_2 / GOOGLE_WEBAPP_SECRET_2.
+// لو متغيرات الموقع 2 فاضية، تسليمات مهندسيه بتتحفظ محليًا عادي من غير دفع لجوجل (fail-safe).
 
-const WEBAPP_URL = process.env.GOOGLE_WEBAPP_URL || '';
-const WEBAPP_SECRET = process.env.GOOGLE_WEBAPP_SECRET || '';
-
-export function googleSyncEnabled(): boolean {
-  return Boolean(WEBAPP_URL && WEBAPP_SECRET);
+interface SiteConfig { url: string; secret: string }
+const SITES: Record<number, SiteConfig> = {
+  1: { url: process.env.GOOGLE_WEBAPP_URL || '', secret: process.env.GOOGLE_WEBAPP_SECRET || '' },
+  2: { url: process.env.GOOGLE_WEBAPP_URL_2 || '', secret: process.env.GOOGLE_WEBAPP_SECRET_2 || '' },
+};
+function siteConfig(site?: number | null): SiteConfig {
+  return SITES[site === 2 ? 2 : 1];
 }
 
-async function callWebApp(payload: Record<string, unknown>, timeoutMs: number): Promise<Record<string, unknown> | null> {
+export function googleSyncEnabled(site?: number | null): boolean {
+  const c = siteConfig(site);
+  return Boolean(c.url && c.secret);
+}
+
+async function callWebApp(site: number | null | undefined, payload: Record<string, unknown>, timeoutMs: number): Promise<Record<string, unknown> | null> {
+  const c = siteConfig(site);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(WEBAPP_URL, {
+    const res = await fetch(c.url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ secret: WEBAPP_SECRET, ...payload }),
+      body: JSON.stringify({ secret: c.secret, ...payload }),
       signal: controller.signal,
       redirect: 'follow', // Apps Script بيرد بـ redirect لرابط النتيجة — لازم نتبعه
     });
     if (!res.ok) return null;
     return (await res.json()) as Record<string, unknown>;
   } catch (e) {
-    console.error('Google WebApp call failed:', (e as Error).message);
+    console.error('Google WebApp call failed (site ' + (site === 2 ? 2 : 1) + '):', (e as Error).message);
     return null;
   } finally {
     clearTimeout(timer);
@@ -35,9 +47,10 @@ async function callWebApp(payload: Record<string, unknown>, timeoutMs: number): 
 
 // إرسال كشف لجوجل (يشتغل في الخلفية بعد الرد على المهندس — التحويل هناك بياخد ثواني لدقيقة)
 // عند النجاح: بنخزّن رقم الصف وid الملف على التسليم عشان متابعة الحالة لاحقًا
-export async function pushSubmissionToGoogle(submissionId: bigint, fileBuffer: Buffer, fileName: string, engineerName: string, project: string | null): Promise<void> {
-  if (!googleSyncEnabled()) return;
+export async function pushSubmissionToGoogle(submissionId: bigint, fileBuffer: Buffer, fileName: string, engineerName: string, project: string | null, site: number | null | undefined): Promise<void> {
+  if (!googleSyncEnabled(site)) return;
   const result = await callWebApp(
+    site,
     {
       engineerName,
       project: project || '',
@@ -69,9 +82,29 @@ export interface SheetRowStatus {
   execNotes: string;
   pmNotes: string;
 }
-export async function fetchSheetStatuses(rows: number[]): Promise<Record<number, SheetRowStatus>> {
-  if (!googleSyncEnabled() || !rows.length) return {};
-  const result = await callWebApp({ action: 'status', rows }, 15_000);
+export async function fetchSheetStatuses(rows: number[], site: number | null | undefined): Promise<Record<number, SheetRowStatus>> {
+  if (!googleSyncEnabled(site) || !rows.length) return {};
+  const result = await callWebApp(site, { action: 'status', rows }, 15_000);
   if (result && result.ok && result.statuses) return result.statuses as Record<number, SheetRowStatus>;
   return {};
+}
+
+// جلب الحالات لتسليمات ممكن تكون من الموقعين — بيجمع الصفوف حسب الموقع وينده كل Web App مرة واحدة.
+// الإرجاع مفتاحه "site:row" عشان أرقام الصفوف ممكن تتكرر بين الشيتين.
+export async function fetchStatusesBySite(subs: Array<{ gsheetRow: number | null; site: number }>): Promise<Record<string, SheetRowStatus>> {
+  const bySite = new Map<number, number[]>();
+  for (const s of subs) {
+    if (!s.gsheetRow) continue;
+    const k = s.site === 2 ? 2 : 1;
+    if (!bySite.has(k)) bySite.set(k, []);
+    bySite.get(k)!.push(s.gsheetRow);
+  }
+  const out: Record<string, SheetRowStatus> = {};
+  await Promise.all(
+    [...bySite.entries()].map(async ([site, rows]) => {
+      const statuses = await fetchSheetStatuses(rows, site);
+      for (const [row, st] of Object.entries(statuses)) out[site + ':' + row] = st;
+    }),
+  );
+  return out;
 }

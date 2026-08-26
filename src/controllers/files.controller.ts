@@ -61,8 +61,14 @@ export const filesController = {
 
   remove: asyncHandler(async (req: Request, res: Response) => {
     const file = await findOwnedFile(req.user!.id, BigInt(req.params.id));
-    await storage.remove(file.filePath);
+    // ملف مرتبط بتسليم كشف: حذفه يحذف التسليم نفسه (cascade) حتى لو معتمَد — ممنوع من هنا؛
+    // مسار التسليمات هو الوحيد الذي يقرر متى يُسمح بالحذف (قبل المراجعة فقط)
+    const linkedSubmission = await prisma.submission.findFirst({ where: { fileId: file.id }, select: { id: true } });
+    if (linkedSubmission) throw AppError.forbidden('هذا الملف مرتبط بتسليم كشف — احذفه من شاشة الاعتمادات');
+    const usedAsSignature = await prisma.accountSettings.findFirst({ where: { signatureFileId: file.id }, select: { userId: true } });
+    if (usedAsSignature) throw AppError.forbidden('هذا الملف مستخدم كتوقيع — امسح التوقيع أولًا');
     await prisma.file.delete({ where: { id: file.id } });
+    await storage.remove(file.filePath);
     res.json({ success: true, data: null });
   }),
 };

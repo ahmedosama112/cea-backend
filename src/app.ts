@@ -11,6 +11,9 @@ import { errorHandler, notFoundHandler } from './middlewares/errorHandler';
 export const app = express();
 
 app.disable('x-powered-by');
+// خلف Railway/أي reverse proxy: بدون هذا السطر req.ip = عنوان الـ proxy، فكل المستخدمين
+// يتشاركون حدًا واحدًا في rate limiting (20 محاولة فاشلة من أي شخص تقفل الدخول على الجميع)
+app.set('trust proxy', 1);
 app.use(helmet());
 // CORS_ORIGIN="*" يسمح لأي أصل — مطلوب لأن التطبيق يعمل داخل Capacitor WebView
 // (أصله capacitor://localhost أو http://localhost حسب النظام) وكذلك للتطوير المحلي.

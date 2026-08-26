@@ -23,6 +23,7 @@ export const env = {
   jwtRefreshSecret: required('JWT_REFRESH_SECRET'),
   accessTokenTtlMin: Number(process.env.ACCESS_TOKEN_TTL_MIN || 15),
   refreshTokenTtlDays: Number(process.env.REFRESH_TOKEN_TTL_DAYS || 30),
+  refreshReuseGraceSec: Number(process.env.REFRESH_REUSE_GRACE_SEC || 120),
   bcryptRounds: Number(process.env.BCRYPT_ROUNDS || 12),
 
   uploadDir: path.resolve(process.cwd(), process.env.UPLOAD_DIR || './uploads'),
