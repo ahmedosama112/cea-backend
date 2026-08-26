@@ -1,5 +1,6 @@
-import { Router } from 'express';
-import { adminRoutes } from './admin.routes';
+import { Router, Request, Response } from 'express';
+import { adminRoutes, readSiteNames } from './admin.routes';
+import { asyncHandler } from '../utils/asyncHandler';
 import { authRoutes } from './auth.routes';
 import { accountRoutes } from './account.routes';
 import { dailyRoutes } from './daily.routes';
@@ -14,6 +15,10 @@ import { requireModule } from '../middlewares/moduleGuard';
 export const router = Router();
 
 router.use('/auth', authRoutes);
+// إعدادات عامة (أسماء المواقع) — قراءة لأي مستخدم مسجّل؛ التعديل من /admin/config فقط
+router.get('/config', authenticate, asyncHandler(async (_req: Request, res: Response) => {
+  res.json({ success: true, data: await readSiteNames() });
+}));
 router.use('/admin', adminRoutes);
 router.use('/account', accountRoutes);
 // بيانات مرجعية — متاحة دايمًا (بتُستخدم في أكتر من وحدة)

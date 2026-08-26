@@ -30,6 +30,36 @@ async function assertUserExists(userId: bigint) {
   return user;
 }
 
+// ── إعدادات عامة: أسماء المواقع/المشاريع (يعدّلها الأدمن وتظهر في كل دروب داون "الموقع") ──
+const SITE_NAME_DEFAULTS: Record<string, string> = { site1Name: 'كومباوند جريني', site2Name: 'أزاليا' };
+
+// تُستخدم هنا وفي GET /api/config العام (لكل المستخدمين — الأسماء مش بيانات حساسة)
+export async function readSiteNames(): Promise<Record<string, string>> {
+  const rows = await prisma.appConfig.findMany({ where: { key: { in: Object.keys(SITE_NAME_DEFAULTS) } } });
+  const data = { ...SITE_NAME_DEFAULTS };
+  for (const r of rows) data[r.key] = r.value;
+  return data;
+}
+
+adminRoutes.get(
+  '/config',
+  asyncHandler(async (_req: Request, res: Response) => {
+    res.json({ success: true, data: await readSiteNames() });
+  }),
+);
+
+adminRoutes.patch(
+  '/config',
+  validate({ body: z.object({ site1Name: z.string().trim().min(1).max(60).optional(), site2Name: z.string().trim().min(1).max(60).optional() }) }),
+  asyncHandler(async (req: Request, res: Response) => {
+    const entries = Object.entries(req.body as Record<string, string>).filter(([k]) => k in SITE_NAME_DEFAULTS);
+    for (const [key, value] of entries) {
+      await prisma.appConfig.upsert({ where: { key }, update: { value }, create: { key, value } });
+    }
+    res.json({ success: true, data: await readSiteNames() });
+  }),
+);
+
 // ── قائمة المستخدمين ──
 adminRoutes.get(
   '/users',
@@ -202,10 +232,17 @@ adminRoutes.get(
 // ── إنشاء حساب مهندس (بديل register بتوكن الأدمن — نفس المنطق، مسار أوضح للواجهة) ──
 adminRoutes.post(
   '/users',
-  validate({ body: z.object({ email: z.string().email().max(190), password: z.string().min(8).max(128), enabledModules: z.array(z.enum(ALL_MODULES)).optional(), enabledFeatures: z.array(z.string()).optional(), role: z.enum(['ADMIN','ENGINEER']).optional(), title: z.string().trim().max(100).optional() }) }),
+  validate({ body: z.object({ email: z.string().email().max(190), password: z.string().min(8).max(128), enabledModules: z.array(z.enum(ALL_MODULES)).optional(), enabledFeatures: z.array(z.string()).optional(), role: z.enum(['ADMIN','ENGINEER']).optional(), title: z.string().trim().max(100).optional(), project: z.enum(['سكني', 'تجاري']).optional(), site: z.coerce.number().int().min(1).max(2).optional() }) }),
   asyncHandler(async (req: Request, res: Response) => {
     const result = await authService.register(req.body.email, req.body.password, req.user, req.body.role, req.body.title);
     const userId = BigInt(result.user.id);
+    // الموقع/المشروع من فورم الإنشاء — بيتحددوا مع الحساب من أول لحظة (مش بس من شاشة التعديل)
+    if (req.body.project !== undefined || req.body.site !== undefined) {
+      await prisma.user.update({
+        where: { id: userId },
+        data: { ...(req.body.project !== undefined ? { project: req.body.project } : {}), ...(req.body.site !== undefined ? { site: req.body.site } : {}) },
+      });
+    }
     if (req.body.enabledModules || req.body.enabledFeatures) await upsertSettings(userId, { enabledModules: req.body.enabledModules, enabledFeatures: req.body.enabledFeatures }, [req.user!.id, userId]);
     res.status(201).json({ success: true, data: result.user });
   }),
