@@ -25,6 +25,9 @@ export const ALL_FEATURES = [
   // السراكي
   { key: 'records_export', label: 'أزرار التصدير (Excel / PDF / المعتمد)', group: 'السراكي' },
   { key: 'records_filters', label: 'فلاتر البحث والترتيب', group: 'السراكي' },
+  // الاعتمادات — زرار Google Form لكل موقع (الاسم المعروض في الواجهة بيتبع أسماء المواقع من app_config)
+  { key: 'gform_site1', label: 'زرار Google Form — الموقع الأول', group: 'الاعتمادات' },
+  { key: 'gform_site2', label: 'زرار Google Form — الموقع الثاني', group: 'الاعتمادات' },
   // الإعدادات
   { key: 'set_appearance', label: 'المظهر (الوضع الداكن)', group: 'الإعدادات' },
   { key: 'set_contractors', label: 'إدارة المقاولين', group: 'الإعدادات' },
@@ -44,7 +47,7 @@ export type FeatureKey = (typeof ALL_FEATURES)[number]['key'];
 const FEATURE_KEYS = ALL_FEATURES.map((f) => f.key) as FeatureKey[];
 // الافتراضي: كل الكروت ظاهرة ماعدا الخطرة/الإدارية اللي المهندس مش محتاجها
 export const DEFAULT_FEATURES: FeatureKey[] = FEATURE_KEYS.filter(
-  (k) => !['set_danger', 'set_records_import', 'set_items_import'].includes(k),
+  (k) => !['set_danger', 'set_records_import', 'set_items_import', 'gform_site2'].includes(k),
 );
 
 // أي مسار API تابع لأنهي وحدة (للحماية على السيرفر)
