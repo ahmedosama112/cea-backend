@@ -24,7 +24,9 @@ export const ALL_FEATURES = [
   { key: 'home_todos', label: 'مهام اليوم', group: 'الرئيسية' },
   // السراكي
   { key: 'records_export', label: 'أزرار التصدير (Excel / PDF / المعتمد)', group: 'السراكي' },
-  { key: 'records_filters', label: 'فلاتر البحث والترتيب', group: 'السراكي' },
+  { key: 'records_search', label: 'فلتر البحث', group: 'السراكي' },
+  { key: 'records_sort', label: 'فلتر الترتيب', group: 'السراكي' },
+  { key: 'records_export_chips', label: 'مقاولين وأماكن محددين للتصدير المعتمد', group: 'السراكي' },
   // الاعتمادات — زرار Google Form لكل موقع (الاسم المعروض في الواجهة بيتبع أسماء المواقع من app_config)
   { key: 'gform_site1', label: 'زرار Google Form — الموقع الأول', group: 'الاعتمادات' },
   { key: 'gform_site2', label: 'زرار Google Form — الموقع الثاني', group: 'الاعتمادات' },
@@ -66,5 +68,9 @@ export function normalizeModules(input: unknown): ModuleKey[] {
 }
 export function normalizeFeatures(input: unknown): FeatureKey[] {
   if (!Array.isArray(input)) return DEFAULT_FEATURES;
-  return FEATURE_KEYS.filter((k) => input.includes(k));
+  // قوايم قديمة بالمفتاح الموحّد 'records_filters' (قبل فصله لبحث/ترتيب/تصدير معتمد) — بنترجمها للمفاتيح الجديدة
+  const list = input.includes('records_filters')
+    ? [...input.filter((k) => k !== 'records_filters'), 'records_search', 'records_sort', 'records_export_chips']
+    : input;
+  return FEATURE_KEYS.filter((k) => list.includes(k));
 }
