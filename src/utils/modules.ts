@@ -23,7 +23,7 @@ export const ALL_FEATURES = [
   { key: 'home_recent', label: 'آخر السجلات', group: 'الرئيسية' },
   { key: 'home_todos', label: 'مهام اليوم', group: 'الرئيسية' },
   // السراكي
-  { key: 'records_export', label: 'أزرار التصدير (Excel / PDF / المعتمد)', group: 'السراكي' },
+  { key: 'records_export', label: 'تصدير Excel معتمد', group: 'السراكي' },
   { key: 'records_search', label: 'فلتر البحث', group: 'السراكي' },
   { key: 'records_sort', label: 'فلتر الترتيب', group: 'السراكي' },
   { key: 'records_export_chips', label: 'مقاولين وأماكن محددين للتصدير المعتمد', group: 'السراكي' },
