@@ -88,7 +88,7 @@ adminRoutes.post(
   validate({ params: userIdParam, body: placeCreateSchema }),
   asyncHandler(async (req: Request, res: Response) => {
     await assertUserExists(BigInt(req.params.userId));
-    const place = await prisma.place.create({ data: { userId: BigInt(req.params.userId), name: req.body.name } });
+    const place = await prisma.place.create({ data: { userId: BigInt(req.params.userId), name: req.body.name, note: req.body.note?.trim() || null } });
     res.status(201).json({ success: true, data: place });
   }),
 );
@@ -101,7 +101,7 @@ adminRoutes.put(
       where: { id: BigInt(req.params.id), userId: BigInt(req.params.userId) },
     });
     if (!existing) throw AppError.notFound('المكان غير موجود');
-    const place = await prisma.place.update({ where: { id: existing.id }, data: { name: req.body.name } });
+    const place = await prisma.place.update({ where: { id: existing.id }, data: { name: req.body.name, ...(req.body.note !== undefined ? { note: req.body.note?.trim() || null } : {}) } });
     res.json({ success: true, data: place });
   }),
 );

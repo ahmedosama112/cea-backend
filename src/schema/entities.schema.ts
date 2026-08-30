@@ -18,6 +18,8 @@ export const contractorUpdateSchema = contractorCreateSchema.partial();
 // ── الأماكن ──
 export const placeCreateSchema = z.object({
   name: z.string().trim().min(1, 'أدخل إسم المكان').max(190),
+  // ملاحظة اختيارية — بتظهر للمهندس جنب اختيار المكان في تسجيل السركي
+  note: z.string().trim().max(500).optional().nullable(),
 });
 export const placeUpdateSchema = placeCreateSchema;
 
