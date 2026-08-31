@@ -45,9 +45,25 @@ async function callWebApp(site: number | null | undefined, payload: Record<strin
   }
 }
 
+// ── طابور إرسال لكل موقع ──
+// الكشوف المتزامنة بتتبعت لجوجل واحد ورا التاني بدل ما تتزاحم على قفل الـ Apps Script
+// (القفل هناك بيستنى 30 ثانية بس — لو 4-5 كشوف وصلوا في نفس اللحظة كان آخرهم بيفشل ويحتاج إعادة محاولة).
+// فشل أي كشف في الطابور ما بيأثرش على اللي بعده.
+const pushChains: Record<number, Promise<void>> = { 1: Promise.resolve(), 2: Promise.resolve() };
+function enqueuePush(site: number | null | undefined, task: () => Promise<void>): Promise<void> {
+  const key = site === 2 ? 2 : 1;
+  const run = pushChains[key].then(task, task);
+  pushChains[key] = run.catch(() => undefined);
+  return run;
+}
+
 // إرسال كشف لجوجل (يشتغل في الخلفية بعد الرد على المهندس — التحويل هناك بياخد ثواني لدقيقة)
 // عند النجاح: بنخزّن رقم الصف وid الملف على التسليم عشان متابعة الحالة لاحقًا
-export async function pushSubmissionToGoogle(submissionId: bigint, fileBuffer: Buffer, fileName: string, engineerName: string, project: string | null, site: number | null | undefined): Promise<void> {
+export function pushSubmissionToGoogle(submissionId: bigint, fileBuffer: Buffer, fileName: string, engineerName: string, project: string | null, site: number | null | undefined): Promise<void> {
+  return enqueuePush(site, () => doPushSubmission(submissionId, fileBuffer, fileName, engineerName, project, site));
+}
+
+async function doPushSubmission(submissionId: bigint, fileBuffer: Buffer, fileName: string, engineerName: string, project: string | null, site: number | null | undefined): Promise<void> {
   if (!googleSyncEnabled(site)) return;
   const result = await callWebApp(
     site,
