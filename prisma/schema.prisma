@@ -27,36 +27,39 @@ enum RateType {
 // ── المستخدمون والمصادقة (بديل Supabase Auth) ──
 
 model User {
-  id           BigInt   @id @default(autoincrement())
-  email        String   @unique @db.VarChar(190)
-  passwordHash String   @map("password_hash") @db.VarChar(255)
-  role         Role     @default(ENGINEER)
+  id           BigInt    @id @default(autoincrement())
+  email        String    @unique @db.VarChar(190)
+  passwordHash String    @map("password_hash") @db.VarChar(255)
+  role         Role      @default(ENGINEER)
   // المسمى الوظيفي (نص حر يحدده الأدمن: مهندس تنفيذ، مهندس مكتب فني، مساح...) — للعرض فقط، الصلاحيات من role
-  title        String?  @db.VarChar(100)
+  title        String?   @db.VarChar(100)
   // نوع المشروع (سكني/تجاري) — يحدده الأدمن، بيتبعت مع تسليمات المهندس لجوجل شيت لاختيار توقيع مدير التنفيذ
-  project      String?  @db.VarChar(20)
+  project      String?   @db.VarChar(20)
   // الموقع/المشروع المنفصل (1 أو 2) — كل موقع له Google Sheet وApps Script ومديرين مختلفين؛
   // بيحدد أي Web App تستقبل تسليمات المهندس (GOOGLE_WEBAPP_URL أو GOOGLE_WEBAPP_URL_2)
-  site         Int      @default(1)
+  site         Int       @default(1)
   // آخر مرة التطبيق تواصل فيها مع السيرفر (فتح/مزامنة) — لمؤشر النشاط في إدارة الحسابات
   lastSeenAt   DateTime? @map("last_seen_at")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
 
-  refreshTokens        RefreshToken[]
-  passwordResetTokens  PasswordResetToken[]
-  accountSettings      AccountSettings?
-  contractors          Contractor[]
-  places               Place[]
-  inspectors           Inspector[]
-  items                Item[]
-  records              Record[]
-  irRecords            IrRecord[]
-  todos                Todo[]
-  execRecords          ExecRecord[]
-  dailyRecords         DailyRecord[]
-  files                File[]
-  submissions          Submission[]
+  refreshTokens       RefreshToken[]
+  passwordResetTokens PasswordResetToken[]
+  accountSettings     AccountSettings?
+  contractors         Contractor[]
+  places              Place[]
+  inspectors          Inspector[]
+  items               Item[]
+  records             Record[]
+  irRecords           IrRecord[]
+  todos               Todo[]
+  execRecords         ExecRecord[]
+  dailyRecords        DailyRecord[]
+  files               File[]
+  submissions         Submission[]
+  StockMove           StockMove[]
+  IssueRequest        IssueRequest[]
+  PurchaseRequest     PurchaseRequest[]
 
   @@map("users")
 }
@@ -208,10 +211,10 @@ model Record {
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
-  user        User               @relation(fields: [userId], references: [id], onDelete: Cascade)
-  contractor  Contractor?        @relation(fields: [contractorId], references: [id], onDelete: SetNull)
-  place       Place?             @relation(fields: [placeId], references: [id], onDelete: SetNull)
-  deductions  RecordDeduction[]
+  user       User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contractor Contractor?       @relation(fields: [contractorId], references: [id], onDelete: SetNull)
+  place      Place?            @relation(fields: [placeId], references: [id], onDelete: SetNull)
+  deductions RecordDeduction[]
 
   @@index([userId, date])
   @@index([userId, contractorId])
@@ -280,7 +283,7 @@ model ExecRecord {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  user   User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user   User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   stages ExecRecordStage[]
 
   @@index([userId, place])
@@ -333,10 +336,10 @@ model File {
   fileSize  Int      @map("file_size")
   createdAt DateTime @default(now()) @map("created_at")
 
-  user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  accountSettings  AccountSettings?
-  dailyRecord      DailyRecord?
-  submissions      Submission[]
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accountSettings AccountSettings?
+  dailyRecord     DailyRecord?
+  submissions     Submission[]
 
   @@index([userId])
   @@map("files")
@@ -347,6 +350,122 @@ enum SubmissionStatus {
   SUBMITTED
   APPROVED
   REJECTED
+}
+
+// ═══════════ وحدة المخازن (Inventory) — مخزن واحد مشترك، أونلاين فقط ═══════════
+// القاعدة الذهبية: الكمية (qty) لا تُعدَّل مباشرة أبدًا — كل تغيير يمر عبر StockMove (دفتر الحركات)
+// داخل transaction، والصرف مشروط بكفاية الكمية على مستوى القاعدة.
+
+enum StockMoveType {
+  IN // وارد (مخزون جديد وصل)
+  OUT // صرف (تنفيذ طلب صرف معتمد)
+  ADJUST // تسوية جرد (تصحيح الرقم ليطابق الرف — بسبب إلزامي)
+}
+
+enum IssueStatus {
+  SUBMITTED // مُرسَل — بانتظار الاعتماد
+  APPROVED // معتمد — بانتظار الصرف الفعلي
+  FULFILLED // مصروف — الكميات اتخصمت
+  REJECTED // مرفوض
+}
+
+enum PurchaseStatus {
+  OPEN // مطلوب شراؤه
+  PURCHASED // تم الشراء
+  CANCELLED // ملغي
+}
+
+model InventoryItem {
+  id        BigInt   @id @default(autoincrement())
+  // جاهزية مستقبلية للموقعين — حاليًا مخزن واحد فكله site=1
+  site      Int      @default(1)
+  code      String   @db.VarChar(60)
+  name      String   @db.VarChar(190)
+  unit      String   @db.VarChar(60)
+  qty       Decimal  @default(0) @db.Decimal(12, 2)
+  // حد إعادة الطلب — الصنف بيظهر في "النواقص" لما الكمية تنزل تحته
+  minQty    Decimal  @default(0) @map("min_qty") @db.Decimal(12, 2)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  moves            StockMove[]
+  issueLines       IssueRequestLine[]
+  purchaseRequests PurchaseRequest[]
+
+  @@unique([site, code])
+  @@map("inventory_items")
+}
+
+model StockMove {
+  id             BigInt        @id @default(autoincrement())
+  itemId         BigInt        @map("item_id")
+  type           StockMoveType
+  qty            Decimal       @db.Decimal(12, 2)
+  // مين عمل الحركة — للتدقيق
+  byUserId       BigInt?       @map("by_user_id")
+  note           String?       @db.VarChar(500)
+  issueRequestId BigInt?       @map("issue_request_id")
+  createdAt      DateTime      @default(now()) @map("created_at")
+
+  item         InventoryItem @relation(fields: [itemId], references: [id], onDelete: Restrict)
+  byUser       User?         @relation(fields: [byUserId], references: [id], onDelete: SetNull)
+  issueRequest IssueRequest? @relation(fields: [issueRequestId], references: [id], onDelete: SetNull)
+
+  @@index([itemId, createdAt])
+  @@map("stock_moves")
+}
+
+model IssueRequest {
+  id           BigInt      @id @default(autoincrement())
+  userId       BigInt      @map("user_id")
+  status       IssueStatus @default(SUBMITTED)
+  note         String?     @db.VarChar(500)
+  reviewNote   String?     @map("review_note") @db.VarChar(500)
+  reviewedById BigInt?     @map("reviewed_by_id")
+  reviewedAt   DateTime?   @map("reviewed_at")
+  fulfilledAt  DateTime?   @map("fulfilled_at")
+  createdAt    DateTime    @default(now()) @map("created_at")
+  updatedAt    DateTime    @updatedAt @map("updated_at")
+
+  user  User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lines IssueRequestLine[]
+  moves StockMove[]
+
+  @@index([userId, createdAt])
+  @@index([status])
+  @@map("issue_requests")
+}
+
+model IssueRequestLine {
+  id        BigInt  @id @default(autoincrement())
+  requestId BigInt  @map("request_id")
+  itemId    BigInt  @map("item_id")
+  qty       Decimal @db.Decimal(12, 2)
+
+  request IssueRequest  @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  item    InventoryItem @relation(fields: [itemId], references: [id], onDelete: Restrict)
+
+  @@map("issue_request_lines")
+}
+
+model PurchaseRequest {
+  id           BigInt         @id @default(autoincrement())
+  itemId       BigInt         @map("item_id")
+  qtyRequested Decimal        @map("qty_requested") @db.Decimal(12, 2)
+  // لقطة الكمية بالمخزن لحظة الطلب — تفضل ظاهرة حتى لو المخزون اتغير بعدها
+  qtyAtRequest Decimal        @map("qty_at_request") @db.Decimal(12, 2)
+  status       PurchaseStatus @default(OPEN)
+  byUserId     BigInt?        @map("by_user_id")
+  note         String?        @db.VarChar(500)
+  resolvedAt   DateTime?      @map("resolved_at")
+  createdAt    DateTime       @default(now()) @map("created_at")
+  updatedAt    DateTime       @updatedAt @map("updated_at")
+
+  item   InventoryItem @relation(fields: [itemId], references: [id], onDelete: Restrict)
+  byUser User?         @relation(fields: [byUserId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@map("purchase_requests")
 }
 
 // إعدادات عامة على مستوى التطبيق (وليس المستخدم) — حاليًا: أسماء المواقع/المشاريع (site1Name/site2Name)

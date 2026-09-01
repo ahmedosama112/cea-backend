@@ -9,6 +9,7 @@ import { execRoutes, itemsRoutes } from './items.routes';
 import { recordsRoutes } from './records.routes';
 import { submissionsRoutes } from './submissions.routes';
 import { contractorsRouter, inspectorsRouter, irRouter, placesRouter, todosRouter } from './entities.routes';
+import { inventoryRoutes } from './inventory.routes';
 import { authenticate } from '../middlewares/auth';
 import { requireModule } from '../middlewares/moduleGuard';
 
@@ -34,3 +35,4 @@ router.use('/ir-records', authenticate, requireModule('ir'), irRouter);
 router.use('/todos', authenticate, requireModule('todo'), todosRouter);
 router.use('/exec-records', authenticate, requireModule('site_exec'), execRoutes);
 router.use('/daily-records', authenticate, requireModule('site_daily'), dailyRoutes);
+router.use('/inventory', authenticate, requireModule('inventory'), inventoryRoutes);
