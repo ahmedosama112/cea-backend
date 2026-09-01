@@ -9,7 +9,7 @@ const WEBAPP_URL = process.env.GOOGLE_WEBAPP_URL || '';
 const WEBAPP_SECRET = process.env.GOOGLE_WEBAPP_SECRET || '';
 
 export async function dumpDatabase(): Promise<Record<string, unknown>> {
-  const [users, accountSettings, contractors, places, inspectors, items, itemStages, records, recordDeductions, irRecords, todos, execRecords, execRecordStages, dailyRecords, files, submissions] =
+  const [users, accountSettings, contractors, places, inspectors, items, itemStages, records, recordDeductions, irRecords, todos, execRecords, execRecordStages, dailyRecords, files, submissions, appConfig] =
     await Promise.all([
       prisma.user.findMany(), // passwordHash ضمنها — مطلوب للاستعادة الكاملة، والملف في Drive الخاص بالأدمن
       prisma.accountSettings.findMany(),
@@ -27,12 +27,13 @@ export async function dumpDatabase(): Promise<Record<string, unknown>> {
       prisma.dailyRecord.findMany(),
       prisma.file.findMany(),
       prisma.submission.findMany(),
+      prisma.appConfig.findMany(),
     ]);
   return {
     version: 1,
     createdAt: new Date().toISOString(),
     counts: { users: users.length, records: records.length, submissions: submissions.length },
-    tables: { users, accountSettings, contractors, places, inspectors, items, itemStages, records, recordDeductions, irRecords, todos, execRecords, execRecordStages, dailyRecords, files, submissions },
+    tables: { users, accountSettings, contractors, places, inspectors, items, itemStages, records, recordDeductions, irRecords, todos, execRecords, execRecordStages, dailyRecords, files, submissions, appConfig },
   };
 }
 
