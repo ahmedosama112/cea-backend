@@ -182,6 +182,24 @@ adminRoutes.post(
   }),
 );
 
+// نسخ كل أماكن الأدمن لحساب مهندس دفعة واحدة (يتخطى الموجود بنفس الاسم) — الملاحظات بتتنسخ معاها
+adminRoutes.post(
+  '/users/:userId/places/copy-mine',
+  validate({ params: userIdParam }),
+  asyncHandler(async (req: Request, res: Response) => {
+    const userId = BigInt(req.params.userId);
+    await assertUserExists(userId);
+    const mine = await prisma.place.findMany({ where: { userId: req.user!.id } });
+    const theirs = await prisma.place.findMany({ where: { userId }, select: { name: true } });
+    const have = new Set(theirs.map((p) => p.name));
+    const toCreate = mine.filter((p) => !have.has(p.name));
+    if (toCreate.length) {
+      await prisma.place.createMany({ data: toCreate.map((p) => ({ userId, name: p.name, note: p.note })) });
+    }
+    res.json({ success: true, data: { added: toCreate.length, skipped: mine.length - toCreate.length } });
+  }),
+);
+
 // ── إعدادات مستخدم معيّن (PIN hash + التوقيع) ──
 adminRoutes.get(
   '/users/:userId/settings',
