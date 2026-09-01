@@ -109,6 +109,37 @@ inventoryRoutes.post(
   }),
 );
 
+// استيراد جماعي من Excel (الأدمن) — بيتخطى الأكواد الموجودة، والكميات الافتتاحية بتتسجل كحركات وارد
+inventoryRoutes.post(
+  '/items/import',
+  requireRole('ADMIN'),
+  validate({ body: z.object({ items: z.array(z.object({
+    code: z.string().trim().min(1).max(60),
+    name: z.string().trim().min(1).max(190),
+    unit: z.string().trim().min(1).max(60),
+    category: z.string().trim().max(60).optional().default('عام'),
+    qty: qtySchema.optional().default(0),
+    minQty: qtySchema.optional().default(0),
+  })).min(1).max(500) }) }),
+  asyncHandler(async (req: Request, res: Response) => {
+    const rows = req.body.items as Array<{ code: string; name: string; unit: string; category: string; qty: number; minQty: number }>;
+    let added = 0, skipped = 0;
+    const failed: Array<{ code: string; reason: string }> = [];
+    for (const r of rows) {
+      try {
+        const exists = await prisma.inventoryItem.findFirst({ where: { code: r.code } });
+        if (exists) { skipped++; continue; }
+        await prisma.$transaction(async (tx) => {
+          const created = await tx.inventoryItem.create({ data: { code: r.code, name: r.name, unit: r.unit, category: r.category || 'عام', qty: r.qty, minQty: r.minQty } });
+          if (r.qty > 0) await tx.stockMove.create({ data: { itemId: created.id, type: 'IN', qty: r.qty, byUserId: req.user!.id, note: 'استيراد Excel' } });
+        });
+        added++;
+      } catch (e) { failed.push({ code: r.code, reason: (e as Error).message.slice(0, 120) }); }
+    }
+    res.json({ success: true, data: { added, skipped, failed } });
+  }),
+);
+
 // تعديل بيانات الصنف (مش الكمية — الكمية عبر الحركات فقط)
 inventoryRoutes.put(
   '/items/:id',

@@ -24,6 +24,8 @@ const INSERT_ORDER = [
   'users', 'files', 'accountSettings', 'contractors', 'places', 'inspectors',
   'items', 'itemStages', 'records', 'recordDeductions', 'irRecords', 'todos',
   'execRecords', 'execRecordStages', 'dailyRecords', 'submissions', 'appConfig',
+  // المخازن: الأصناف قبل الطلبات، والطلبات قبل الحركات (stockMoves بتشاور على issueRequestId)
+  'inventoryItems', 'issueRequests', 'issueRequestLines', 'stockMoves', 'purchaseRequests',
 ] as const;
 type TableKey = (typeof INSERT_ORDER)[number];
 
@@ -36,6 +38,9 @@ const DELEGATES: Record<TableKey, { createMany: (args: { data: unknown[] }) => P
   execRecords: prisma.execRecord, execRecordStages: prisma.execRecordStage,
   dailyRecords: prisma.dailyRecord, submissions: prisma.submission,
   appConfig: prisma.appConfig,
+  inventoryItems: prisma.inventoryItem, issueRequests: prisma.issueRequest,
+  issueRequestLines: prisma.issueRequestLine, stockMoves: prisma.stockMove,
+  purchaseRequests: prisma.purchaseRequest,
 } as never;
 
 // تحويل صف من الـ JSON لصيغة Prisma:
