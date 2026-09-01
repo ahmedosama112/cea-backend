@@ -382,6 +382,8 @@ model InventoryItem {
   code      String   @db.VarChar(60)
   name      String   @db.VarChar(190)
   unit      String   @db.VarChar(60)
+  // فئة الصنف (خرسانة/تشطيبات/كهرباء...) — للفلترة والتنظيم، والقائمة قابلة للإضافة زي الوحدات
+  category  String   @default("عام") @db.VarChar(60)
   qty       Decimal  @default(0) @db.Decimal(12, 2)
   // حد إعادة الطلب — الصنف بيظهر في "النواقص" لما الكمية تنزل تحته
   minQty    Decimal  @default(0) @map("min_qty") @db.Decimal(12, 2)

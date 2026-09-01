@@ -6,6 +6,19 @@ import { asyncHandler } from '../utils/asyncHandler';
 
 const ALLOWED_MIME = new Set(['image/jpeg', 'image/png', 'image/webp']);
 
+// (L4) الـ MIME جاي من العميل ومش موثوق — نتحقق من التوقيع الثنائي الفعلي لأول بايتات الملف
+export function looksLikeImage(buf: Buffer): boolean {
+  if (buf.length < 12) return false;
+  if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return true; // JPEG
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return true; // PNG
+  if (buf.slice(0, 4).toString('ascii') === 'RIFF' && buf.slice(8, 12).toString('ascii') === 'WEBP') return true; // WebP
+  return false;
+}
+export function looksLikeXlsx(buf: Buffer): boolean {
+  // xlsx = أرشيف ZIP — بيبدأ بـ PK
+  return buf.length > 4 && buf[0] === 0x50 && buf[1] === 0x4b && (buf[2] === 0x03 || buf[2] === 0x05 || buf[2] === 0x07);
+}
+
 async function findOwnedFile(userId: bigint, id: bigint) {
   const file = await prisma.file.findFirst({ where: { id, userId } });
   if (!file) throw AppError.notFound('الملف غير موجود');
@@ -29,6 +42,7 @@ export const filesController = {
     const f = req.file;
     if (!f) throw AppError.validation('لم يتم إرفاق ملف');
     if (!ALLOWED_MIME.has(f.mimetype)) throw AppError.validation('نوع الملف غير مدعوم — الصور فقط (JPEG/PNG/WebP)');
+    if (!looksLikeImage(f.buffer)) throw AppError.validation('محتوى الملف ليس صورة حقيقية');
 
     const originalName = (()=>{ try { const x = Buffer.from(f.originalname, 'latin1').toString('utf8'); return x.includes('�') ? f.originalname : x; } catch { return f.originalname; } })();
     const { storedPath } = await storage.save(f.buffer, originalName);

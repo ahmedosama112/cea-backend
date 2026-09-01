@@ -1,6 +1,7 @@
 import { NextFunction, Request, Response } from 'express';
 import { Prisma } from '@prisma/client';
 import { ZodError } from 'zod';
+import multer from 'multer';
 import { AppError } from '../utils/AppError';
 
 // صيغة استجابة أخطاء موحدة للـ API كله — بدون تسريب stack traces أو تفاصيل DB للمستخدم
@@ -17,6 +18,14 @@ export function errorHandler(err: unknown, _req: Request, res: Response, _next: 
       code: 'VALIDATION_ERROR',
       details: err.issues.map((i) => ({ path: i.path.join('.'), message: i.message })),
     });
+  }
+
+  // (M9) أخطاء multer برسائل واضحة وأكواد صحيحة بدل ما تسقط كـ 500
+  if (err instanceof multer.MulterError) {
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(413).json({ success: false, message: 'حجم الملف أكبر من المسموح', code: 'FILE_TOO_LARGE' });
+    }
+    return res.status(400).json({ success: false, message: 'خطأ في رفع الملف: ' + err.code, code: 'UPLOAD_ERROR' });
   }
 
   if (err instanceof Prisma.PrismaClientKnownRequestError) {

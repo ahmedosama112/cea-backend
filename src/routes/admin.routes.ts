@@ -223,6 +223,15 @@ adminRoutes.put(
   }),
 );
 
+// (M7) حالة آخر نسخة احتياطية — عشان الفشل ما يبقاش صامتًا في اللوجات بس
+adminRoutes.get(
+  '/backup-status',
+  asyncHandler(async (_req: Request, res: Response) => {
+    const row = await prisma.appConfig.findUnique({ where: { key: 'lastBackupStatus' } });
+    res.json({ success: true, data: row?.value ? JSON.parse(row.value) : null });
+  }),
+);
+
 // ── نسخة احتياطية فورية لقاعدة البيانات → Drive (يدوي — والجدولة اليومية تلقائية) ──
 adminRoutes.post(
   '/backup-now',

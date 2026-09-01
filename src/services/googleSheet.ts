@@ -98,11 +98,25 @@ export interface SheetRowStatus {
   execNotes: string;
   pmNotes: string;
 }
+// (M6) كاش قصير لحالات الشيت — عشان انقطاع/بطء جوجل ما يعلّقش شاشة الاعتمادات لكل مهندس،
+// والمهلة 4 ثواني بدل 15: الحالة بيانات عرض مش حرجة، وأحدث نسخة هتوصل في التحديث الجاي
+const statusCache = new Map<string, { at: number; data: Record<number, SheetRowStatus> }>();
+const STATUS_CACHE_MS = 60_000;
+
 export async function fetchSheetStatuses(rows: number[], site: number | null | undefined): Promise<Record<number, SheetRowStatus>> {
   if (!googleSyncEnabled(site) || !rows.length) return {};
-  const result = await callWebApp(site, { action: 'status', rows }, 15_000);
-  if (result && result.ok && result.statuses) return result.statuses as Record<number, SheetRowStatus>;
-  return {};
+  const key = (site === 2 ? 2 : 1) + ':' + [...rows].sort((a, b) => a - b).join(',');
+  const cached = statusCache.get(key);
+  if (cached && Date.now() - cached.at < STATUS_CACHE_MS) return cached.data;
+  const result = await callWebApp(site, { action: 'status', rows }, 4_000);
+  if (result && result.ok && result.statuses) {
+    const data = result.statuses as Record<number, SheetRowStatus>;
+    statusCache.set(key, { at: Date.now(), data });
+    if (statusCache.size > 500) statusCache.clear();
+    return data;
+  }
+  // فشل مؤقت: نرجّع آخر نسخة معروفة لو موجودة (حتى لو قديمة) بدل ما الحالة تختفي
+  return cached?.data ?? {};
 }
 
 // جلب الحالات لتسليمات ممكن تكون من الموقعين — بيجمع الصفوف حسب الموقع وينده كل Web App مرة واحدة.

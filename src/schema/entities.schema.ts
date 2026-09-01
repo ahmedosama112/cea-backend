@@ -2,9 +2,14 @@ import { z } from 'zod';
 import { rateTypeArSchema } from '../utils/rateType';
 
 // تاريخ بصيغة YYYY-MM-DD كما ترسله الواجهة الحالية بالظبط
+// (L3) + تحقق إنه تاريخ تقويمي حقيقي — الـ regex وحده كان بيقبل 2026-99-99
 export const ymdDate = z
   .string()
-  .regex(/^\d{4}-\d{2}-\d{2}$/, 'التاريخ يجب أن يكون بصيغة YYYY-MM-DD');
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'التاريخ يجب أن يكون بصيغة YYYY-MM-DD')
+  .refine((s) => {
+    const d = new Date(s + 'T00:00:00Z');
+    return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
+  }, 'تاريخ غير صحيح');
 
 // ── المقاولون ──
 export const contractorCreateSchema = z.object({

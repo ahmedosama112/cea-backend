@@ -3,6 +3,7 @@ import { app } from './app';
 import { env } from './config/env';
 import { prisma } from './config/prisma';
 import { scheduleDailyBackup } from './services/backup';
+import { scheduleTokenCleanup } from './services/auth.service';
 
 fs.mkdirSync(env.uploadDir, { recursive: true });
 
@@ -12,6 +13,8 @@ const server = app.listen(env.port, () => {
 
 // نسخة احتياطية يومية لقاعدة البيانات → Google Drive (لو الربط مفعّل)
 if (env.nodeEnv === 'production') scheduleDailyBackup();
+// (L5) تنظيف يومي للتوكنات المنتهية/الملغية — بدونه جداول التوكنات تنمو للأبد
+if (env.nodeEnv !== 'test') scheduleTokenCleanup();
 
 async function shutdown(signal: string) {
   console.log(`${signal} received — shutting down gracefully`);

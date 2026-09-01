@@ -37,6 +37,14 @@ export async function dumpDatabase(): Promise<Record<string, unknown>> {
   };
 }
 
+// (M7) آخر نتيجة نسخ احتياطي بتتسجل في app_config — الفشل مبقاش صامتًا، والأدمن يقدر يستعلم عنها
+async function recordBackupStatus(ok: boolean, detail: string): Promise<void> {
+  try {
+    const value = JSON.stringify({ at: new Date().toISOString(), ok, detail }).slice(0, 190);
+    await prisma.appConfig.upsert({ where: { key: 'lastBackupStatus' }, update: { value }, create: { key: 'lastBackupStatus', value } });
+  } catch { /* تسجيل الحالة best-effort */ }
+}
+
 export async function runBackupToDrive(): Promise<{ ok: boolean; detail: string }> {
   if (!googleSyncEnabled()) return { ok: false, detail: 'ربط جوجل غير مفعّل (GOOGLE_WEBAPP_URL/SECRET)' };
   try {
@@ -55,12 +63,15 @@ export async function runBackupToDrive(): Promise<{ ok: boolean; detail: string 
     const j = (await res.json().catch(() => null)) as { ok?: boolean; fileUrl?: string; error?: string } | null;
     if (j?.ok) {
       console.log(`[backup] ✅ ${fileName} → Drive (${Math.round(json.length / 1024)}KB)`);
+      await recordBackupStatus(true, `${fileName} (${Math.round(json.length / 1024)}KB)`);
       return { ok: true, detail: `${fileName} (${Math.round(json.length / 1024)}KB) → ${j.fileUrl ?? 'Drive'}` };
     }
     console.error('[backup] failed:', j?.error ?? res.status);
+    await recordBackupStatus(false, String(j?.error ?? `HTTP ${res.status}`));
     return { ok: false, detail: j?.error ?? `HTTP ${res.status}` };
   } catch (e) {
     console.error('[backup] error:', (e as Error).message);
+    await recordBackupStatus(false, (e as Error).message);
     return { ok: false, detail: (e as Error).message };
   }
 }

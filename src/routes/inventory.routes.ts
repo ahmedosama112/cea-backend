@@ -49,6 +49,39 @@ inventoryRoutes.post(
   }),
 );
 
+// ── الفئات: قائمة أساسية + إضافات الأدمن (نفس نمط الوحدات) ──
+const BASE_CATEGORIES = ['خرسانة', 'مباني وبياض', 'تشطيبات', 'كهرباء', 'سباكة', 'عدد وأدوات', 'عام'];
+const CATEGORIES_KEY = 'invCategories';
+
+async function readCategories(): Promise<string[]> {
+  const row = await prisma.appConfig.findUnique({ where: { key: CATEGORIES_KEY } });
+  const extra = row?.value ? row.value.split(',').map((s) => s.trim()).filter(Boolean) : [];
+  return [...BASE_CATEGORIES, ...extra.filter((c) => !BASE_CATEGORIES.includes(c))];
+}
+
+inventoryRoutes.get(
+  '/categories',
+  asyncHandler(async (_req: Request, res: Response) => {
+    res.json({ success: true, data: await readCategories() });
+  }),
+);
+
+inventoryRoutes.post(
+  '/categories',
+  requireRole('ADMIN'),
+  validate({ body: z.object({ category: z.string().trim().min(1).max(40) }) }),
+  asyncHandler(async (req: Request, res: Response) => {
+    const cats = await readCategories();
+    if (!cats.includes(req.body.category)) {
+      const row = await prisma.appConfig.findUnique({ where: { key: CATEGORIES_KEY } });
+      const extra = row?.value ? row.value + ',' + req.body.category : req.body.category;
+      if (extra.length > 180) throw AppError.validation('قائمة الفئات المضافة اتملت — احذف/اختصر قبل الإضافة');
+      await prisma.appConfig.upsert({ where: { key: CATEGORIES_KEY }, update: { value: extra }, create: { key: CATEGORIES_KEY, value: extra } });
+    }
+    res.json({ success: true, data: await readCategories() });
+  }),
+);
+
 // ── الأصناف ──
 const qtySchema = z.coerce.number().min(0).max(9_999_999);
 
@@ -63,11 +96,11 @@ inventoryRoutes.get(
 inventoryRoutes.post(
   '/items',
   requireRole('ADMIN'),
-  validate({ body: z.object({ code: z.string().trim().min(1).max(60), name: z.string().trim().min(1).max(190), unit: z.string().trim().min(1).max(60), qty: qtySchema.optional().default(0), minQty: qtySchema.optional().default(0), note: z.string().trim().max(500).optional() }) }),
+  validate({ body: z.object({ code: z.string().trim().min(1).max(60), name: z.string().trim().min(1).max(190), unit: z.string().trim().min(1).max(60), category: z.string().trim().min(1).max(60).optional().default('عام'), qty: qtySchema.optional().default(0), minQty: qtySchema.optional().default(0), note: z.string().trim().max(500).optional() }) }),
   asyncHandler(async (req: Request, res: Response) => {
-    const { code, name, unit, qty, minQty, note } = req.body;
+    const { code, name, unit, category, qty, minQty, note } = req.body;
     const item = await prisma.$transaction(async (tx) => {
-      const created = await tx.inventoryItem.create({ data: { code, name, unit, qty, minQty } });
+      const created = await tx.inventoryItem.create({ data: { code, name, unit, category, qty, minQty } });
       // الرصيد الافتتاحي بيتسجل كحركة وارد — عشان دفتر الحركات يفضل مطابق للكمية من أول يوم
       if (qty > 0) await tx.stockMove.create({ data: { itemId: created.id, type: 'IN', qty, byUserId: req.user!.id, note: note || 'رصيد افتتاحي' } });
       return created;
@@ -80,13 +113,13 @@ inventoryRoutes.post(
 inventoryRoutes.put(
   '/items/:id',
   requireRole('ADMIN'),
-  validate({ params: idParamSchema, body: z.object({ code: z.string().trim().min(1).max(60), name: z.string().trim().min(1).max(190), unit: z.string().trim().min(1).max(60), minQty: qtySchema.optional().default(0) }) }),
+  validate({ params: idParamSchema, body: z.object({ code: z.string().trim().min(1).max(60), name: z.string().trim().min(1).max(190), unit: z.string().trim().min(1).max(60), category: z.string().trim().min(1).max(60).optional().default('عام'), minQty: qtySchema.optional().default(0) }) }),
   asyncHandler(async (req: Request, res: Response) => {
     const id = BigInt(req.params.id);
     const exists = await prisma.inventoryItem.findUnique({ where: { id } });
     if (!exists) throw AppError.notFound('الصنف غير موجود');
     const item = await prisma.inventoryItem
-      .update({ where: { id }, data: { code: req.body.code, name: req.body.name, unit: req.body.unit, minQty: req.body.minQty } })
+      .update({ where: { id }, data: { code: req.body.code, name: req.body.name, unit: req.body.unit, category: req.body.category, minQty: req.body.minQty } })
       .catch((e: { code?: string }) => { if (e.code === 'P2002') throw AppError.validation('الكود ده مستخدم بالفعل لصنف تاني'); throw e; });
     res.json({ success: true, data: item });
   }),

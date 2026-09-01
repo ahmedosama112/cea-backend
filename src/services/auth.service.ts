@@ -15,6 +15,33 @@ interface AuthResult {
   refreshToken: string;
 }
 
+// (M5) عدّاد المحاولات الفاشلة لكل إيميل — قفل مؤقت ضد التخمين الموزّع
+const LOCK_AFTER_FAILS = 10;
+const LOCK_WINDOW_MS = 5 * 60 * 1000;
+const failedLogins = new Map<string, { count: number; last: number }>();
+function recordFailedLogin(email: string): void {
+  const cur = failedLogins.get(email);
+  // لو آخر فشل أقدم من نافذة القفل نبدأ عدّ جديد
+  if (!cur || Date.now() - cur.last > LOCK_WINDOW_MS) failedLogins.set(email, { count: 1, last: Date.now() });
+  else failedLogins.set(email, { count: cur.count + 1, last: Date.now() });
+  // تنظيف خفيف يمنع نمو الذاكرة
+  if (failedLogins.size > 5000) failedLogins.clear();
+}
+
+// (L5) تنظيف يومي لجداول التوكنات: المنتهي والملغي من فترة — بدون ده بتنمو للأبد
+export function scheduleTokenCleanup(): void {
+  const tick = async (): Promise<void> => {
+    const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    try {
+      const a = await prisma.refreshToken.deleteMany({ where: { OR: [{ expiresAt: { lt: new Date() } }, { revokedAt: { lt: cutoff } }] } });
+      const b = await prisma.passwordResetToken.deleteMany({ where: { expiresAt: { lt: new Date() } } });
+      if (a.count || b.count) console.log(`[token-cleanup] حذف ${a.count} refresh + ${b.count} reset منتهية`);
+    } catch (e) { console.error('[token-cleanup]', (e as Error).message); }
+  };
+  setInterval(tick, 24 * 60 * 60 * 1000);
+  setTimeout(tick, 90 * 1000);
+}
+
 async function issueTokens(user: { id: bigint; email: string; role: 'ADMIN' | 'ENGINEER'; title?: string | null }): Promise<AuthResult> {
   const accessToken = signAccessToken({ sub: user.id.toString(), email: user.email, role: user.role });
   const refreshToken = generateOpaqueToken();
@@ -52,11 +79,19 @@ export const authService = {
   },
 
   async login(email: string, password: string): Promise<AuthResult> {
-    const user = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
+    const key = email.toLowerCase();
+    // (M5) قفل على مستوى الحساب: بعد 10 محاولات فاشلة يتقفل الإيميل 5 دقايق —
+    // بيسد التخمين الموزّع اللي بيتخطى rate limit الـ IP. الذاكرة داخل العملية كافية (سيرفر واحد).
+    const attempt = failedLogins.get(key);
+    if (attempt && attempt.count >= LOCK_AFTER_FAILS && Date.now() - attempt.last < LOCK_WINDOW_MS) {
+      throw AppError.unauthorized('محاولات كتير غلط — الحساب متوقف مؤقتًا، جرّب بعد 5 دقايق');
+    }
+    const user = await prisma.user.findUnique({ where: { email: key } });
     // نفس الرسالة سواء الإيميل غير موجود أو كلمة السر غلط — لمنع تعداد الحسابات
-    if (!user) throw AppError.unauthorized('الإيميل أو كلمة المرور غير صحيحة');
+    if (!user) { recordFailedLogin(key); throw AppError.unauthorized('الإيميل أو كلمة المرور غير صحيحة'); }
     const ok = await verifyPassword(password, user.passwordHash);
-    if (!ok) throw AppError.unauthorized('الإيميل أو كلمة المرور غير صحيحة');
+    if (!ok) { recordFailedLogin(key); throw AppError.unauthorized('الإيميل أو كلمة المرور غير صحيحة'); }
+    failedLogins.delete(key);
     return issueTokens(user);
   },
 

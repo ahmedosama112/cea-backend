@@ -3,8 +3,8 @@ import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
-import cookieParser from 'cookie-parser';
 import { env } from './config/env';
+import { prisma } from './config/prisma';
 import { router } from './routes';
 import { errorHandler, notFoundHandler } from './middlewares/errorHandler';
 
@@ -26,7 +26,7 @@ app.use(
   }),
 );
 app.use(express.json({ limit: '2mb' }));
-app.use(cookieParser());
+// cookie-parser اتشال — النظام Bearer tokens بالكامل ومفيش أي استخدام للكوكيز
 if (env.nodeEnv !== 'test') app.use(morgan(env.nodeEnv === 'development' ? 'dev' : 'combined'));
 
 // حد عام لكل الـ API — يحمي من إغراق السيرفر بالطلبات حتى لو أحد ضرب الـ endpoints مباشرة
@@ -40,7 +40,15 @@ app.use(
   }),
 );
 
-app.get('/health', (_req, res) => res.json({ success: true, status: 'ok' }));
+// (M12) الفحص الصحي بيلمس قاعدة البيانات فعلًا — Railway ما يعتبرش السيرفر سليمًا والقاعدة واقعة
+app.get('/health', async (_req, res) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    res.json({ success: true, status: 'ok' });
+  } catch {
+    res.status(503).json({ success: false, status: 'db_unreachable' });
+  }
+});
 
 app.use('/api', router);
 // ملاحظة: ملفات uploads (صور تقارير يومية، توقيع) لا تُخدَّم statically — قد تحتوي بيانات حسّاسة،
