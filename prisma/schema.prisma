@@ -27,21 +27,24 @@ enum RateType {
 // ── المستخدمون والمصادقة (بديل Supabase Auth) ──
 
 model User {
-  id           BigInt    @id @default(autoincrement())
-  email        String    @unique @db.VarChar(190)
-  passwordHash String    @map("password_hash") @db.VarChar(255)
-  role         Role      @default(ENGINEER)
+  id            BigInt    @id @default(autoincrement())
+  email         String    @unique @db.VarChar(190)
+  passwordHash  String    @map("password_hash") @db.VarChar(255)
+  role          Role      @default(ENGINEER)
   // المسمى الوظيفي (نص حر يحدده الأدمن: مهندس تنفيذ، مهندس مكتب فني، مساح...) — للعرض فقط، الصلاحيات من role
-  title        String?   @db.VarChar(100)
+  title         String?   @db.VarChar(100)
   // نوع المشروع (سكني/تجاري) — يحدده الأدمن، بيتبعت مع تسليمات المهندس لجوجل شيت لاختيار توقيع مدير التنفيذ
-  project      String?   @db.VarChar(20)
+  project       String?   @db.VarChar(20)
   // الموقع/المشروع المنفصل (1 أو 2) — كل موقع له Google Sheet وApps Script ومديرين مختلفين؛
   // بيحدد أي Web App تستقبل تسليمات المهندس (GOOGLE_WEBAPP_URL أو GOOGLE_WEBAPP_URL_2)
-  site         Int       @default(1)
+  site          Int       @default(1)
+  // مستوى الاعتماد لو الحساب معتمد (اسم المستوى: team leader / construction manager / project manager)؛
+  // null = مش معتمد. القائمة والترتيب في app_config (approvalLevels)
+  approvalLevel String?   @map("approval_level") @db.VarChar(60)
   // آخر مرة التطبيق تواصل فيها مع السيرفر (فتح/مزامنة) — لمؤشر النشاط في إدارة الحسابات
-  lastSeenAt   DateTime? @map("last_seen_at")
-  createdAt    DateTime  @default(now()) @map("created_at")
-  updatedAt    DateTime  @updatedAt @map("updated_at")
+  lastSeenAt    DateTime? @map("last_seen_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
 
   refreshTokens       RefreshToken[]
   passwordResetTokens PasswordResetToken[]
@@ -60,6 +63,7 @@ model User {
   StockMove           StockMove[]
   IssueRequest        IssueRequest[]
   PurchaseRequest     PurchaseRequest[]
+  submissionReviews   SubmissionReview[]
 
   @@map("users")
 }
@@ -500,13 +504,41 @@ model Submission {
   // الموقع الذي أُرسل له التسليم وقت الإنشاء — gsheetRow رقم صف داخل شيت هذا الموقع تحديدًا،
   // فبنثبّته هنا عشان لو الأدمن نقل المهندس لموقع تاني، متابعة حالة التسليمات القديمة تفضل صح
   site           Int              @default(1)
+  // ── سلسلة اعتمادات المديرين داخل التطبيق (قبل ما الكشف ينزل جوجل شيت أصلًا) ──
+  // rev 00 أول مرة، ويزيد مع كل إعادة إرسال بعد الرفض
+  revision       Int              @default(0)
+  // IN_REVIEW = في السلسلة · RETURNED = مرفوض ورجع للمهندس · SENT = عدّى كل الاعتمادات واتبعت لجوجل
+  reviewState    String           @default("IN_REVIEW") @map("review_state") @db.VarChar(20)
+  // المستوى المفتوح للاعتماد حاليًا (اسم المستوى) — null لما يرجع للمهندس أو يخلص
+  currentLevel   String?          @map("current_level") @db.VarChar(60)
   createdAt      DateTime         @default(now()) @map("created_at")
   updatedAt      DateTime         @updatedAt @map("updated_at")
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  file File @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  user    User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  file    File               @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  reviews SubmissionReview[]
 
   @@index([userId, createdAt])
   @@index([status])
+  @@index([reviewState])
   @@map("submissions")
+}
+
+// قرار اعتماد واحد على كشف من مستوى معيّن — سجل تدقيق كامل (مين/امتى/القرار/الملاحظة/النسخة)
+model SubmissionReview {
+  id           BigInt   @id @default(autoincrement())
+  submissionId BigInt   @map("submission_id")
+  level        String   @db.VarChar(60)
+  // APPROVED = معتمد بدون ملاحظات · APPROVED_NOTES = معتمد بملاحظات · REJECTED = مرفوض بملاحظات
+  decision     String   @db.VarChar(20)
+  note         String?  @db.VarChar(500)
+  revision     Int      @default(0)
+  byUserId     BigInt?  @map("by_user_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  submission Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  byUser     User?      @relation(fields: [byUserId], references: [id], onDelete: SetNull)
+
+  @@index([submissionId])
+  @@map("submission_reviews")
 }

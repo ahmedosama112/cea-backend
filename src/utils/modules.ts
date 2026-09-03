@@ -2,7 +2,7 @@
 // يحددها الأدمن من "إدارة الحسابات". الواجهة فيها نسخة مطابقة من نفس القائمة (app.js: FEATURES).
 
 // ── الوحدات: بتقفل الشاشة كلها + السيرفر يرفض مساراتها ──
-export const ALL_MODULES = ['records', 'submissions', 'ir', 'site_daily', 'site_exec', 'todo', 'summary', 'inventory'] as const;
+export const ALL_MODULES = ['records', 'submissions', 'ir', 'site_daily', 'site_exec', 'todo', 'summary', 'inventory', 'approvals'] as const;
 export type ModuleKey = (typeof ALL_MODULES)[number];
 export const DEFAULT_MODULES: ModuleKey[] = ['records', 'submissions', 'todo', 'summary'];
 export const MODULE_LABELS: Record<ModuleKey, string> = {
@@ -14,6 +14,7 @@ export const MODULE_LABELS: Record<ModuleKey, string> = {
   todo: 'المهام',
   summary: 'الملخص',
   inventory: 'المخازن (مخزون + طلبات صرف وشراء)',
+  approvals: 'اعتمادات المديرين (مراجعة واعتماد الكشوف)',
 };
 
 // ── الكروت: إخفاء/إظهار أجزاء داخل الشاشات (واجهة فقط — البيانات لسه محمية بالوحدات) ──

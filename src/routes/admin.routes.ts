@@ -13,6 +13,7 @@ import { placeCreateSchema, contractorCreateSchema, contractorUpdateSchema } fro
 import { arabizeRateTypes, toEnum, RateTypeAr } from '../utils/rateType';
 import { storage } from '../services/storage';
 import { runBackupToDrive } from '../services/backup';
+import { getApprovalLevels, setApprovalLevels } from '../services/approvalChain';
 
 // إدارة الأدمن لحسابات المهندسين — البديل الرسمي للوحة تحكم Supabase:
 // الأدمن ينشئ الحسابات (عبر /api/auth/register بتوكنه) ويزرع لكل مهندس:
@@ -65,7 +66,7 @@ adminRoutes.get(
   '/users',
   asyncHandler(async (_req: Request, res: Response) => {
     const users = await prisma.user.findMany({
-      select: { id: true, email: true, role: true, title: true, project: true, site: true, lastSeenAt: true, createdAt: true },
+      select: { id: true, email: true, role: true, title: true, project: true, site: true, approvalLevel: true, lastSeenAt: true, createdAt: true },
       orderBy: { id: 'asc' },
     });
     res.json({ success: true, data: users });
@@ -242,6 +243,21 @@ adminRoutes.post(
   }),
 );
 
+// ── مستويات اعتمادات المديرين (أسماء المستويات بالترتيب) ──
+adminRoutes.get(
+  '/approval-levels',
+  asyncHandler(async (_req: Request, res: Response) => {
+    res.json({ success: true, data: await getApprovalLevels() });
+  }),
+);
+adminRoutes.put(
+  '/approval-levels',
+  validate({ body: z.object({ levels: z.array(z.string().trim().min(1).max(60)).min(1).max(6) }) }),
+  asyncHandler(async (req: Request, res: Response) => {
+    res.json({ success: true, data: await setApprovalLevels(req.body.levels) });
+  }),
+);
+
 // ── قائمة الوحدات المتاحة (للواجهة) ──
 adminRoutes.get(
   '/modules',
@@ -278,7 +294,7 @@ adminRoutes.post(
 // ── تعديل بيانات حساب: المسمى الوظيفي و/أو الصلاحية و/أو المشروع/الموقع ──
 adminRoutes.patch(
   '/users/:userId',
-  validate({ params: userIdParam, body: z.object({ title: z.string().trim().max(100).nullable().optional(), role: z.enum(['ADMIN', 'ENGINEER']).optional(), project: z.enum(['سكني', 'تجاري']).nullable().optional(), site: z.coerce.number().int().min(1).max(2).optional() }) }),
+  validate({ params: userIdParam, body: z.object({ title: z.string().trim().max(100).nullable().optional(), role: z.enum(['ADMIN', 'ENGINEER']).optional(), project: z.enum(['سكني', 'تجاري']).nullable().optional(), site: z.coerce.number().int().min(1).max(2).optional(), approvalLevel: z.string().trim().max(60).nullable().optional() }) }),
   asyncHandler(async (req: Request, res: Response) => {
     const userId = BigInt(req.params.userId);
     await assertUserExists(userId);
@@ -289,8 +305,10 @@ adminRoutes.patch(
       ...(req.body.role !== undefined ? { role: req.body.role } : {}),
       ...(req.body.project !== undefined ? { project: req.body.project } : {}),
       ...(req.body.site !== undefined ? { site: req.body.site } : {}),
+      // مستوى الاعتماد — تعيين الحساب كمعتمد في مستوى معيّن (أو null = مش معتمد)
+      ...(req.body.approvalLevel !== undefined ? { approvalLevel: req.body.approvalLevel?.trim() || null } : {}),
     };
-    const u = await prisma.user.update({ where: { id: userId }, data, select: { id: true, email: true, role: true, title: true, project: true, site: true } });
+    const u = await prisma.user.update({ where: { id: userId }, data, select: { id: true, email: true, role: true, title: true, project: true, site: true, approvalLevel: true } });
     // تغيير الصلاحية يُبطل جلسات الحساب (التوكن فيه الدور القديم)
     if (req.body.role !== undefined) await prisma.refreshToken.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: new Date() } });
     res.json({ success: true, data: u });
