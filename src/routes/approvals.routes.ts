@@ -6,6 +6,7 @@ import { asyncHandler } from '../utils/asyncHandler';
 import { validate } from '../middlewares/validate';
 import { idParamSchema } from '../utils/crudFactory';
 import { getApprovalLevels, getActiveLevels, nextLevel, pushSubmissionToSheet } from '../services/approvalChain';
+import { storage } from '../services/storage';
 
 // ═══════════ اعتمادات المديرين — تبويب المراجعة والاعتماد ═══════════
 // (authenticate + requireModule('approvals') مطبّقين في routes/index.ts)
@@ -64,6 +65,21 @@ approvalsRoutes.get(
           && (isAdmin || (myLevel != null && r.currentLevel === myLevel && activeLevels.includes(myLevel))),
       })),
     });
+  }),
+);
+
+// ملف الكشف للمراجعة/التحميل من تاب الاعتمادات — لأي حساب عنده وحدة approvals (المعتمدين مش أصحاب الملف ولا أدمن،
+// فمسار /submissions/:id/file بيرفضهم: محمي بوحدة submissions وبشرط صاحب الملف/أدمن)
+approvalsRoutes.get(
+  '/:id/file',
+  validate({ params: idParamSchema }),
+  asyncHandler(async (req: Request, res: Response) => {
+    const sub = await prisma.submission.findUnique({ where: { id: BigInt(req.params.id) }, include: { file: true } });
+    if (!sub) throw AppError.notFound('الكشف غير موجود');
+    const buffer = await storage.read(sub.file.filePath).catch(() => { throw AppError.notFound('ملف الكشف لم يعد موجودًا على السيرفر'); });
+    res.setHeader('Content-Type', sub.file.mimeType);
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(sub.file.fileName)}`);
+    res.send(buffer);
   }),
 );
 

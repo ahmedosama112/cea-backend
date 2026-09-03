@@ -89,6 +89,21 @@ describe('اعتمادات المديرين', () => {
     expect(resend.body.data.reviewState).toBe('IN_REVIEW');
   });
 
+  it('المعتمد (مش صاحب الملف ولا أدمن) يقدر يفتح ملف الكشف من مسار الاعتمادات', async () => {
+    const res = await submit(eng.token);
+    const id = res.body.data.id;
+    // مسار التسليمات بيرفضه (مش صاحب الملف) — ده المتوقع
+    const viaSubs = await request(app).get(`/api/submissions/${id}/file`).set(auth(tl.token));
+    expect([403, 404]).toContain(viaSubs.status);
+    // مسار الاعتمادات بيسمح له
+    const viaApr = await request(app).get(`/api/approvals/${id}/file`).set(auth(tl.token));
+    expect(viaApr.status).toBe(200);
+    expect(viaApr.headers['content-disposition']).toContain('attachment');
+    // ومن غير وحدة approvals → ممنوع
+    const denied = await request(app).get(`/api/approvals/${id}/file`).set(auth(eng.token));
+    expect(denied.status).toBe(403);
+  });
+
   it('الوحدة محمية: حساب من غير صلاحية approvals مايوصلش للطابور', async () => {
     const denied = await request(app).get('/api/approvals/queue').set(auth(eng.token));
     expect(denied.status).toBe(403);
