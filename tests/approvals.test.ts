@@ -113,4 +113,38 @@ describe('اعتمادات المديرين', () => {
     expect(put.status).toBe(200);
     expect(put.body.data).toContain('general manager');
   });
+
+  it('إعادة تسمية مستوى وفيه كشف واقف عنده: الكشف يفضل معلّقًا (مايتبعتش قبل أوانه) والأدمن بس يحرّكه', async () => {
+    const res = await submit(eng.token);
+    const id = res.body.data.id;
+    expect(res.body.data.currentLevel).toBe('team leader');
+
+    // الأدمن يعيد تسمية "team leader" → "lead" والكشف لسه واقف عند الاسم القديم
+    await request(app).put('/api/admin/approval-levels').set(auth(admin.token))
+      .send({ levels: ['lead', 'construction manager', 'project manager'] });
+
+    // الطابور: المستويات النشطة بقت pm بس (tl مستواه مش في القائمة) وصاحب الاسم القديم مش دوره
+    const q = await request(app).get('/api/approvals/queue').set(auth(tl.token));
+    expect(q.body.activeLevels).toEqual(['project manager']);
+    const row = q.body.data.find((s: { id: string }) => s.id === id);
+    expect(row.reviewState).toBe('IN_REVIEW');
+    expect(row.canAct).toBe(false);
+
+    // tl يحاول يعتمد → مرفوض، والكشف لسه IN_REVIEW عند نفس المستوى (مش SENT)
+    const tlTry = await request(app).post(`/api/approvals/${id}/decide`).set(auth(tl.token)).send({ decision: 'APPROVED' });
+    expect(tlTry.status).toBe(400);
+    const still = await prisma.submission.findUnique({ where: { id: BigInt(id) } });
+    expect(still?.reviewState).toBe('IN_REVIEW');
+    expect(still?.currentLevel).toBe('team leader');
+
+    // الأدمن يفكّه → يكمّل من أول مستوى نشط (project manager) بدل ما يتبعت لجوجل
+    const adm = await request(app).post(`/api/approvals/${id}/decide`).set(auth(admin.token)).send({ decision: 'APPROVED' });
+    expect(adm.status).toBe(200);
+    expect(adm.body.data.reviewState).toBe('IN_REVIEW');
+    expect(adm.body.data.currentLevel).toBe('project manager');
+
+    // نرجّع الأسماء الافتراضية
+    await request(app).put('/api/admin/approval-levels').set(auth(admin.token))
+      .send({ levels: ['team leader', 'construction manager', 'project manager'] });
+  });
 });

@@ -31,11 +31,18 @@ export async function getActiveLevels(): Promise<string[]> {
   return levels.filter((l) => assigned.has(l));
 }
 
-export function nextLevel(activeLevels: string[], current: string | null): string | null {
-  if (!current) return activeLevels[0] ?? null;
+// نتيجة الانتقال في السلسلة:
+//  next  → فيه مستوى تالي     done → السلسلة خلصت (يتبعت لجوجل)
+//  stuck → المستوى الحالي للكشف مش من المستويات النشطة (اتعاد تسميته/اتشال والكشف واقف عنده)
+//          → الكشف يفضل IN_REVIEW معلّقًا ومايتبعتش قبل أوانه؛ الأدمن هو اللي بيفكه
+export type ChainStep = { kind: 'next'; level: string } | { kind: 'done' } | { kind: 'stuck' };
+
+export function nextLevel(activeLevels: string[], current: string | null): ChainStep {
+  if (!current) return activeLevels[0] ? { kind: 'next', level: activeLevels[0] } : { kind: 'done' };
   const i = activeLevels.indexOf(current);
-  if (i === -1 || i + 1 >= activeLevels.length) return null;
-  return activeLevels[i + 1];
+  if (i === -1) return { kind: 'stuck' };
+  if (i + 1 >= activeLevels.length) return { kind: 'done' };
+  return { kind: 'next', level: activeLevels[i + 1] };
 }
 
 // دفع الكشف فعليًا لجوجل شيت (بيقرأ الملف من التخزين) — يُستدعى لما السلسلة تخلص

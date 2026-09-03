@@ -43,9 +43,11 @@ approvalsRoutes.get(
     const me = await prisma.user.findUnique({ where: { id: req.user!.id }, select: { approvalLevel: true } });
     const myLevel = me?.approvalLevel ?? null;
     const isAdmin = req.user!.role === 'ADMIN';
-    // بنعرض اللي في المراجعة + آخر 40 اتبعت/اترفض (للسياق) — مرتبين بالأحدث
+    const activeLevels = await getActiveLevels();
+    // بنعرض كل اللي في المراجعة + اللي اتبعت/اترفض خلال آخر 7 أيام بس (للسياق) — عشان الطابور مايتمليش بالتاريخ
+    const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
     const rows = await prisma.submission.findMany({
-      where: { OR: [{ reviewState: 'IN_REVIEW' }, { reviewState: { in: ['RETURNED', 'SENT'] } }] },
+      where: { OR: [{ reviewState: 'IN_REVIEW' }, { reviewState: { in: ['RETURNED', 'SENT'] }, createdAt: { gte: since } }] },
       include: SUB_INCLUDE,
       orderBy: { createdAt: 'desc' },
       take: 200,
@@ -53,9 +55,13 @@ approvalsRoutes.get(
     res.json({
       success: true,
       myLevel,
+      // المستويات النشطة (اللي ليها معتمد) بالترتيب — الواجهة بتحسب عليها "آخر معتمد" مش على المعرّفة
+      activeLevels,
       data: rows.map((r) => ({
         ...shape(r as never),
-        canAct: r.reviewState === 'IN_REVIEW' && (isAdmin || (myLevel != null && r.currentLevel === myLevel)),
+        // دور المعتمد ده دلوقتي: مستواه = المستوى الحالي وهو مستوى نشط (لو المستوى اتعاد تسميته → الأدمن بس)
+        canAct: r.reviewState === 'IN_REVIEW'
+          && (isAdmin || (myLevel != null && r.currentLevel === myLevel && activeLevels.includes(myLevel))),
       })),
     });
   }),
@@ -82,6 +88,17 @@ approvalsRoutes.post(
       throw AppError.forbidden('مش دورك في الاعتماد على الكشف ده دلوقتي');
     }
 
+    // نحدد نتيجة القرار الأول (قبل ما نسجّل أي حاجة) — عشان الكشف الواقف عند مستوى اتعاد تسميته ما يتبعتش قبل أوانه
+    const active = await getActiveLevels();
+    let step = nextLevel(active, sub.currentLevel);
+    if (decision !== 'REJECTED' && step.kind === 'stuck') {
+      if (!isAdmin) {
+        throw AppError.validation('المستوى الحالي للكشف مش موجود في سلسلة الاعتماد الحالية (اتعدّلت أسماء المستويات) — الأدمن هو اللي يقدر يحرّكه');
+      }
+      // الأدمن بيفكّه: يكمّل من أول مستوى نشط، ولو مفيش مستويات نشطة خالص → السلسلة خلصت
+      step = active[0] ? { kind: 'next', level: active[0] } : { kind: 'done' };
+    }
+
     // سجل القرار (تدقيق)
     await prisma.submissionReview.create({
       data: { submissionId: id, level: sub.currentLevel ?? '', decision, note: note.trim() || null, revision: sub.revision, byUserId: req.user!.id },
@@ -89,16 +106,13 @@ approvalsRoutes.post(
 
     if (decision === 'REJECTED') {
       await prisma.submission.update({ where: { id }, data: { reviewState: 'RETURNED', currentLevel: null } });
+    } else if (step.kind === 'next') {
+      // معتمد (بملاحظات أو بدون) → المستوى اللي بعده
+      await prisma.submission.update({ where: { id }, data: { currentLevel: step.level } });
     } else {
-      // معتمد (بملاحظات أو بدون) → المستوى اللي بعده؛ لو مفيش → السلسلة خلصت، يتبعت لجوجل
-      const active = await getActiveLevels();
-      const nl = nextLevel(active, sub.currentLevel);
-      if (nl) {
-        await prisma.submission.update({ where: { id }, data: { currentLevel: nl } });
-      } else {
-        await prisma.submission.update({ where: { id }, data: { reviewState: 'SENT', currentLevel: null } });
-        void pushSubmissionToSheet(id); // ☁️ لأول مرة يوصل جوجل شيت
-      }
+      // السلسلة خلصت → يتبعت لجوجل
+      await prisma.submission.update({ where: { id }, data: { reviewState: 'SENT', currentLevel: null } });
+      void pushSubmissionToSheet(id); // ☁️ لأول مرة يوصل جوجل شيت
     }
     const fresh = await prisma.submission.findUnique({ where: { id }, include: SUB_INCLUDE });
     res.json({ success: true, data: shape(fresh as never) });

@@ -8,6 +8,12 @@ export { app, prisma, request };
 // TRUNCATE بيعيد إنشاء ملفات InnoDB (~1.2 ثانية/جدول على ويندوز) فبيعدّي مهلة الـ hooks،
 // بينما DELETE على جداول شبه فاضية بالمللي ثانية
 export async function resetDb() {
+  // 🛡 حماية: الاختبارات بتتشغل بـ `npm test` (اللي بيوجّه DATABASE_URL لقاعدة cea_test).
+  // تشغيل vitest مباشرة بيستخدم قاعدة التطوير → resetDb كانت بتمسحها (حصل فعلًا 3 سبتمبر 2026).
+  const url = process.env.DATABASE_URL || '';
+  if (!/\/cea_test(\?|$)/.test(url)) {
+    throw new Error(`resetDb مرفوض: DATABASE_URL مش قاعدة الاختبار (cea_test) — شغّل الاختبارات بـ "npm test" مش vitest مباشرة. (${url.replace(/\/\/.*@/, '//***@')})`);
+  }
   await prisma.$executeRawUnsafe('SET FOREIGN_KEY_CHECKS = 0');
   const tables = [
     'record_deductions', 'records', 'ir_records', 'todos',
