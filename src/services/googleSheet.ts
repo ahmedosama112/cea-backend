@@ -59,11 +59,12 @@ function enqueuePush(site: number | null | undefined, task: () => Promise<void>)
 
 // إرسال كشف لجوجل (يشتغل في الخلفية بعد الرد على المهندس — التحويل هناك بياخد ثواني لدقيقة)
 // عند النجاح: بنخزّن رقم الصف وid الملف على التسليم عشان متابعة الحالة لاحقًا
-export function pushSubmissionToGoogle(submissionId: bigint, fileBuffer: Buffer, fileName: string, engineerName: string, project: string | null, site: number | null | undefined): Promise<void> {
-  return enqueuePush(site, () => doPushSubmission(submissionId, fileBuffer, fileName, engineerName, project, site));
+// approvalSummary: ملخص سلسلة اعتمادات المديرين داخل التطبيق — السكربت بيكتبه في خانة "سلسلة الاعتماد" (اختياري)
+export function pushSubmissionToGoogle(submissionId: bigint, fileBuffer: Buffer, fileName: string, engineerName: string, project: string | null, site: number | null | undefined, approvalSummary?: string): Promise<void> {
+  return enqueuePush(site, () => doPushSubmission(submissionId, fileBuffer, fileName, engineerName, project, site, approvalSummary));
 }
 
-async function doPushSubmission(submissionId: bigint, fileBuffer: Buffer, fileName: string, engineerName: string, project: string | null, site: number | null | undefined): Promise<void> {
+async function doPushSubmission(submissionId: bigint, fileBuffer: Buffer, fileName: string, engineerName: string, project: string | null, site: number | null | undefined, approvalSummary?: string): Promise<void> {
   if (!googleSyncEnabled(site)) return;
   const result = await callWebApp(
     site,
@@ -72,6 +73,7 @@ async function doPushSubmission(submissionId: bigint, fileBuffer: Buffer, fileNa
       project: project || '',
       fileName,
       fileBase64: fileBuffer.toString('base64'),
+      approvalSummary: approvalSummary || '',
     },
     120_000, // التحويل + تجهيز التوقيعات في السكربت ممكن ياخد دقيقة+
   );

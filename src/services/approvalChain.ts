@@ -47,11 +47,37 @@ export function nextLevel(activeLevels: string[], current: string | null): Chain
 
 // دفع الكشف فعليًا لجوجل شيت (بيقرأ الملف من التخزين) — يُستدعى لما السلسلة تخلص
 export async function pushSubmissionToSheet(submissionId: bigint): Promise<void> {
-  const sub = await prisma.submission.findUnique({ where: { id: submissionId }, include: { file: true, user: { select: { email: true, project: true } } } });
+  const sub = await prisma.submission.findUnique({
+    where: { id: submissionId },
+    include: {
+      file: true,
+      user: { select: { email: true, project: true } },
+      reviews: { orderBy: { createdAt: 'asc' }, include: { byUser: { select: { email: true, title: true } } } },
+    },
+  });
   if (!sub) return;
   const buffer = await storage.read(sub.file.filePath).catch(() => null);
   if (!buffer) { console.error('[approval] ملف التسليم غير موجود عند الدفع لجوجل', submissionId.toString()); return; }
-  await pushSubmissionToGoogle(sub.id, buffer, sub.file.fileName, sub.user.email.split('@')[0], sub.user.project ?? null, sub.site);
+  await pushSubmissionToGoogle(sub.id, buffer, sub.file.fileName, sub.user.email.split('@')[0], sub.user.project ?? null, sub.site, approvalSummary(sub.reviews, sub.revision));
+}
+
+// ملخص سلسلة الاعتماد (للنسخة الحالية) — بيتكتب في خانة "سلسلة الاعتماد" في جوجل شيت لما الكشف ينزل
+// مثال: "team leader: ✅ معتمد (ahmed) 03/09 22:10 | project manager: 📝 بملاحظات: راجع الإجمالي (mostafa) 03/09 22:40"
+type ReviewRow = { level: string; decision: string; note: string | null; revision: number; createdAt: Date; byUser: { email: string; title: string | null } | null };
+export function approvalSummary(reviews: ReviewRow[], revision: number): string {
+  const label: Record<string, string> = { APPROVED: '✅ معتمد', APPROVED_NOTES: '📝 بملاحظات', REJECTED: '❌ مرفوض' };
+  const fmt = (d: Date) => {
+    const p = (n: number) => String(n).padStart(2, '0');
+    return `${p(d.getDate())}/${p(d.getMonth() + 1)} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  };
+  const parts = reviews
+    .filter((r) => r.revision === revision)
+    .map((r) => {
+      const who = r.byUser ? (r.byUser.title || r.byUser.email.split('@')[0]) : '';
+      return `${r.level}: ${label[r.decision] ?? r.decision}${r.note ? ': ' + r.note : ''}${who ? ' (' + who + ')' : ''} ${fmt(r.createdAt)}`;
+    });
+  if (!parts.length) return 'اتبعت مباشرة (مفيش معتمدين مضبوطين في التطبيق)';
+  return (revision > 0 ? `نسخة ${revision} — ` : '') + parts.join(' | ');
 }
 
 // بدء السلسلة لكشف جديد (أو إعادة إرسال): يحدّد أول مستوى نشط.
