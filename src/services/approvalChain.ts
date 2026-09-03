@@ -77,7 +77,8 @@ export function approvalSummary(reviews: ReviewRow[], revision: number): string 
       return `${r.level}: ${label[r.decision] ?? r.decision}${r.note ? ': ' + r.note : ''}${who ? ' (' + who + ')' : ''} ${fmt(r.createdAt)}`;
     });
   if (!parts.length) return 'اتبعت مباشرة (مفيش معتمدين مضبوطين في التطبيق)';
-  return (revision > 0 ? `نسخة ${revision} — ` : '') + parts.join(' | ');
+  // كل اعتماد في سطر (الخانة في الشيت wrap) — أوضح من الفصل بـ |
+  return (revision > 0 ? `نسخة ${revision}\n` : '') + parts.join('\n');
 }
 
 // بدء السلسلة لكشف جديد (أو إعادة إرسال): يحدّد أول مستوى نشط.
