@@ -43,6 +43,11 @@ model User {
   approvalLevel String?   @map("approval_level") @db.VarChar(60)
   // آخر مرة التطبيق تواصل فيها مع السيرفر (فتح/مزامنة) — لمؤشر النشاط في إدارة الحسابات
   lastSeenAt    DateTime? @map("last_seen_at")
+  // إحصاءات مزامنة الجهاز — بيبلّغها التطبيق بعد كل مزامنة (POST /account/sync-stats):
+  // عدد السراكي على الجهاز، وكام سجل لسه بمعرّف محلي (ما اترفعش)، ووقت آخر إبلاغ
+  syncLocalRecords Int?     @map("sync_local_records")
+  syncUnsynced     Int?     @map("sync_unsynced")
+  syncReportedAt   DateTime? @map("sync_reported_at")
   createdAt     DateTime  @default(now()) @map("created_at")
   updatedAt     DateTime  @updatedAt @map("updated_at")
 

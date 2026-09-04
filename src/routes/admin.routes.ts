@@ -66,10 +66,16 @@ adminRoutes.get(
   '/users',
   asyncHandler(async (_req: Request, res: Response) => {
     const users = await prisma.user.findMany({
-      select: { id: true, email: true, role: true, title: true, project: true, site: true, approvalLevel: true, lastSeenAt: true, createdAt: true },
+      select: {
+        id: true, email: true, role: true, title: true, project: true, site: true, approvalLevel: true, lastSeenAt: true, createdAt: true,
+        syncLocalRecords: true, syncUnsynced: true, syncReportedAt: true,
+      },
       orderBy: { id: 'asc' },
     });
-    res.json({ success: true, data: users });
+    // عدد السراكي المسجلة على السيرفر لكل حساب (استعلام واحد مجمّع)
+    const counts = await prisma.record.groupBy({ by: ['userId'], _count: { _all: true } });
+    const byUser = new Map(counts.map((c) => [c.userId.toString(), c._count._all]));
+    res.json({ success: true, data: users.map((u) => ({ ...u, recordsCount: byUser.get(u.id.toString()) ?? 0 })) });
   }),
 );
 
