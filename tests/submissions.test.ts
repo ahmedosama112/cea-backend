@@ -71,11 +71,18 @@ describe('تسليمات الكشوف المعتمدة', () => {
     expect(engTry.status).toBe(403);
   });
 
-  it('حذف تسليم: مسموح فقط وهو مُرسَل (قبل المراجعة)', async () => {
+  it('حذف تسليم: للأدمن فقط — المهندس ممنوع في أي حالة، والأدمن يقدر يفلتر كشوف حساب معيّن', async () => {
     const del = await request(app).delete(`/api/submissions/${subId}`).set(auth(eng.token));
-    expect(del.status).toBe(400); // اتراجع (مرفوض) — لا يُحذف
+    expect(del.status).toBe(403);
     await request(app).patch(`/api/submissions/${subId}/review`).set(auth(admin.token)).send({ status: 'SUBMITTED' });
     const del2 = await request(app).delete(`/api/submissions/${subId}`).set(auth(eng.token));
-    expect(del2.status).toBe(200);
+    expect(del2.status).toBe(403); // حتى وهو "مُرسَل" — مش من التسليمات
+    const byUser = await request(app).get(`/api/submissions?userId=${eng.id}`).set(auth(admin.token));
+    expect(byUser.status).toBe(200);
+    expect(byUser.body.data.some((s: { id: string }) => s.id === subId)).toBe(true);
+    const adm = await request(app).delete(`/api/submissions/${subId}`).set(auth(admin.token));
+    expect(adm.status).toBe(200);
+    const gone = await request(app).get('/api/submissions/mine').set(auth(eng.token));
+    expect(gone.body.data.some((s: { id: string }) => s.id === subId)).toBe(false);
   });
 });
