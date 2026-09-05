@@ -6,21 +6,58 @@ import ExcelJS from 'exceljs';
 // ينزلوا. دلوقتي الاعتماد كله جوه التطبيق، فبنختم توقيع **الشخص اللي اعتمد فعلًا** على الملف
 // قبل ما يتبعت، والملف بيوصل جوجل موقّعًا بالكامل.
 //
-// تخطيط صف التوقيعات في الكشف (buildApprovedSheet في app.js — ثابت لكل الشيتات):
+// تخطيط صف التوقيعات في الكشف (buildApprovedSheet في app.js):
 //   الصف 16 = صف التوقيعات (ارتفاعه 55)، الصف 17 = العناوين
-//   A16 (أعمدة 1-5) توقيع مدير التنفيذ · G16 (7-9) توقيع مدير المشروع · J16 (10-13) توقيع رئيس الفريق
+//   البلوكات التلاتة: A16 (أعمدة 1-5) · G16 (7-9) · J16 (10-13)
+//   الترتيب الحالي: A = مدير المشروع · G = مدير التنفيذ · J = مدير الفريق (كان "توقيع العامل")
+// ⚠ الملفات القديمة (قبل تبديل الأماكن) عناوينها بترتيب تاني — فبنقرأ نص العنوان في الصف 17
+//   لكل بلوك ونحدد منه المستوى، والترتيب الافتراضي تحت بيستخدم بس لو مفيش عناوين مفهومة.
 // الصورة بتتحجّم **بنسبتها الأصلية** جوّه صندوق أصغر من البلوك وبتتوسّط فيه — مش بتتشدّ على البلوك.
 // المرساة بنقطتين (tl/br) — مرساة بنقطة واحدة بتكتب أبعادًا صفرية فتختفي الصورة في Excel الصارم
 // (جوجل شيت متسامح) — نفس الدرس المكتوب في app.js عند توقيع المهندس.
 
 export const SIGNATURE_ROW = 16; // 1-based
+export const CAPTION_ROW = 17;   // عناوين البلوكات
 
-// المستوى → بلوك توقيعه (أعمدة صفرية، النهاية غير شاملة: البلوك A..E = 0..5)
-const SIGNATURE_BLOCK: Record<string, { from: number; to: number }> = {
-  'construction manager': { from: 0, to: 5 },  // A16
-  'project manager': { from: 6, to: 9 },       // G16
-  'team leader': { from: 9, to: 13 },          // J16 — كان "توقيع العامل"
+type Block = { from: number; to: number };
+// البلوكات التلاتة (أعمدة صفرية، النهاية غير شاملة: A..E = 0..5)
+const BLOCKS: Block[] = [{ from: 0, to: 5 }, { from: 6, to: 9 }, { from: 9, to: 13 }];
+
+// الترتيب الافتراضي (الملفات الجديدة) — يُستخدم لو العناوين مش مقروءة
+const DEFAULT_BLOCK: Record<string, Block> = {
+  'project manager': BLOCKS[0],
+  'construction manager': BLOCKS[1],
+  'team leader': BLOCKS[2],
 };
+
+// نص العنوان → المستوى ("توقيع العامل" = البلوك القديم اللي بقى لمدير الفريق)
+function levelFromCaption(text: string): string | null {
+  const t = text.replace(/\s+/g, ' ');
+  if (t.includes('مدير المشروع')) return 'project manager';
+  if (t.includes('مدير التنفيذ')) return 'construction manager';
+  if (t.includes('الفريق') || t.includes('العامل')) return 'team leader';
+  return null;
+}
+
+function cellText(ws: ExcelJS.Worksheet, row: number, col1: number): string {
+  const v = ws.getCell(row, col1).value as unknown;
+  if (v == null) return '';
+  if (typeof v === 'object' && v && 'richText' in (v as object)) return (v as { richText: { text: string }[] }).richText.map((x) => x.text).join('');
+  return String(v);
+}
+
+// خريطة المستوى → البلوك لورقة معيّنة، من عناوين الصف 17 (أو الافتراضي)
+export function blocksForSheet(ws: ExcelJS.Worksheet): Record<string, Block> {
+  const found: Record<string, Block> = {};
+  for (const b of BLOCKS) {
+    // العنوان ممكن يكون في أي خلية من البلوك المدموج (ExcelJS بيرجّع قيمة الخلية الرئيسية للكل)
+    let lv: string | null = null;
+    for (let c = b.from; c < b.to && !lv; c++) lv = levelFromCaption(cellText(ws, CAPTION_ROW, c + 1));
+    if (lv && !found[lv]) found[lv] = b;
+  }
+  return Object.keys(found).length === 3 ? found : { ...DEFAULT_BLOCK, ...found };
+}
+
 // أقصى حجم للتوقيع كنسبة من البلوك (أصغر شوية من الحجم القديم عشان يبقى مريح جوّه الخلية)
 const MAX_W_RATIO = 0.5;
 const MAX_H_RATIO = 0.58;
@@ -28,7 +65,7 @@ const MAX_H_RATIO = 0.58;
 export type LevelSignature = { level: string; image: Buffer; ext: 'png' | 'jpeg' };
 
 export function hasSignatureBox(level: string): boolean {
-  return level in SIGNATURE_BLOCK;
+  return level in DEFAULT_BLOCK;
 }
 
 // أبعاد الصورة من الهيدر (PNG أو JPEG) — من غير مكتبة صور. null لو مش مفهومة → نفترض 3:1
@@ -114,8 +151,9 @@ export async function stampSignatures(fileBuffer: Buffer, signatures: LevelSigna
   wb.eachSheet((ws) => {
     // ورقة مالهاش صف توقيعات (ملف قديم أو مبني بشكل مختلف) بتتساب زي ما هي
     if (ws.rowCount < SIGNATURE_ROW) return;
+    const blocks = blocksForSheet(ws);
     for (const { level, id, size } of imageIds) {
-      ws.addImage(id, { ...fitInBlock(ws, SIGNATURE_BLOCK[level], size), editAs: 'oneCell' } as unknown as ExcelJS.ImageRange);
+      ws.addImage(id, { ...fitInBlock(ws, blocks[level], size), editAs: 'oneCell' } as unknown as ExcelJS.ImageRange);
     }
   });
 

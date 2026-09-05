@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import ExcelJS from 'exceljs';
-import { stampSignatures, hasSignatureBox, imageSize, fitInBlock, SIGNATURE_ROW } from '../src/services/signStamp';
+import { stampSignatures, hasSignatureBox, imageSize, fitInBlock, blocksForSheet, SIGNATURE_ROW, CAPTION_ROW } from '../src/services/signStamp';
 
 // ختم توقيعات المعتمدين على ملف الكشف قبل ما يتبعت لجوجل
 // (الملف الحقيقي بيتبني في الواجهة بنفس exceljs، فالقراءة/الكتابة هنا نفس المسار)
@@ -11,7 +11,10 @@ const PNG_1PX = Buffer.from(
   'base64',
 );
 
-async function makeSheet(rows = 20, sheets = 2): Promise<Buffer> {
+// captions: عناوين البلوكات التلاتة بالترتيب A / G / J (الافتراضي = التخطيط الجديد)
+const NEW_CAPTIONS = ['توقيع مدير المشروع', 'توقيع مدير التنفيذ', 'توقيع مدير الفريق'];
+const OLD_CAPTIONS = ['توقيع مدير التنفيذ', 'توقيع مدير المشروع', 'توقيع العامل'];
+async function makeSheet(rows = 20, sheets = 2, captions = NEW_CAPTIONS): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
   for (let s = 0; s < sheets; s++) {
     const ws = wb.addWorksheet('مقاول ' + (s + 1));
@@ -23,6 +26,9 @@ async function makeSheet(rows = 20, sheets = 2): Promise<Buffer> {
       ws.mergeCells(SIGNATURE_ROW, 1, SIGNATURE_ROW, 5);
       ws.mergeCells(SIGNATURE_ROW, 7, SIGNATURE_ROW, 9);
       ws.mergeCells(SIGNATURE_ROW, 10, SIGNATURE_ROW, 13);
+      ws.mergeCells(CAPTION_ROW, 1, CAPTION_ROW, 5); ws.getCell(CAPTION_ROW, 1).value = captions[0];
+      ws.mergeCells(CAPTION_ROW, 7, CAPTION_ROW, 9); ws.getCell(CAPTION_ROW, 7).value = captions[1];
+      ws.mergeCells(CAPTION_ROW, 10, CAPTION_ROW, 13); ws.getCell(CAPTION_ROW, 10).value = captions[2];
     }
   }
   return Buffer.from(await wb.xlsx.writeBuffer());
@@ -86,6 +92,32 @@ describe('ختم التوقيعات على الكشف', () => {
     const sH = (square.br.nativeRowOff - square.tl.nativeRowOff) / 12700 / 0.75;
     expect(sW / sH).toBeCloseTo(1, 1);
     expect(sW).toBeLessThan(wW);
+  });
+
+  it('مكان كل توقيع بيتحدد من عنوان البلوك — الملفات القديمة (ترتيب قديم) والجديدة بيتختموا صح', async () => {
+    const col0 = (im: ExcelJS.Image) => im.range.tl.nativeCol;
+    // تخطيط جديد: A = مدير المشروع · G = مدير التنفيذ · J = مدير الفريق
+    const nw = await load(await stampSignatures(await makeSheet(20, 1), [
+      { level: 'project manager', image: PNG_1PX, ext: 'png' },
+      { level: 'construction manager', image: PNG_1PX, ext: 'png' },
+      { level: 'team leader', image: PNG_1PX, ext: 'png' },
+    ]));
+    const nImgs = nw.worksheets[0].getImages().sort((a, b) => col0(a) - col0(b));
+    expect(nImgs.length).toBe(3);
+    expect(col0(nImgs[0])).toBeLessThan(5);           // مدير المشروع في A
+    expect(col0(nImgs[1])).toBeGreaterThanOrEqual(6);
+    expect(col0(nImgs[1])).toBeLessThan(9);           // مدير التنفيذ في G
+    expect(col0(nImgs[2])).toBeGreaterThanOrEqual(9); // مدير الفريق في J
+
+    // ملف قديم: A = مدير التنفيذ · G = مدير المشروع · J = "توقيع العامل"
+    const oldWb = await load(await makeSheet(20, 1, OLD_CAPTIONS));
+    const blocks = blocksForSheet(oldWb.worksheets[0]);
+    expect(blocks['construction manager']).toEqual({ from: 0, to: 5 });
+    expect(blocks['project manager']).toEqual({ from: 6, to: 9 });
+    expect(blocks['team leader']).toEqual({ from: 9, to: 13 });
+    // ورقة بلا عناوين → الترتيب الافتراضي (الجديد)
+    const bare = new ExcelJS.Workbook().addWorksheet('x');
+    expect(blocksForSheet(bare)['project manager']).toEqual({ from: 0, to: 5 });
   });
 
   it('بيحافظ على محتوى الملف الأصلي (القراءة/الكتابة مش بتضيّع الخلايا ولا الدمج)', async () => {
