@@ -1,5 +1,6 @@
 import { beforeAll, afterAll, describe, expect, it } from 'vitest';
 import { app, prisma, request, resetDb, createAdmin, createEngineer, auth, TestUser } from './helpers';
+import { collectSignatures } from '../src/services/approvalChain';
 
 // اعتمادات المديرين — سلسلة المراجعة داخل التطبيق قبل جوجل شيت
 // السلسلة بتتحدد لكل مهندس: درجته (المصفوفة) + المعتمدين المسندين له بالاسم
@@ -207,6 +208,38 @@ describe('اعتمادات المديرين', () => {
     expect(fresh?.reviewState).toBe('SENT');
     await patchUser(admin.token, pm.id, { grade: 'project manager' });
     await patchUser(admin.token, eng.id, { approverTlId: tl.id });
+  });
+
+  it('ختم التوقيعات: كل مستوى بياخد توقيع الشخص اللي اعتمد فعلًا (من حسابه)', async () => {
+    // PNG صالح (1x1) — بيترفع كتوقيع للحسابين زي ما بيحصل من شاشة "توقيع المهندس"
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+    const upload = async (u: TestUser) => {
+      const f = await request(app).post('/api/files').set(auth(u.token)).attach('file', png, 'sig.png');
+      expect(f.status).toBe(201);
+      // التوقيع بيتربط بالحساب من لوحة الإدارة (نفس شاشة "توقيع المهندس")
+      const st = await request(app).put(`/api/admin/users/${u.id}/settings`).set(auth(admin.token)).send({ signatureFileId: f.body.data.id });
+      expect(st.status).toBe(200);
+    };
+    await upload(tl); // مدير الفريق رفع توقيعه
+    await upload(pm); // مدير المشروع رفع توقيعه — ومدير التنفيذ لأ (بلوكه هيفضل فاضي)
+
+    await patchUser(admin.token, eng.id, { approverCmId: cm.id });
+    const res = await submit(eng.token);
+    const id = res.body.data.id;
+    await request(app).post(`/api/approvals/${id}/decide`).set(auth(tl.token)).send({ decision: 'APPROVED' });
+    await request(app).post(`/api/approvals/${id}/decide`).set(auth(cm.token)).send({ decision: 'APPROVED' });
+    await request(app).post(`/api/approvals/${id}/decide`).set(auth(pm.token)).send({ decision: 'APPROVED_NOTES', note: 'تمام' });
+
+    const sub = await prisma.submission.findUnique({
+      where: { id: BigInt(id) },
+      include: { reviews: { include: { byUser: { select: { accountSettings: { select: { signatureFile: true } } } } } } },
+    });
+    const sigs = await collectSignatures(sub!.reviews as never, sub!.revision);
+    const levels = sigs.map((x) => x.level).sort();
+    expect(levels).toEqual(['project manager', 'team leader']); // مدير التنفيذ مرفعش توقيع → اتخطى
+    expect(sigs.every((x) => x.image.length > 0 && x.ext === 'png')).toBe(true);
+
+    await patchUser(admin.token, eng.id, { approverCmId: null });
   });
 
   it('الأدمن يشوف الدرجات والمصفوفة وقوائم المعتمدين + تحذير المستوى الناقص', async () => {

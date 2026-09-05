@@ -1,6 +1,7 @@
 import { prisma } from '../config/prisma';
 import { storage } from './storage';
 import { pushSubmissionToGoogle } from './googleSheet';
+import { stampSignatures, hasSignatureBox, LevelSignature } from './signStamp';
 
 // ═══════════ سلسلة اعتمادات المديرين (داخل التطبيق قبل جوجل شيت) ═══════════
 // الكشف بيعدّي على المعتمدين المسندين لصاحبه بالترتيب؛ وبس بعد ما يخلص كلهم بيتبعت لجوجل شيت.
@@ -102,13 +103,53 @@ export async function pushSubmissionToSheet(submissionId: bigint): Promise<void>
     include: {
       file: true,
       user: { select: { email: true, project: true } },
-      reviews: { orderBy: { createdAt: 'asc' }, include: { byUser: { select: { email: true, title: true } } } },
+      reviews: {
+        orderBy: { createdAt: 'asc' },
+        include: { byUser: { select: { email: true, title: true, accountSettings: { select: { signatureFile: true } } } } },
+      },
     },
   });
   if (!sub) return;
   const buffer = await storage.read(sub.file.filePath).catch(() => null);
   if (!buffer) { console.error('[approval] ملف التسليم غير موجود عند الدفع لجوجل', submissionId.toString()); return; }
-  await pushSubmissionToGoogle(sub.id, buffer, sub.file.fileName, sub.user.email.split('@')[0], sub.user.project ?? null, sub.site, approvalSummary(sub.reviews, sub.revision));
+  // الملف بيتبعت موقّعًا: توقيع كل معتمد بيتلزق في مكانه قبل ما يوصل جوجل.
+  // فشل الختم مايوقفش الدفع — الكشف بيتبعت زي ما هو والخطأ بيتسجّل.
+  let toSend = buffer;
+  try {
+    const sigs = await collectSignatures(sub.reviews, sub.revision);
+    if (sigs.length) toSend = await stampSignatures(buffer, sigs);
+  } catch (e) {
+    console.error('[approval] فشل ختم التوقيعات — اتبعت النسخة بلا توقيعات', submissionId.toString(), (e as Error).message);
+  }
+  await pushSubmissionToGoogle(sub.id, toSend, sub.file.fileName, sub.user.email.split('@')[0], sub.user.project ?? null, sub.site, approvalSummary(sub.reviews, sub.revision));
+}
+
+// توقيعات المستوى الواحد بتيجي من حساب المعتمد نفسه (نفس التوقيع اللي بيرفعه من شاشة "توقيع المهندس").
+// بناخد آخر قرار اعتماد في النسخة الحالية لكل مستوى — الرفض مالوش توقيع طبعًا،
+// والمستوى اللي معتمده مرفعش توقيع بيفضل بلوكه فاضي بالعنوان بس (زي ما كان بلوك العامل).
+type SignatureReview = {
+  level: string;
+  decision: string;
+  revision: number;
+  byUser: { accountSettings: { signatureFile: { filePath: string; mimeType: string } | null } | null } | null;
+};
+export async function collectSignatures(reviews: SignatureReview[], revision: number): Promise<LevelSignature[]> {
+  const byLevel = new Map<string, SignatureReview>();
+  for (const r of reviews) {
+    if (r.revision !== revision) continue;
+    if (r.decision !== 'APPROVED' && r.decision !== 'APPROVED_NOTES') continue;
+    if (!hasSignatureBox(r.level)) continue;
+    byLevel.set(r.level, r); // آخر اعتماد على المستوى ده هو المعتمد
+  }
+  const out: LevelSignature[] = [];
+  for (const [level, r] of byLevel) {
+    const f = r.byUser?.accountSettings?.signatureFile;
+    if (!f) continue;
+    const image = await storage.read(f.filePath).catch(() => null);
+    if (!image) { console.error('[approval] توقيع المعتمد مش موجود على السيرفر', level, f.filePath); continue; }
+    out.push({ level, image, ext: f.mimeType.includes('jpeg') || f.mimeType.includes('jpg') ? 'jpeg' : 'png' });
+  }
+  return out;
 }
 
 // ملخص سلسلة الاعتماد (للنسخة الحالية) — بيتكتب في خانة "سلسلة الاعتماد" في جوجل شيت لما الكشف ينزل
