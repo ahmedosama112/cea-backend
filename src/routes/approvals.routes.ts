@@ -48,7 +48,7 @@ approvalsRoutes.get(
     // بنعرض كل اللي في المراجعة + اللي اتبعت/اترفض خلال آخر 7 أيام بس (للسياق) — عشان الطابور مايتمليش بالتاريخ
     const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
     const rows = await prisma.submission.findMany({
-      where: { OR: [{ reviewState: 'IN_REVIEW' }, { reviewState: { in: ['RETURNED', 'SENT'] }, createdAt: { gte: since } }] },
+      where: { queueHiddenAt: null, OR: [{ reviewState: 'IN_REVIEW' }, { reviewState: { in: ['RETURNED', 'SENT'] }, createdAt: { gte: since } }] },
       include: SUB_INCLUDE,
       orderBy: { createdAt: 'desc' },
       take: 200,
@@ -80,6 +80,22 @@ approvalsRoutes.get(
     res.setHeader('Content-Type', sub.file.mimeType);
     res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(sub.file.fileName)}`);
     res.send(buffer);
+  }),
+);
+
+// الأدمن يخفي صف من طابور الاعتمادات (تنظيف العرض فقط): الكشف وسجل المراجعات و"تسليماتي" وجوجل شيت ما بيتأثروش.
+// مسموح بس للكشوف اللي خلصت (SENT) أو رجعت للمهندس (RETURNED) — اللي لسه في المراجعة لازم يفضل ظاهر عشان المعتمد يشوفه
+approvalsRoutes.post(
+  '/:id/hide',
+  validate({ params: idParamSchema }),
+  asyncHandler(async (req: Request, res: Response) => {
+    if (req.user!.role !== 'ADMIN') throw AppError.forbidden('الإخفاء للأدمن فقط');
+    const id = BigInt(req.params.id);
+    const sub = await prisma.submission.findUnique({ where: { id }, select: { reviewState: true, queueHiddenAt: true } });
+    if (!sub) throw AppError.notFound('الكشف غير موجود');
+    if (sub.reviewState === 'IN_REVIEW') throw AppError.validation('الكشف لسه في المراجعة — ما ينفعش يتخفي قبل ما السلسلة تخلص أو يترفض');
+    if (!sub.queueHiddenAt) await prisma.submission.update({ where: { id }, data: { queueHiddenAt: new Date() } });
+    res.json({ success: true });
   }),
 );
 

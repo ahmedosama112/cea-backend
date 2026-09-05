@@ -104,6 +104,29 @@ describe('اعتمادات المديرين', () => {
     expect(denied.status).toBe(403);
   });
 
+  it('الأدمن يخفي صفًا من الطابور فقط — الكشف يفضل في "تسليماتي" وسجله كامل، وغير الأدمن ممنوع', async () => {
+    const res = await submit(eng.token);
+    const id = res.body.data.id;
+    // لسه في المراجعة → مرفوض إخفاؤه
+    const early = await request(app).post(`/api/approvals/${id}/hide`).set(auth(admin.token));
+    expect(early.status).toBe(400);
+    // نرفضه عشان يبقى RETURNED
+    await request(app).post(`/api/approvals/${id}/decide`).set(auth(tl.token)).send({ decision: 'REJECTED', note: 'ملاحظة' });
+    // غير الأدمن ممنوع
+    const denied = await request(app).post(`/api/approvals/${id}/hide`).set(auth(tl.token));
+    expect(denied.status).toBe(403);
+    const ok = await request(app).post(`/api/approvals/${id}/hide`).set(auth(admin.token));
+    expect(ok.status).toBe(200);
+    // اختفى من الطابور
+    const q = await request(app).get('/api/approvals/queue').set(auth(admin.token));
+    expect(q.body.data.find((s: { id: string }) => s.id === id)).toBeUndefined();
+    // لكنه موجود عند المهندس بسجل مراجعاته
+    const mine = (await request(app).get('/api/submissions/mine').set(auth(eng.token))).body.data.find((s: { id: string }) => s.id === id);
+    expect(mine).toBeTruthy();
+    expect(mine.reviewState).toBe('RETURNED');
+    expect(mine.reviews.length).toBe(1);
+  });
+
   it('الوحدة محمية: حساب من غير صلاحية approvals مايوصلش للطابور', async () => {
     const denied = await request(app).get('/api/approvals/queue').set(auth(eng.token));
     expect(denied.status).toBe(403);
