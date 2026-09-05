@@ -28,8 +28,8 @@ export const authController = {
   }),
 
   me: asyncHandler(async (req: Request, res: Response) => {
-    const u = await prisma.user.findUnique({ where: { id: req.user!.id }, select: { title: true, site: true, approvalLevel: true } });
-    res.json({ success: true, data: { id: req.user!.id.toString(), email: req.user!.email, role: req.user!.role, title: u?.title ?? null, site: u?.site ?? 1, approvalLevel: u?.approvalLevel ?? null } });
+    const u = await prisma.user.findUnique({ where: { id: req.user!.id }, select: { title: true, site: true, grade: true } });
+    res.json({ success: true, data: { id: req.user!.id.toString(), email: req.user!.email, role: req.user!.role, title: u?.title ?? null, site: u?.site ?? 1, grade: u?.grade ?? null, approvalLevel: u?.grade ?? null } });
   }),
 
   requestPasswordReset: asyncHandler(async (req: Request, res: Response) => {

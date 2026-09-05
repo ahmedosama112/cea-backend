@@ -38,9 +38,15 @@ model User {
   // الموقع/المشروع المنفصل (1 أو 2) — كل موقع له Google Sheet وApps Script ومديرين مختلفين؛
   // بيحدد أي Web App تستقبل تسليمات المهندس (GOOGLE_WEBAPP_URL أو GOOGLE_WEBAPP_URL_2)
   site          Int       @default(1)
-  // مستوى الاعتماد لو الحساب معتمد (اسم المستوى: team leader / construction manager / project manager)؛
-  // null = مش معتمد. القائمة والترتيب في app_config (approvalLevels)
-  approvalLevel String?   @map("approval_level") @db.VarChar(60)
+  // درجة الحساب في السلم الوظيفي (junior / senior / team leader / construction manager / project manager).
+  // حقل واحد بيقوم بدورين: بيحدد مين بيعتمد لصاحب الحساب (المصفوفة في approvalChain)،
+  // وبيحدد كمان إنه معتمد لو درجته من الدرجات المعتمِدة التلاتة الأعلى. (كان اسمه approval_level)
+  grade         String    @default("junior") @db.VarChar(60)
+  // المعتمدون المسندون لهذا الحساب تحديدًا — مدير فريق ومدير تنفيذ مختلفين لكل مجموعة مهندسين.
+  // فاضي = المستوى ده يتخطى في سلسلته (مع تحذير للأدمن)؛ مدير المشروع بيتحدد تلقائيًا لو واحد بس في النظام.
+  approverTlId  BigInt?   @map("approver_tl_id")
+  approverCmId  BigInt?   @map("approver_cm_id")
+  approverPmId  BigInt?   @map("approver_pm_id")
   // آخر مرة التطبيق تواصل فيها مع السيرفر (فتح/مزامنة) — لمؤشر النشاط في إدارة الحسابات
   lastSeenAt    DateTime? @map("last_seen_at")
   // إحصاءات مزامنة الجهاز — بيبلّغها التطبيق بعد كل مزامنة (POST /account/sync-stats):
@@ -69,6 +75,13 @@ model User {
   IssueRequest        IssueRequest[]
   PurchaseRequest     PurchaseRequest[]
   submissionReviews   SubmissionReview[]
+
+  approverTl          User?  @relation("ApproverTl", fields: [approverTlId], references: [id], onDelete: SetNull)
+  approverCm          User?  @relation("ApproverCm", fields: [approverCmId], references: [id], onDelete: SetNull)
+  approverPm          User?  @relation("ApproverPm", fields: [approverPmId], references: [id], onDelete: SetNull)
+  approvesTlFor       User[] @relation("ApproverTl")
+  approvesCmFor       User[] @relation("ApproverCm")
+  approvesPmFor       User[] @relation("ApproverPm")
 
   @@map("users")
 }
@@ -518,6 +531,9 @@ model Submission {
   reviewState    String           @default("IN_REVIEW") @map("review_state") @db.VarChar(20)
   // المستوى المفتوح للاعتماد حاليًا (اسم المستوى) — null لما يرجع للمهندس أو يخلص
   currentLevel   String?          @map("current_level") @db.VarChar(60)
+  // المعتمد المسند لهذا الكشف في المستوى الحالي (بلا FK زي reviewed_by_id).
+  // null = كشف قديم من قبل نظام الإسناد → أي معتمد درجته = currentLevel يقدر يعتمده (السلوك القديم)
+  currentApproverId BigInt?       @map("current_approver_id")
   createdAt      DateTime         @default(now()) @map("created_at")
   updatedAt      DateTime         @updatedAt @map("updated_at")
 
@@ -528,6 +544,7 @@ model Submission {
   @@index([userId, createdAt])
   @@index([status])
   @@index([reviewState])
+  @@index([currentApproverId])
   @@map("submissions")
 }
 

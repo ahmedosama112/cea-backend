@@ -13,7 +13,7 @@ import { placeCreateSchema, contractorCreateSchema, contractorUpdateSchema } fro
 import { arabizeRateTypes, toEnum, RateTypeAr } from '../utils/rateType';
 import { storage } from '../services/storage';
 import { runBackupToDrive } from '../services/backup';
-import { getApprovalLevels, setApprovalLevels } from '../services/approvalChain';
+import { GRADES, APPROVING_GRADES, isValidGrade, requiredLevelsFor, soleProjectManagerId } from '../services/approvalChain';
 
 // إدارة الأدمن لحسابات المهندسين — البديل الرسمي للوحة تحكم Supabase:
 // الأدمن ينشئ الحسابات (عبر /api/auth/register بتوكنه) ويزرع لكل مهندس:
@@ -67,15 +67,25 @@ adminRoutes.get(
   asyncHandler(async (_req: Request, res: Response) => {
     const users = await prisma.user.findMany({
       select: {
-        id: true, email: true, role: true, title: true, project: true, site: true, approvalLevel: true, lastSeenAt: true, createdAt: true,
+        id: true, email: true, role: true, title: true, project: true, site: true, grade: true, lastSeenAt: true, createdAt: true,
+        approverTlId: true, approverCmId: true, approverPmId: true,
         syncLocalRecords: true, syncUnsynced: true, syncReportedAt: true,
       },
       orderBy: { id: 'asc' },
     });
+    // المستويات المطلوبة لدرجة الحساب واللي لسه مالهاش معتمد مسند — تحذير في كارت الحساب
+    const solePm = await soleProjectManagerId();
+    const FIELD = { 'team leader': 'approverTlId', 'construction manager': 'approverCmId', 'project manager': 'approverPmId' } as const;
+    const missingFor = (u: (typeof users)[number]) =>
+      requiredLevelsFor(u.grade).filter((lv) => {
+        const id = u[FIELD[lv as keyof typeof FIELD]];
+        if (id) return false;
+        return !(lv === 'project manager' && solePm);
+      });
     // عدد السراكي المسجلة على السيرفر لكل حساب (استعلام واحد مجمّع)
     const counts = await prisma.record.groupBy({ by: ['userId'], _count: { _all: true } });
     const byUser = new Map(counts.map((c) => [c.userId.toString(), c._count._all]));
-    res.json({ success: true, data: users.map((u) => ({ ...u, recordsCount: byUser.get(u.id.toString()) ?? 0 })) });
+    res.json({ success: true, data: users.map((u) => ({ ...u, recordsCount: byUser.get(u.id.toString()) ?? 0, missingApprovers: missingFor(u) })) });
   }),
 );
 
@@ -249,18 +259,26 @@ adminRoutes.post(
   }),
 );
 
-// ── مستويات اعتمادات المديرين (أسماء المستويات بالترتيب) ──
+// ── الدرجات ومستويات الاعتماد (ثابتة في الكود) + قوائم المعتمدين المتاحين لكل مستوى ──
 adminRoutes.get(
   '/approval-levels',
   asyncHandler(async (_req: Request, res: Response) => {
-    res.json({ success: true, data: await getApprovalLevels() });
-  }),
-);
-adminRoutes.put(
-  '/approval-levels',
-  validate({ body: z.object({ levels: z.array(z.string().trim().min(1).max(60)).min(1).max(6) }) }),
-  asyncHandler(async (req: Request, res: Response) => {
-    res.json({ success: true, data: await setApprovalLevels(req.body.levels) });
+    const approvers = await prisma.user.findMany({
+      where: { grade: { in: [...APPROVING_GRADES] } },
+      select: { id: true, email: true, title: true, grade: true },
+      orderBy: { email: 'asc' },
+    });
+    res.json({
+      success: true,
+      data: {
+        grades: [...GRADES],
+        levels: [...APPROVING_GRADES],
+        // مين بيعتمد لمين — للعرض في شاشة الإدارة
+        matrix: Object.fromEntries(GRADES.map((g) => [g, requiredLevelsFor(g)])),
+        approvers,
+        solePmId: (await soleProjectManagerId())?.toString() ?? null,
+      },
+    });
   }),
 );
 
@@ -300,7 +318,7 @@ adminRoutes.post(
 // ── تعديل بيانات حساب: المسمى الوظيفي و/أو الصلاحية و/أو المشروع/الموقع ──
 adminRoutes.patch(
   '/users/:userId',
-  validate({ params: userIdParam, body: z.object({ title: z.string().trim().max(100).nullable().optional(), role: z.enum(['ADMIN', 'ENGINEER']).optional(), project: z.enum(['سكني', 'تجاري']).nullable().optional(), site: z.coerce.number().int().min(1).max(2).optional(), approvalLevel: z.string().trim().max(60).nullable().optional() }) }),
+  validate({ params: userIdParam, body: z.object({ title: z.string().trim().max(100).nullable().optional(), role: z.enum(['ADMIN', 'ENGINEER']).optional(), project: z.enum(['سكني', 'تجاري']).nullable().optional(), site: z.coerce.number().int().min(1).max(2).optional(), grade: z.string().trim().max(60).optional(), approverTlId: z.coerce.bigint().nullable().optional(), approverCmId: z.coerce.bigint().nullable().optional(), approverPmId: z.coerce.bigint().nullable().optional() }) }),
   asyncHandler(async (req: Request, res: Response) => {
     const userId = BigInt(req.params.userId);
     await assertUserExists(userId);
@@ -311,10 +329,24 @@ adminRoutes.patch(
       ...(req.body.role !== undefined ? { role: req.body.role } : {}),
       ...(req.body.project !== undefined ? { project: req.body.project } : {}),
       ...(req.body.site !== undefined ? { site: req.body.site } : {}),
-      // مستوى الاعتماد — تعيين الحساب كمعتمد في مستوى معيّن (أو null = مش معتمد)
-      ...(req.body.approvalLevel !== undefined ? { approvalLevel: req.body.approvalLevel?.trim() || null } : {}),
+      // الدرجة — بتحدد مين بيعتمد له، وبتخليه معتمدًا لو من الدرجات التلاتة الأعلى
+      ...(req.body.grade !== undefined ? { grade: req.body.grade } : {}),
+      // المعتمدون المسندون — null = يتشال الإسناد (المستوى يتخطى في سلسلته)
+      ...(req.body.approverTlId !== undefined ? { approverTlId: req.body.approverTlId } : {}),
+      ...(req.body.approverCmId !== undefined ? { approverCmId: req.body.approverCmId } : {}),
+      ...(req.body.approverPmId !== undefined ? { approverPmId: req.body.approverPmId } : {}),
     };
-    const u = await prisma.user.update({ where: { id: userId }, data, select: { id: true, email: true, role: true, title: true, project: true, site: true, approvalLevel: true } });
+    if (req.body.grade !== undefined && !isValidGrade(req.body.grade)) throw AppError.validation('درجة غير معروفة');
+    // المعتمد المسند لازم يكون درجته هي نفس المستوى (وميكونش الحساب نفسه)
+    for (const [field, level] of [['approverTlId', 'team leader'], ['approverCmId', 'construction manager'], ['approverPmId', 'project manager']] as const) {
+      const val = req.body[field] as bigint | null | undefined;
+      if (val === undefined || val === null) continue;
+      if (val === userId) throw AppError.validation('الحساب لا يقدر يعتمد لنفسه');
+      const a = await prisma.user.findUnique({ where: { id: val }, select: { grade: true } });
+      if (!a) throw AppError.validation('المعتمد المختار غير موجود');
+      if (a.grade !== level) throw AppError.validation(`المعتمد المختار مش درجته "${level}"`);
+    }
+    const u = await prisma.user.update({ where: { id: userId }, data, select: { id: true, email: true, role: true, title: true, project: true, site: true, grade: true, approverTlId: true, approverCmId: true, approverPmId: true } });
     // تغيير الصلاحية يُبطل جلسات الحساب (التوكن فيه الدور القديم)
     if (req.body.role !== undefined) await prisma.refreshToken.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: new Date() } });
     res.json({ success: true, data: u });

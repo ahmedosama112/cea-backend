@@ -3,46 +3,96 @@ import { storage } from './storage';
 import { pushSubmissionToGoogle } from './googleSheet';
 
 // ═══════════ سلسلة اعتمادات المديرين (داخل التطبيق قبل جوجل شيت) ═══════════
-// الكشف بيعدّي على مستويات الاعتماد بالترتيب؛ وبس بعد ما يخلص كلها بيتبعت لجوجل شيت.
+// الكشف بيعدّي على المعتمدين المسندين لصاحبه بالترتيب؛ وبس بعد ما يخلص كلهم بيتبعت لجوجل شيت.
+//
+// السلسلة مش عامة — بتتحدد لكل مهندس على حدة:
+//   1) درجته (grade) بتحدد المستويات المطلوبة (المصفوفة تحت)
+//   2) الأعمدة approver_tl_id / approver_cm_id / approver_pm_id بتحدد الشخص نفسه في كل مستوى
+// مستوى من غير شخص مسند بيتخطى (والأدمن بيشوف تحذير في كارت الحساب).
 
-const LEVELS_KEY = 'approvalLevels';
-export const DEFAULT_LEVELS = ['team leader', 'construction manager', 'project manager'];
+// الدرجات الخمس بالترتيب — ثابتة في الكود بقرار صاحب المشروع (بدل التعديل من app_config)
+export const GRADES = ['junior', 'senior', 'team leader', 'construction manager', 'project manager'] as const;
+export type Grade = (typeof GRADES)[number];
 
-// قائمة المستويات المعرّفة (بالترتيب) — من app_config أو الافتراضي
+// الدرجات اللي بتعتمد (بترتيب السلسلة) — أعمدة جدول الاعتمادات في الواجهة هي دي
+export const APPROVING_GRADES = ['team leader', 'construction manager', 'project manager'] as const;
+
+// مين بيعتمد لمين — حسب درجة المرسِل
+const CHAIN_BY_GRADE: Record<string, readonly string[]> = {
+  junior: ['team leader', 'construction manager', 'project manager'],
+  senior: ['team leader', 'construction manager', 'project manager'],
+  'team leader': ['construction manager', 'project manager'],
+  'construction manager': [],
+  'project manager': [],
+};
+
+// عمود المعتمد المسند لكل مستوى
+const APPROVER_FIELD: Record<string, 'approverTlId' | 'approverCmId' | 'approverPmId'> = {
+  'team leader': 'approverTlId',
+  'construction manager': 'approverCmId',
+  'project manager': 'approverPmId',
+};
+
+export function isValidGrade(g: string): g is Grade {
+  return (GRADES as readonly string[]).includes(g);
+}
+
+// المستويات المطلوبة لدرجة معيّنة (قبل حساب مين مسند) — للتحذيرات في إدارة الحسابات
+export function requiredLevelsFor(grade: string): readonly string[] {
+  return CHAIN_BY_GRADE[grade] ?? CHAIN_BY_GRADE.junior;
+}
+
+// قائمة المستويات المعرّفة (بالترتيب) — أعمدة الجدول في تاب الاعتمادات
 export async function getApprovalLevels(): Promise<string[]> {
-  const row = await prisma.appConfig.findUnique({ where: { key: LEVELS_KEY } });
-  if (!row?.value) return [...DEFAULT_LEVELS];
-  const list = row.value.split('|').map((s) => s.trim()).filter(Boolean);
-  return list.length ? list : [...DEFAULT_LEVELS];
+  return [...APPROVING_GRADES];
 }
 
-export async function setApprovalLevels(levels: string[]): Promise<string[]> {
-  const clean = levels.map((s) => s.trim()).filter(Boolean).slice(0, 6);
-  await prisma.appConfig.upsert({ where: { key: LEVELS_KEY }, update: { value: clean.join('|') }, create: { key: LEVELS_KEY, value: clean.join('|') } });
-  return clean;
+// مدير المشروع واحد ثابت في المشروع — لو مفيش إسناد صريح وفيه حساب واحد بس بدرجة project manager
+// بنستخدمه تلقائيًا. لو فيه أكتر من واحد، الإسناد الصريح بقى إلزامي (وإلا المستوى يتخطى).
+async function soleProjectManagerId(): Promise<bigint | null> {
+  const pms = await prisma.user.findMany({ where: { grade: 'project manager' }, select: { id: true }, take: 2 });
+  return pms.length === 1 ? pms[0].id : null;
 }
 
-// المستويات "النشطة" = المعرّفة اللي ليها معتمد واحد على الأقل، بترتيب القائمة.
-// كده المرونة بتيجي من تعيين الحسابات: مستوى من غير معتمد بيتتخطى تلقائيًا.
-export async function getActiveLevels(): Promise<string[]> {
-  const levels = await getApprovalLevels();
-  const approvers = await prisma.user.findMany({ where: { approvalLevel: { not: null } }, select: { approvalLevel: true } });
-  const assigned = new Set(approvers.map((a) => a.approvalLevel as string));
-  return levels.filter((l) => assigned.has(l));
+// خانة واحدة في السلسلة: المستوى + الشخص المسند له
+export type ChainSlot = { level: string; approverId: bigint };
+export type ChainUser = { id: bigint; grade: string; approverTlId: bigint | null; approverCmId: bigint | null; approverPmId: bigint | null };
+
+// بناء السلسلة من بيانات المستخدم (بلا استعلام) — عشان الطابور يحسب سلاسل كتير باستعلام واحد
+export function buildChain(u: ChainUser, solePmId: bigint | null): ChainSlot[] {
+  const slots: ChainSlot[] = [];
+  for (const level of requiredLevelsFor(u.grade)) {
+    let approverId = u[APPROVER_FIELD[level]] ?? null;
+    if (!approverId && level === 'project manager') approverId = solePmId;
+    // معتمد مسند لكن نفسه صاحب الكشف (مدير فريق بيبعت كشفه) — يتخطى بدل ما يعتمد لنفسه
+    if (approverId && approverId !== u.id) slots.push({ level, approverId });
+  }
+  return slots;
 }
 
+// سلسلة كشوف مهندس معيّن: المستويات المطلوبة لدرجته، وبس اللي ليها معتمد مسند فعلًا
+export async function resolveChainForUser(userId: bigint): Promise<ChainSlot[]> {
+  const u = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true, grade: true, approverTlId: true, approverCmId: true, approverPmId: true },
+  });
+  if (!u) return [];
+  return buildChain(u, await soleProjectManagerId());
+}
+
+export { soleProjectManagerId };
 // نتيجة الانتقال في السلسلة:
 //  next  → فيه مستوى تالي     done → السلسلة خلصت (يتبعت لجوجل)
-//  stuck → المستوى الحالي للكشف مش من المستويات النشطة (اتعاد تسميته/اتشال والكشف واقف عنده)
+//  stuck → المستوى الحالي للكشف مش موجود في سلسلة صاحبه (درجته أو المعتمد المسند له اتغيّر والكشف واقف)
 //          → الكشف يفضل IN_REVIEW معلّقًا ومايتبعتش قبل أوانه؛ الأدمن هو اللي بيفكه
-export type ChainStep = { kind: 'next'; level: string } | { kind: 'done' } | { kind: 'stuck' };
+export type ChainStep = { kind: 'next'; level: string; approverId: bigint } | { kind: 'done' } | { kind: 'stuck' };
 
-export function nextLevel(activeLevels: string[], current: string | null): ChainStep {
-  if (!current) return activeLevels[0] ? { kind: 'next', level: activeLevels[0] } : { kind: 'done' };
-  const i = activeLevels.indexOf(current);
+export function nextLevel(chain: ChainSlot[], current: string | null): ChainStep {
+  if (!current) return chain[0] ? { kind: 'next', ...chain[0] } : { kind: 'done' };
+  const i = chain.findIndex((c) => c.level === current);
   if (i === -1) return { kind: 'stuck' };
-  if (i + 1 >= activeLevels.length) return { kind: 'done' };
-  return { kind: 'next', level: activeLevels[i + 1] };
+  if (i + 1 >= chain.length) return { kind: 'done' };
+  return { kind: 'next', ...chain[i + 1] };
 }
 
 // دفع الكشف فعليًا لجوجل شيت (بيقرأ الملف من التخزين) — يُستدعى لما السلسلة تخلص
@@ -81,16 +131,21 @@ export function approvalSummary(reviews: ReviewRow[], revision: number): string 
   return (revision > 0 ? `نسخة ${revision}\n` : '') + parts.join('\n');
 }
 
-// بدء السلسلة لكشف جديد (أو إعادة إرسال): يحدّد أول مستوى نشط.
-// لو مفيش أي مستوى نشط (مفيش معتمدين مضبوطين) → السلوك القديم: يتبعت لجوجل فورًا.
+// بدء السلسلة لكشف جديد (أو إعادة إرسال): أول معتمد مسند لصاحب الكشف.
+// لو مفيش أي معتمد مسند (أو درجته مش محتاجة اعتماد) → السلوك القديم: يتبعت لجوجل فورًا.
 export async function startChain(submissionId: bigint): Promise<{ sentToSheet: boolean; firstLevel: string | null }> {
-  const active = await getActiveLevels();
-  const first = active[0] ?? null;
+  const sub = await prisma.submission.findUnique({ where: { id: submissionId }, select: { userId: true } });
+  if (!sub) return { sentToSheet: false, firstLevel: null };
+  const chain = await resolveChainForUser(sub.userId);
+  const first = chain[0];
   if (!first) {
-    await prisma.submission.update({ where: { id: submissionId }, data: { reviewState: 'SENT', currentLevel: null } });
+    await prisma.submission.update({ where: { id: submissionId }, data: { reviewState: 'SENT', currentLevel: null, currentApproverId: null } });
     void pushSubmissionToSheet(submissionId);
     return { sentToSheet: true, firstLevel: null };
   }
-  await prisma.submission.update({ where: { id: submissionId }, data: { reviewState: 'IN_REVIEW', currentLevel: first } });
-  return { sentToSheet: false, firstLevel: first };
+  await prisma.submission.update({
+    where: { id: submissionId },
+    data: { reviewState: 'IN_REVIEW', currentLevel: first.level, currentApproverId: first.approverId },
+  });
+  return { sentToSheet: false, firstLevel: first.level };
 }
