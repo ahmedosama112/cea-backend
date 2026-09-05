@@ -110,18 +110,36 @@ export async function pushSubmissionToSheet(submissionId: bigint): Promise<void>
     },
   });
   if (!sub) return;
+  const toSend = await signedFileBuffer(submissionId);
+  if (!toSend) { console.error('[approval] ملف التسليم غير موجود عند الدفع لجوجل', submissionId.toString()); return; }
+  await pushSubmissionToGoogle(sub.id, toSend, sub.file.fileName, sub.user.email.split('@')[0], sub.user.project ?? null, sub.site, approvalSummary(sub.reviews, sub.revision));
+}
+
+// ملف الكشف **موقّعًا** بتوقيعات معتمدي النسخة الحالية — نفس النسخة اللي بتتبعت لجوجل.
+// النسخة الموقّعة عابرة (بتتولّد عند الطلب من الأصل + سجل المراجعات) فما بتتخزنش، وده بيخلي
+// المعاينة/التحميل بعد الاعتماد الكامل مطابقين دايمًا للي وصل الشيت.
+// فشل الختم مايوقفش حاجة — بيرجع الأصل بلا توقيعات والخطأ بيتسجّل. null = الملف نفسه مش موجود.
+export async function signedFileBuffer(submissionId: bigint): Promise<Buffer | null> {
+  const sub = await prisma.submission.findUnique({
+    where: { id: submissionId },
+    include: {
+      file: true,
+      reviews: {
+        orderBy: { createdAt: 'asc' },
+        include: { byUser: { select: { accountSettings: { select: { signatureFile: true } } } } },
+      },
+    },
+  });
+  if (!sub) return null;
   const buffer = await storage.read(sub.file.filePath).catch(() => null);
-  if (!buffer) { console.error('[approval] ملف التسليم غير موجود عند الدفع لجوجل', submissionId.toString()); return; }
-  // الملف بيتبعت موقّعًا: توقيع كل معتمد بيتلزق في مكانه قبل ما يوصل جوجل.
-  // فشل الختم مايوقفش الدفع — الكشف بيتبعت زي ما هو والخطأ بيتسجّل.
-  let toSend = buffer;
+  if (!buffer) return null;
   try {
     const sigs = await collectSignatures(sub.reviews, sub.revision);
-    if (sigs.length) toSend = await stampSignatures(buffer, sigs);
+    return sigs.length ? await stampSignatures(buffer, sigs) : buffer;
   } catch (e) {
-    console.error('[approval] فشل ختم التوقيعات — اتبعت النسخة بلا توقيعات', submissionId.toString(), (e as Error).message);
+    console.error('[approval] فشل ختم التوقيعات — استُخدمت النسخة بلا توقيعات', submissionId.toString(), (e as Error).message);
+    return buffer;
   }
-  await pushSubmissionToGoogle(sub.id, toSend, sub.file.fileName, sub.user.email.split('@')[0], sub.user.project ?? null, sub.site, approvalSummary(sub.reviews, sub.revision));
 }
 
 // توقيعات المستوى الواحد بتيجي من حساب المعتمد نفسه (نفس التوقيع اللي بيرفعه من شاشة "توقيع المهندس").

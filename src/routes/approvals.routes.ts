@@ -5,7 +5,7 @@ import { AppError } from '../utils/AppError';
 import { asyncHandler } from '../utils/asyncHandler';
 import { validate } from '../middlewares/validate';
 import { idParamSchema } from '../utils/crudFactory';
-import { getApprovalLevels, APPROVING_GRADES, buildChain, nextLevel, resolveChainForUser, soleProjectManagerId, pushSubmissionToSheet } from '../services/approvalChain';
+import { getApprovalLevels, APPROVING_GRADES, buildChain, nextLevel, resolveChainForUser, soleProjectManagerId, pushSubmissionToSheet, signedFileBuffer } from '../services/approvalChain';
 import { storage } from '../services/storage';
 
 // ═══════════ اعتمادات المديرين — تبويب المراجعة والاعتماد ═══════════
@@ -108,7 +108,12 @@ approvalsRoutes.get(
   asyncHandler(async (req: Request, res: Response) => {
     const sub = await prisma.submission.findUnique({ where: { id: BigInt(req.params.id) }, include: { file: true } });
     if (!sub) throw AppError.notFound('الكشف غير موجود');
-    const buffer = await storage.read(sub.file.filePath).catch(() => { throw AppError.notFound('ملف الكشف لم يعد موجودًا على السيرفر'); });
+    // بعد اكتمال السلسلة (SENT) المعاينة/التحميل بيرجّعوا النسخة **الموقّعة** — نفس اللي وصلت جوجل شيت.
+    // أثناء المراجعة بيرجّع الأصل زي ما بعته المهندس (التوقيعات لسه ما اكتملتش).
+    const buffer = sub.reviewState === 'SENT'
+      ? await signedFileBuffer(sub.id)
+      : await storage.read(sub.file.filePath).catch(() => null);
+    if (!buffer) throw AppError.notFound('ملف الكشف لم يعد موجودًا على السيرفر');
     res.setHeader('Content-Type', sub.file.mimeType);
     res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(sub.file.fileName)}`);
     res.send(buffer);
