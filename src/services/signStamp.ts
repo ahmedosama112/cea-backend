@@ -31,11 +31,14 @@ const DEFAULT_BLOCK: Record<string, Block> = {
 };
 
 // نص العنوان → المستوى ("توقيع العامل" = البلوك القديم اللي بقى لمدير الفريق)
+// كشف المعدات (سبتمبر 2026): عناوينه "المشرف المسئول" (= توقيع المهندس نفسه، بيتحط في الواجهة) و"مهندس التنفيذ"
+// (= construction manager). بلوك المشرف بيتسجل كـ 'engineer' عشان يتحسب ضمن الثلاثة ومايتحطش فوقه توقيع مدير الفريق
 function levelFromCaption(text: string): string | null {
   const t = text.replace(/\s+/g, ' ');
   if (t.includes('مدير المشروع')) return 'project manager';
-  if (t.includes('مدير التنفيذ')) return 'construction manager';
+  if (t.includes('التنفيذ')) return 'construction manager';
   if (t.includes('الفريق') || t.includes('العامل')) return 'team leader';
+  if (t.includes('المشرف') || t.includes('المهندس')) return 'engineer';
   return null;
 }
 
@@ -153,7 +156,10 @@ export async function stampSignatures(fileBuffer: Buffer, signatures: LevelSigna
     if (ws.rowCount < SIGNATURE_ROW) return;
     const blocks = blocksForSheet(ws);
     for (const { level, id, size } of imageIds) {
-      ws.addImage(id, { ...fitInBlock(ws, blocks[level], size), editAs: 'oneCell' } as unknown as ExcelJS.ImageRange);
+      // مستوى مالوش بلوك في الورقة دي (مثلًا مدير الفريق في كشف المعدات) بيتخطى بدل ما الختم يتكسر
+      const block = blocks[level];
+      if (!block) continue;
+      ws.addImage(id, { ...fitInBlock(ws, block, size), editAs: 'oneCell' } as unknown as ExcelJS.ImageRange);
     }
   });
 

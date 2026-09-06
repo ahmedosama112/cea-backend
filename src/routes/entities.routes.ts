@@ -8,6 +8,9 @@ import {
   inspectorUpdateSchema,
   irCreateSchema,
   irUpdateSchema,
+  equipmentCreateSchema,
+  equipmentUpdateSchema,
+  minutesBetween,
   placeCreateSchema,
   placeUpdateSchema,
   todoCreateSchema,
@@ -51,6 +54,21 @@ export const irRouter = crudRouter({
   updateSchema: irUpdateSchema,
   orderBy: { date: 'desc' },
   toData: (b) => ({ ...b, ...(b.date ? { date: new Date(b.date as string) } : {}) }),
+});
+
+// سركي المعدات — سطر لكل يوم تشغيل. minutes دايمًا من السيرفر (PUT بيبعت السجل كامل زي saveRecord)
+export const equipmentRouter = crudRouter({
+  delegate: prisma.equipmentRecord,
+  createSchema: equipmentCreateSchema,
+  updateSchema: equipmentUpdateSchema,
+  orderBy: { date: 'desc' },
+  toData: (b) => {
+    const out: Record<string, unknown> = { ...b };
+    delete out.minutes;
+    if (b.date) out.date = new Date(b.date as string);
+    if (b.timeFrom && b.timeTo) out.minutes = minutesBetween(b.timeFrom as string, b.timeTo as string);
+    return out;
+  },
 });
 
 export const todosRouter = crudRouter({

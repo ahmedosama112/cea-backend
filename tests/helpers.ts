@@ -18,7 +18,7 @@ export async function resetDb() {
   const tables = [
     'record_deductions', 'records', 'ir_records', 'todos',
     'exec_record_stages', 'exec_records', 'item_stages', 'items',
-    'daily_records', 'contractors', 'places', 'inspectors',
+    'daily_records', 'equipment_records', 'contractors', 'places', 'inspectors',
     'purchase_requests', 'stock_moves', 'issue_request_lines', 'issue_requests', 'inventory_items',
     'submission_reviews', 'submissions', 'app_config',
     'account_settings', 'files', 'refresh_tokens', 'password_reset_tokens', 'users',

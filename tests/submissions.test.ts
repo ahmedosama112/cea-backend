@@ -36,6 +36,31 @@ describe('تسليمات الكشوف المعتمدة', () => {
     subId = res.body.data.id;
   });
 
+  it('كشف معدات: kind=equipment بيتحفظ، والافتراضي labor', async () => {
+    const res = await request(app)
+      .post('/api/submissions')
+      .set(auth(eng.token))
+      .field('contractorName', 'محمد عبد الله للمعدات')
+      .field('placeName', 'لودر كاتربيلر 950')
+      .field('weekStart', '2026-08-20')
+      .field('weekEnd', '2026-09-19')
+      .field('total', '151.5')
+      .field('recordsCount', '18')
+      .field('kind', 'equipment')
+      .attach('file', fakeXlsx, 'سركي_معدات.xlsx');
+    expect(res.status).toBe(201);
+    expect(res.body.data.kind).toBe('equipment');
+    const first = await prisma.submission.findUnique({ where: { id: BigInt(subId) }, select: { kind: true } });
+    expect(first!.kind).toBe('labor');
+    const bad = await request(app).post('/api/submissions').set(auth(eng.token))
+      .field('contractorName', 'x').field('weekStart', '2026-08-12').field('weekEnd', '2026-08-18').field('total', '1').field('recordsCount', '1').field('kind', 'other')
+      .attach('file', fakeXlsx, 'x.xlsx');
+    expect(bad.status).toBe(400);
+    // تنظيف: الاختبارات اللي بعده بتعدّ الكشوف (كشف واحد للمهندس)
+    const del = await request(app).delete(`/api/submissions/${res.body.data.id}`).set(auth(admin.token));
+    expect(del.status).toBe(200);
+  });
+
   it('بدون ملف = 400', async () => {
     const res = await request(app).post('/api/submissions').set(auth(eng.token)).field('contractorName', 'x').field('weekStart', '2026-08-12').field('weekEnd', '2026-08-18').field('total', '1').field('recordsCount', '1');
     expect(res.status).toBe(400);

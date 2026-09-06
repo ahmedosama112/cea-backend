@@ -120,6 +120,24 @@ describe('ختم التوقيعات على الكشف', () => {
     expect(blocksForSheet(bare)['project manager']).toEqual({ from: 0, to: 5 });
   });
 
+  it('كشف المعدات: "المشرف المسئول / مهندس التنفيذ / مدير المشروع" — بلوك المشرف للمهندس، ومدير الفريق بلا بلوك يتخطى', async () => {
+    const EQUIP_CAPTIONS = ['توقيع مدير المشروع', 'توقيع مهندس التنفيذ', 'توقيع المشرف المسئول'];
+    const src = await makeSheet(20, 1, EQUIP_CAPTIONS);
+    const blocks = blocksForSheet((await load(src)).worksheets[0]);
+    expect(blocks['project manager']).toEqual({ from: 0, to: 5 });
+    expect(blocks['construction manager']).toEqual({ from: 6, to: 9 });
+    expect(blocks['engineer']).toEqual({ from: 9, to: 13 });
+    expect(blocks['team leader']).toBeUndefined(); // مفيش بلوك لمدير الفريق — ما يترجعش للافتراضي فوق بلوك المشرف
+    const out = await load(await stampSignatures(src, [
+      { level: 'project manager', image: PNG_1PX, ext: 'png' },
+      { level: 'construction manager', image: PNG_1PX, ext: 'png' },
+      { level: 'team leader', image: PNG_1PX, ext: 'png' },
+    ]));
+    const imgs = out.worksheets[0].getImages();
+    expect(imgs.length).toBe(2); // مدير الفريق اتخطى بدل ما الختم يتكسر
+    expect(imgs.every((im) => im.range.tl.nativeCol < 9)).toBe(true); // ولا صورة فوق بلوك المشرف (J)
+  });
+
   it('بيحافظ على محتوى الملف الأصلي (القراءة/الكتابة مش بتضيّع الخلايا ولا الدمج)', async () => {
     const src = await makeSheet();
     const out = await stampSignatures(src, [{ level: 'team leader', image: PNG_1PX, ext: 'png' }]);

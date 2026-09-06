@@ -2,7 +2,7 @@
 // يحددها الأدمن من "إدارة الحسابات". الواجهة فيها نسخة مطابقة من نفس القائمة (app.js: FEATURES).
 
 // ── الوحدات: بتقفل الشاشة كلها + السيرفر يرفض مساراتها ──
-export const ALL_MODULES = ['records', 'submissions', 'ir', 'site_daily', 'site_exec', 'todo', 'summary', 'inventory', 'approvals'] as const;
+export const ALL_MODULES = ['records', 'submissions', 'ir', 'site_daily', 'site_exec', 'todo', 'summary', 'inventory', 'approvals', 'equipment'] as const;
 export type ModuleKey = (typeof ALL_MODULES)[number];
 export const DEFAULT_MODULES: ModuleKey[] = ['records', 'submissions', 'todo', 'summary'];
 export const MODULE_LABELS: Record<ModuleKey, string> = {
@@ -15,6 +15,7 @@ export const MODULE_LABELS: Record<ModuleKey, string> = {
   summary: 'الملخص',
   inventory: 'المخازن (مخزون + طلبات صرف وشراء)',
   approvals: 'اعتمادات المديرين (مراجعة واعتماد الكشوف)',
+  equipment: 'سركي المعدات (إيجار معدات شهري 20→19)',
 };
 
 // ── الكروت: إخفاء/إظهار أجزاء داخل الشاشات (واجهة فقط — البيانات لسه محمية بالوحدات) ──
@@ -63,6 +64,7 @@ export const ROUTE_MODULE: Record<string, ModuleKey> = {
   '/exec-records': 'site_exec',
   '/todos': 'todo',
   '/inventory': 'inventory',
+  '/equipment-records': 'equipment',
 };
 
 export function normalizeModules(input: unknown): ModuleKey[] {

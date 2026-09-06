@@ -45,6 +45,31 @@ export const irCreateSchema = z.object({
 });
 export const irUpdateSchema = irCreateSchema.partial();
 
+// ── سركي المعدات — نفس حقول saveEquipment في app.js ──
+// الوقت "HH:MM" (24 ساعة). المدة (minutes) بتتحسب في السيرفر — أي قيمة مُرسلة بتتجاهل.
+export const hhmm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'الوقت يجب أن يكون بصيغة HH:MM');
+export const equipmentCreateSchema = z.object({
+  date: ymdDate,
+  day: z.string().trim().min(1, 'اليوم مطلوب').max(20),
+  contractor: z.string().trim().min(1, 'اختر المقاول').max(190),
+  equipment: z.string().trim().min(1, 'اكتب اسم المعدة').max(190),
+  place: z.string().trim().min(1, 'اختر المكان').max(190),
+  timeFrom: hhmm,
+  timeTo: hhmm,
+  works: z.string().trim().max(5000).optional().default(''),
+  notes: z.string().trim().max(500).optional().default(''),
+});
+export const equipmentUpdateSchema = equipmentCreateSchema.partial();
+
+// المدة بالدقائق من "من/إلى": لو "إلى" أصغر من "من" = الوردية عدّت نص الليل (مثلاً 22:00 → 06:00 = 8 ساعات)
+export function minutesBetween(from: string, to: string): number {
+  const [fh, fm] = from.split(':').map(Number);
+  const [th, tm] = to.split(':').map(Number);
+  let d = th * 60 + tm - (fh * 60 + fm);
+  if (d < 0) d += 24 * 60;
+  return d;
+}
+
 // ── المهام — نفس حقول saveTodo في app.js ──
 export const todoCreateSchema = z.object({
   date: ymdDate,
