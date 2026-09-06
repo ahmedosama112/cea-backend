@@ -297,6 +297,108 @@ adminRoutes.get(
   }),
 );
 
+// ── ملخص نشاط كل الحسابات (جدول واحد) — الحسابات كلها حتى اللي مالهاش نشاط ──
+// استعلامان مجمّعان بس (مش استعلام لكل حساب): groupBy للعدادات + آخر سطر لكل حدث.
+adminRoutes.get(
+  '/activity/summary',
+  validate({ query: z.object({ days: z.coerce.number().int().min(1).max(60).optional().default(7) }) }),
+  asyncHandler(async (req: Request, res: Response) => {
+    const days = (req.query as unknown as { days: number }).days;
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+    const users = await prisma.user.findMany({
+      select: {
+        id: true, email: true, title: true, grade: true, site: true, lastSeenAt: true, createdAt: true,
+        syncLocalRecords: true, syncUnsynced: true, syncReportedAt: true,
+        accountSettings: { select: { enabledModules: true } },
+      },
+      orderBy: { email: 'asc' },
+    });
+
+    const logs = await prisma.activityLog.findMany({
+      where: { createdAt: { gte: since } },
+      orderBy: { createdAt: 'desc' },
+      select: { userId: true, email: true, event: true, detail: true, status: true, path: true, createdAt: true },
+      take: 20000,
+    });
+
+    type Agg = {
+      loginOk: number; loginFail: number; sync: number; errors: number;
+      lastLoginOk: Date | null; lastLoginFail: Date | null; lastSync: Date | null;
+      lastFailDetail: string | null; lastSyncDetail: string | null;
+      // أكثر خطأ متكرر (status+path) وآخر مرة حصل فيها
+      errTop: { status: number | null; path: string | null; detail: string | null; count: number; at: Date } | null;
+    };
+    const byUser = new Map<string, Agg>();
+    const errCount = new Map<string, { status: number | null; path: string | null; detail: string | null; count: number; at: Date }>();
+    const keyOf = (l: { userId: bigint | null; email: string }) => (l.userId ? 'u' + l.userId.toString() : 'e' + l.email);
+
+    for (const l of logs) {
+      const k = keyOf(l);
+      let a = byUser.get(k);
+      if (!a) {
+        a = { loginOk: 0, loginFail: 0, sync: 0, errors: 0, lastLoginOk: null, lastLoginFail: null, lastSync: null, lastFailDetail: null, lastSyncDetail: null, errTop: null };
+        byUser.set(k, a);
+      }
+      // اللوجات مرتبة من الأحدث، فأول ما نشوف حدث بيبقى هو الأحدث
+      if (l.event === 'LOGIN_OK') { a.loginOk++; if (!a.lastLoginOk) a.lastLoginOk = l.createdAt; }
+      else if (l.event === 'LOGIN_FAIL') { a.loginFail++; if (!a.lastLoginFail) { a.lastLoginFail = l.createdAt; a.lastFailDetail = l.detail; } }
+      else if (l.event === 'SYNC') { a.sync++; if (!a.lastSync) { a.lastSync = l.createdAt; a.lastSyncDetail = l.detail; } }
+      else if (l.event === 'API_ERR') {
+        a.errors++;
+        const ek = k + '|' + l.status + '|' + l.path;
+        const cur = errCount.get(ek);
+        if (cur) cur.count++;
+        else errCount.set(ek, { status: l.status, path: l.path, detail: l.detail, count: 1, at: l.createdAt });
+      }
+    }
+    // أكثر خطأ متكرر لكل حساب
+    for (const [ek, v] of errCount) {
+      const k = ek.split('|')[0];
+      const a = byUser.get(k);
+      if (a && (!a.errTop || v.count > a.errTop.count)) a.errTop = v;
+    }
+
+    const empty = (): Agg => ({ loginOk: 0, loginFail: 0, sync: 0, errors: 0, lastLoginOk: null, lastLoginFail: null, lastSync: null, lastFailDetail: null, lastSyncDetail: null, errTop: null });
+    // ⚠ محاولات الدخول الفاشلة بتتسجل بالإيميل بس (مفيش userId وقتها) — فلازم ندمج المفتاحين،
+    // وإلا فشل الدخول لحساب موجود ما بيظهرش في الملخص خالص (وهو أهم عمود فيه).
+    const merge = (a: Agg, b: Agg | undefined): Agg => {
+      if (!b) return a;
+      const newer = (x: Date | null, y: Date | null) => (!x ? y : !y ? x : x > y ? x : y);
+      return {
+        loginOk: a.loginOk + b.loginOk, loginFail: a.loginFail + b.loginFail,
+        sync: a.sync + b.sync, errors: a.errors + b.errors,
+        lastLoginOk: newer(a.lastLoginOk, b.lastLoginOk),
+        lastLoginFail: newer(a.lastLoginFail, b.lastLoginFail),
+        lastSync: newer(a.lastSync, b.lastSync),
+        lastFailDetail: (a.lastLoginFail && (!b.lastLoginFail || a.lastLoginFail > b.lastLoginFail)) ? a.lastFailDetail : b.lastFailDetail,
+        lastSyncDetail: (a.lastSync && (!b.lastSync || a.lastSync > b.lastSync)) ? a.lastSyncDetail : b.lastSyncDetail,
+        errTop: !a.errTop ? b.errTop : !b.errTop ? a.errTop : (b.errTop.count > a.errTop.count ? b.errTop : a.errTop),
+      };
+    };
+    const data = users.map((u) => {
+      const a = merge(byUser.get('u' + u.id.toString()) ?? empty(), byUser.get('e' + u.email));
+      const mods = (u.accountSettings?.enabledModules as string[] | null) ?? null;
+      return {
+        id: u.id.toString(),
+        email: u.email,
+        title: u.title,
+        grade: u.grade,
+        site: u.site,
+        lastSeenAt: u.lastSeenAt,
+        createdAt: u.createdAt,
+        // الحساب المعتمد بس (بلا وحدة السراكي) مالوش مزامنة أصلًا — الواجهة بتستخدمها في الترجمة
+        hasRecords: mods === null || mods.includes('records'),
+        syncLocalRecords: u.syncLocalRecords,
+        syncUnsynced: u.syncUnsynced,
+        syncReportedAt: u.syncReportedAt,
+        ...a,
+      };
+    });
+    res.json({ success: true, days, data });
+  }),
+);
+
 // ── قائمة الوحدات المتاحة (للواجهة) ──
 adminRoutes.get(
   '/modules',

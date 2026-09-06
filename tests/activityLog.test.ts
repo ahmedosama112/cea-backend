@@ -40,8 +40,29 @@ describe('سجل النشاط', () => {
     expect(err.path).toBe('/api/records');
   });
 
+  it('ملخص كل الحسابات: بيرجّع كل حساب حتى لو مالوش نشاط، بعدادات وأكثر خطأ متكرر', async () => {
+    const res = await request(app).get('/api/admin/activity/summary?days=7').set(auth(admin.token));
+    expect(res.status).toBe(200);
+    // الحسابين الاتنين موجودين (الأدمن مالوش نشاط يُذكر — ولازم يظهر برضو)
+    expect(res.body.data.length).toBeGreaterThanOrEqual(2);
+    const row = res.body.data.find((r: { email: string }) => r.email === 'act@test.com');
+    expect(row.loginOk).toBeGreaterThanOrEqual(1);
+    expect(row.loginFail).toBeGreaterThanOrEqual(1);
+    expect(row.sync).toBeGreaterThanOrEqual(1);
+    expect(row.errors).toBeGreaterThanOrEqual(1);
+    expect(row.errTop.status).toBe(403);
+    expect(row.errTop.path).toBe('/api/records');
+    // الحساب بقى معتمد بس (بلا وحدة السراكي) — الواجهة بتترجم 403 لـ"طبيعي" بناءً على ده
+    expect(row.hasRecords).toBe(false);
+    const adminRow = res.body.data.find((r: { email: string }) => r.email.includes('admin'));
+    expect(adminRow).toBeTruthy();
+    expect(adminRow.errTop).toBeNull();
+  });
+
   it('السجل للأدمن فقط', async () => {
     const denied = await request(app).get('/api/admin/activity').set(auth(eng.token));
     expect(denied.status).toBe(403);
+    const denied2 = await request(app).get('/api/admin/activity/summary').set(auth(eng.token));
+    expect(denied2.status).toBe(403);
   });
 });
