@@ -51,6 +51,17 @@ describe('Equipment records (سركي المعدات)', () => {
     id = res.body.data.id;
   });
 
+  it('بالخصم على + ملاحظة الخصم بيتحفظوا ويرجعوا كمصفوفة', async () => {
+    const res = await request(app).post('/api/equipment-records').set(auth(admin.token))
+      .send({ ...base, deductOn: ['حمدي صديق', 'عطا محمد'], deductNote: 'سلفة' });
+    expect(res.status).toBe(201);
+    expect(res.body.data.deductOn).toEqual(['حمدي صديق', 'عطا محمد']);
+    expect(res.body.data.deductNote).toBe('سلفة');
+    const bad = await request(app).post('/api/equipment-records').set(auth(admin.token)).send({ ...base, deductOn: 'x' });
+    expect(bad.status).toBe(400);
+    await request(app).delete(`/api/equipment-records/${res.body.data.id}`).set(auth(admin.token));
+  });
+
   it('التعديل يعيد حساب المدة', async () => {
     const res = await request(app).put(`/api/equipment-records/${id}`).set(auth(admin.token)).send({ ...base, timeFrom: '22:00', timeTo: '06:00' });
     expect(res.status).toBe(200);

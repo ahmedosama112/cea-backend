@@ -58,6 +58,8 @@ export const equipmentCreateSchema = z.object({
   timeTo: hhmm,
   works: z.string().trim().max(5000).optional().default(''),
   notes: z.string().trim().max(500).optional().default(''),
+  deductOn: z.array(z.string().trim().min(1).max(190)).max(20).optional().default([]),
+  deductNote: z.string().trim().max(255).optional().default(''),
 });
 export const equipmentUpdateSchema = equipmentCreateSchema.partial();
 
