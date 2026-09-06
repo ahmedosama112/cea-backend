@@ -4,6 +4,7 @@ import { env } from './config/env';
 import { prisma } from './config/prisma';
 import { scheduleDailyBackup } from './services/backup';
 import { scheduleTokenCleanup } from './services/auth.service';
+import { scheduleActivityCleanup } from './services/activityLog';
 
 fs.mkdirSync(env.uploadDir, { recursive: true });
 
@@ -15,6 +16,7 @@ const server = app.listen(env.port, () => {
 if (env.nodeEnv === 'production') scheduleDailyBackup();
 // (L5) تنظيف يومي للتوكنات المنتهية/الملغية — بدونه جداول التوكنات تنمو للأبد
 if (env.nodeEnv !== 'test') scheduleTokenCleanup();
+if (env.nodeEnv !== 'test') scheduleActivityCleanup();
 
 async function shutdown(signal: string) {
   console.log(`${signal} received — shutting down gracefully`);

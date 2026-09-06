@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { authService } from '../services/auth.service';
 import { prisma } from '../config/prisma';
 import { asyncHandler } from '../utils/asyncHandler';
+import { logActivity } from '../services/activityLog';
 
 export const authController = {
   register: asyncHandler(async (req: Request, res: Response) => {
@@ -13,8 +14,15 @@ export const authController = {
 
   login: asyncHandler(async (req: Request, res: Response) => {
     const { email, password } = req.body;
-    const result = await authService.login(email, password);
-    res.json({ success: true, data: result });
+    try {
+      const result = await authService.login(email, password);
+      logActivity(req, 'LOGIN_OK', { userId: BigInt(result.user.id), email: result.user.email });
+      res.json({ success: true, data: result });
+    } catch (e) {
+      // الفشل بيتسجل بالإيميل اللي اتكتب (حتى لو الحساب مش موجود) — بيفرّق بين "باسورد غلط" و"الحساب متقفل"
+      logActivity(req, 'LOGIN_FAIL', { email: String(email || '').toLowerCase(), detail: (e as Error).message });
+      throw e;
+    }
   }),
 
   refresh: asyncHandler(async (req: Request, res: Response) => {

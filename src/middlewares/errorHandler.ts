@@ -3,11 +3,21 @@ import { Prisma } from '@prisma/client';
 import { ZodError } from 'zod';
 import multer from 'multer';
 import { AppError } from '../utils/AppError';
+import { logActivity } from '../services/activityLog';
+
+// أخطاء ما تتسجلش في سجل النشاط: تجديد التوكن العادي (401 متكرر بطبيعته)،
+// وفشل الدخول (متسجل أصلًا كـ LOGIN_FAIL بتفصيل أوضح — تسجيله هنا كمان بيكرره)
+const NOISY = (status: number, path: string) =>
+  status === 401 && (path.includes('/auth/refresh') || path.includes('/auth/login'));
 
 // صيغة استجابة أخطاء موحدة للـ API كله — بدون تسريب stack traces أو تفاصيل DB للمستخدم
 export function errorHandler(err: unknown, _req: Request, res: Response, _next: NextFunction) {
   if (err instanceof AppError) {
     if (err.status >= 500) console.error(err);
+    // سجل النشاط: عشان الأدمن يعرف سبب مشكلة عند حساب معيّن من كارت الحساب
+    if (err.status >= 400 && !NOISY(err.status, _req.originalUrl)) {
+      logActivity(_req, 'API_ERR', { status: err.status, detail: err.message });
+    }
     return res.status(err.status).json({ success: false, message: err.message, code: err.code, details: err.details });
   }
 
@@ -38,6 +48,7 @@ export function errorHandler(err: unknown, _req: Request, res: Response, _next: 
   }
 
   console.error('Unhandled error:', err);
+  logActivity(_req, 'API_ERR', { status: 500, detail: (err as Error)?.message ?? 'خطأ غير متوقع' });
   return res.status(500).json({ success: false, message: 'حدث خطأ غير متوقع في السيرفر', code: 'INTERNAL_ERROR' });
 }
 

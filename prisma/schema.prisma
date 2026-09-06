@@ -75,6 +75,7 @@ model User {
   IssueRequest        IssueRequest[]
   PurchaseRequest     PurchaseRequest[]
   submissionReviews   SubmissionReview[]
+  activityLogs        ActivityLog[]
 
   approverTl          User?  @relation("ApproverTl", fields: [approverTlId], references: [id], onDelete: SetNull)
   approverCm          User?  @relation("ApproverCm", fields: [approverCmId], references: [id], onDelete: SetNull)
@@ -565,4 +566,27 @@ model SubmissionReview {
 
   @@index([submissionId])
   @@map("submission_reviews")
+}
+
+// سجل نشاط الحسابات — الأدمن بيشوفه في كارت الحساب عشان يعرف سبب مشكلة دخول/مزامنة
+// عند مستخدم معيّن من غير ما يفتح لوجات السيرفر. بيتنضف تلقائيًا بعد 14 يوم.
+model ActivityLog {
+  id        BigInt   @id @default(autoincrement())
+  userId    BigInt?  @map("user_id")
+  // الإيميل بيتخزن كنص كمان عشان محاولات الدخول الفاشلة (ممكن الحساب ما يكونش موجود أصلًا)
+  email     String   @db.VarChar(190)
+  // LOGIN_OK · LOGIN_FAIL · SYNC · API_ERR
+  event     String   @db.VarChar(20)
+  detail    String?  @db.VarChar(300)
+  status    Int?
+  path      String?  @db.VarChar(160)
+  ip        String?  @db.VarChar(45)
+  device    String?  @db.VarChar(160)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([createdAt])
+  @@map("activity_logs")
 }

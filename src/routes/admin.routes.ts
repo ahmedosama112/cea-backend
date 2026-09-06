@@ -282,6 +282,21 @@ adminRoutes.get(
   }),
 );
 
+// ── سجل نشاط حساب (دخول/مزامنة/أخطاء) — لتشخيص مشاكل المهندسين من كارت الحساب ──
+adminRoutes.get(
+  '/activity',
+  validate({ query: z.object({ userId: z.coerce.bigint().optional(), email: z.string().max(190).optional(), limit: z.coerce.number().int().min(1).max(200).optional().default(60) }) }),
+  asyncHandler(async (req: Request, res: Response) => {
+    const q = req.query as unknown as { userId?: bigint; email?: string; limit: number };
+    const rows = await prisma.activityLog.findMany({
+      where: q.userId ? { userId: q.userId } : q.email ? { email: q.email } : {},
+      orderBy: { createdAt: 'desc' },
+      take: q.limit,
+    });
+    res.json({ success: true, data: rows.map((r) => ({ ...r, id: r.id.toString(), userId: r.userId?.toString() ?? null })) });
+  }),
+);
+
 // ── قائمة الوحدات المتاحة (للواجهة) ──
 adminRoutes.get(
   '/modules',

@@ -5,6 +5,7 @@ import { asyncHandler } from '../utils/asyncHandler';
 import { accountController, accountSettingsSchema } from '../controllers/account.controller';
 import { authenticate, requireRole } from '../middlewares/auth';
 import { validate } from '../middlewares/validate';
+import { logActivity } from '../services/activityLog';
 
 export const accountRoutes = Router();
 accountRoutes.use(authenticate);
@@ -21,6 +22,7 @@ accountRoutes.post(
       where: { id: req.user!.id },
       data: { syncLocalRecords: req.body.localRecords, syncUnsynced: req.body.unsynced, syncReportedAt: new Date() },
     });
+    logActivity(req, 'SYNC', { detail: `${req.body.localRecords} سجل على الجهاز · ${req.body.unsynced} لسه ما اترفعوش` });
     res.json({ success: true });
   }),
 );
