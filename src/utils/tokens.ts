@@ -13,7 +13,8 @@ export function signAccessToken(payload: AccessTokenPayload): string {
 }
 
 export function verifyAccessToken(token: string): AccessTokenPayload {
-  return jwt.verify(token, env.jwtAccessSecret) as AccessTokenPayload;
+  // تثبيت الخوارزمية (HS256) — يمنع أي التباس خوارزمي لو المكتبة/الإعداد اتغيّر مستقبلًا
+  return jwt.verify(token, env.jwtAccessSecret, { algorithms: ['HS256'] }) as AccessTokenPayload;
 }
 
 // Refresh tokens وpassword-reset tokens: قيمة عشوائية تُرسل للعميل، ويُخزَّن الـ hash فقط في DB

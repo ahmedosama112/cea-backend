@@ -138,6 +138,11 @@ describe('اعتمادات المديرين', () => {
     expect(viaApr.headers['content-disposition']).toContain('attachment');
     const denied = await request(app).get(`/api/approvals/${id}/file`).set(auth(eng.token));
     expect(denied.status).toBe(403);
+    // (فحص أمني 6 سبتمبر) معتمد عنده الوحدة لكن الكشف مش في نطاقه (مدير فريق تاني) → 404، والأدمن يفتح أي كشف
+    const outOfScope = await request(app).get(`/api/approvals/${id}/file`).set(auth(tl2.token));
+    expect(outOfScope.status).toBe(404);
+    const adm = await request(app).get(`/api/approvals/${id}/file`).set(auth(admin.token));
+    expect(adm.status).toBe(200);
   });
 
   it('الأدمن يخفي صفًا من الطابور فقط — الكشف يفضل في "تسليماتي" وسجله كامل، وغير الأدمن ممنوع', async () => {

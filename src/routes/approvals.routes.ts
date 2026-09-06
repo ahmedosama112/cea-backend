@@ -102,12 +102,24 @@ approvalsRoutes.get(
 
 // ملف الكشف للمراجعة/التحميل من تاب الاعتمادات — لأي حساب عنده وحدة approvals (المعتمدين مش أصحاب الملف ولا أدمن،
 // فمسار /submissions/:id/file بيرفضهم: محمي بوحدة submissions وبشرط صاحب الملف/أدمن)
+// النطاق (فحص أمني 6 سبتمبر 2026): كان أي حساب عنده الوحدة يقدر ينزّل أي كشف بمعرّفه (IDOR).
+// بقى مقصور على: الأدمن، أو الكشف مسند له، أو صاحب الكشف من مهندسيه المسندين، أو اعتمده/رفضه قبل كده،
+// أو كشف قديم (بلا إسناد) واقف عند مستوى درجته — نفس نطاق الطابور بلا نافذة زمنية.
 approvalsRoutes.get(
   '/:id/file',
   validate({ params: idParamSchema }),
   asyncHandler(async (req: Request, res: Response) => {
-    const sub = await prisma.submission.findUnique({ where: { id: BigInt(req.params.id) }, include: { file: true } });
+    const sub = await prisma.submission.findUnique({ where: { id: BigInt(req.params.id) }, include: { file: true, user: { select: { approverTlId: true, approverCmId: true, approverPmId: true } }, reviews: { select: { byUserId: true } } } });
     if (!sub) throw AppError.notFound('الكشف غير موجود');
+    if (req.user!.role !== 'ADMIN') {
+      const myId = req.user!.id;
+      const me = await prisma.user.findUnique({ where: { id: myId }, select: { grade: true } });
+      const inScope = sub.currentApproverId === myId
+        || sub.user.approverTlId === myId || sub.user.approverCmId === myId || sub.user.approverPmId === myId
+        || sub.reviews.some((r) => r.byUserId === myId)
+        || (sub.currentApproverId === null && !!me?.grade && (APPROVING_GRADES as readonly string[]).includes(me.grade) && sub.currentLevel === me.grade);
+      if (!inScope) throw AppError.notFound('الكشف غير موجود');
+    }
     // بعد اكتمال السلسلة (SENT) المعاينة/التحميل بيرجّعوا النسخة **الموقّعة** — نفس اللي وصلت جوجل شيت.
     // أثناء المراجعة بيرجّع الأصل زي ما بعته المهندس (التوقيعات لسه ما اكتملتش).
     const buffer = sub.reviewState === 'SENT'
