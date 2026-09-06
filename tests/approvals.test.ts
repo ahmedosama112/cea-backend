@@ -242,6 +242,35 @@ describe('اعتمادات المديرين', () => {
     await patchUser(admin.token, eng.id, { approverCmId: null });
   });
 
+  it('المصفوفة قابلة للتعديل: الترتيب بيتفرض بترتيب السلم، والسلسلة الجديدة بتتطبق على الكشوف الجاية', async () => {
+    // junior: نشيل مدير التنفيذ ونسيب مدير الفريق + مدير المشروع (بترتيب مقلوب عمدًا)
+    const put = await request(app).put('/api/admin/approval-matrix').set(auth(admin.token))
+      .send({ matrix: { junior: ['project manager', 'team leader'], senior: ['team leader'], 'team leader': [], 'construction manager': [], 'project manager': [] } });
+    expect(put.status).toBe(200);
+    expect(put.body.data.junior).toEqual(['team leader', 'project manager']); // اترتبت بترتيب السلم
+    expect(put.body.data.senior).toEqual(['team leader']);
+
+    // كشف junior جديد: مدير الفريق ← مدير المشروع (مدير التنفيذ اتشال من السلسلة)
+    await patchUser(admin.token, eng.id, { approverCmId: cm.id });
+    const res = await submit(eng.token);
+    expect(res.body.data.currentLevel).toBe('team leader');
+    const a = await request(app).post(`/api/approvals/${res.body.data.id}/decide`).set(auth(tl.token)).send({ decision: 'APPROVED' });
+    expect(a.body.data.currentLevel).toBe('project manager'); // عدّى مدير التنفيذ رغم إنه مسند
+    const b = await request(app).post(`/api/approvals/${res.body.data.id}/decide`).set(auth(pm.token)).send({ decision: 'APPROVED' });
+    expect(b.body.data.reviewState).toBe('SENT');
+
+    const info = await request(app).get('/api/admin/approval-matrix').set(auth(admin.token));
+    expect(info.body.data.matrix.junior).toEqual(['team leader', 'project manager']);
+    expect(typeof info.body.data.inReview).toBe('number');
+
+    // نرجّع الافتراضي لباقي الاختبارات
+    const restore = await request(app).put('/api/admin/approval-matrix').set(auth(admin.token))
+      .send({ matrix: { junior: ['team leader', 'construction manager', 'project manager'], senior: ['team leader', 'construction manager', 'project manager'], 'team leader': ['construction manager', 'project manager'], 'construction manager': [], 'project manager': [] } });
+    expect(restore.status).toBe(200);
+    expect(restore.body.data['team leader']).toEqual(['construction manager', 'project manager']);
+    await patchUser(admin.token, eng.id, { approverCmId: null });
+  });
+
   it('الأدمن يشوف الدرجات والمصفوفة وقوائم المعتمدين + تحذير المستوى الناقص', async () => {
     const lv = await request(app).get('/api/admin/approval-levels').set(auth(admin.token));
     expect(lv.status).toBe(200);

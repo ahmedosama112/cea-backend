@@ -13,7 +13,7 @@ import { placeCreateSchema, contractorCreateSchema, contractorUpdateSchema } fro
 import { arabizeRateTypes, toEnum, RateTypeAr } from '../utils/rateType';
 import { storage } from '../services/storage';
 import { runBackupToDrive } from '../services/backup';
-import { GRADES, APPROVING_GRADES, isValidGrade, requiredLevelsFor, soleProjectManagerId } from '../services/approvalChain';
+import { GRADES, APPROVING_GRADES, isValidGrade, requiredLevelsFor, soleProjectManagerId, getApprovalMatrix, setApprovalMatrix } from '../services/approvalChain';
 
 // إدارة الأدمن لحسابات المهندسين — البديل الرسمي للوحة تحكم Supabase:
 // الأدمن ينشئ الحسابات (عبر /api/auth/register بتوكنه) ويزرع لكل مهندس:
@@ -274,7 +274,7 @@ adminRoutes.get(
         grades: [...GRADES],
         levels: [...APPROVING_GRADES],
         // مين بيعتمد لمين — للعرض في شاشة الإدارة
-        matrix: Object.fromEntries(GRADES.map((g) => [g, requiredLevelsFor(g)])),
+        matrix: getApprovalMatrix(),
         approvers,
         solePmId: (await soleProjectManagerId())?.toString() ?? null,
       },
@@ -396,6 +396,25 @@ adminRoutes.get(
       };
     });
     res.json({ success: true, days, data });
+  }),
+);
+
+// ── مصفوفة "مين يعتمد لمين" (قابلة للتعديل من شاشة الإدارة) ──
+// الترتيب بيتفرض دايمًا بترتيب السلم مهما كان ترتيب الاختيار (normalizeChain في الخدمة).
+adminRoutes.get(
+  '/approval-matrix',
+  asyncHandler(async (_req: Request, res: Response) => {
+    // عدد الكشوف اللي لسه في المراجعة — الواجهة بتحذر بيه قبل الحفظ
+    const inReview = await prisma.submission.count({ where: { reviewState: 'IN_REVIEW' } });
+    res.json({ success: true, data: { grades: [...GRADES], levels: [...APPROVING_GRADES], matrix: getApprovalMatrix(), inReview } });
+  }),
+);
+adminRoutes.put(
+  '/approval-matrix',
+  validate({ body: z.object({ matrix: z.record(z.string(), z.array(z.string())) }) }),
+  asyncHandler(async (req: Request, res: Response) => {
+    const saved = await setApprovalMatrix(req.body.matrix as Record<string, unknown>);
+    res.json({ success: true, data: saved });
   }),
 );
 

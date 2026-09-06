@@ -497,7 +497,8 @@ model PurchaseRequest {
 // يعدّلها الأدمن من لوحة الإدارة وتظهر في كل دروب داون "الموقع"
 model AppConfig {
   key   String @id @db.VarChar(60)
-  value String @db.VarChar(190)
+  // اتوسّع من 190 لـ 1000: مصفوفة "مين يعتمد لمين" بتتخزن هنا كـ JSON وطولها بيعدّي 190
+  value String @db.VarChar(1000)
 
   @@map("app_config")
 }

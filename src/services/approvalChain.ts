@@ -18,14 +18,56 @@ export type Grade = (typeof GRADES)[number];
 // الدرجات اللي بتعتمد (بترتيب السلسلة) — أعمدة جدول الاعتمادات في الواجهة هي دي
 export const APPROVING_GRADES = ['team leader', 'construction manager', 'project manager'] as const;
 
-// مين بيعتمد لمين — حسب درجة المرسِل
-const CHAIN_BY_GRADE: Record<string, readonly string[]> = {
+// مين بيعتمد لمين — حسب درجة المرسِل. الافتراضي تحت، والأدمن يقدر يعدّله من شاشة الإدارة
+// (بيتخزن في app_config تحت مفتاح approvalMatrix).
+const DEFAULT_MATRIX: Record<string, readonly string[]> = {
   junior: ['team leader', 'construction manager', 'project manager'],
   senior: ['team leader', 'construction manager', 'project manager'],
   'team leader': ['construction manager', 'project manager'],
   'construction manager': [],
   'project manager': [],
 };
+const MATRIX_KEY = 'approvalMatrix';
+
+// كاش في الذاكرة: requiredLevelsFor لازم تفضل sync (بتتنادى جوه buildChain وفي حلقات)،
+// فبنحمّل المصفوفة مرة عند الإقلاع وبنحدّثها بعد أي حفظ. السيرفر واحد فالكاش كافي.
+let matrixCache: Record<string, string[]> = Object.fromEntries(Object.entries(DEFAULT_MATRIX).map(([k, v]) => [k, [...v]]));
+
+// ترتيب السلم دايمًا محفوظ مهما كان ترتيب الاختيار — يمنع سلاسل معكوسة
+function normalizeChain(levels: unknown): string[] {
+  const set = new Set(Array.isArray(levels) ? levels.map((x) => String(x)) : []);
+  return APPROVING_GRADES.filter((l) => set.has(l));
+}
+
+function parseMatrix(raw: string | null | undefined): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  let parsed: Record<string, unknown> = {};
+  try { parsed = raw ? (JSON.parse(raw) as Record<string, unknown>) : {}; } catch { parsed = {}; }
+  for (const g of GRADES) {
+    out[g] = g in parsed ? normalizeChain(parsed[g]) : [...DEFAULT_MATRIX[g]];
+  }
+  return out;
+}
+
+// بتتنادى مرة عند إقلاع السيرفر
+export async function loadApprovalMatrix(): Promise<Record<string, string[]>> {
+  const row = await prisma.appConfig.findUnique({ where: { key: MATRIX_KEY } }).catch(() => null);
+  matrixCache = parseMatrix(row?.value);
+  return matrixCache;
+}
+
+export function getApprovalMatrix(): Record<string, string[]> {
+  return matrixCache;
+}
+
+export async function setApprovalMatrix(input: Record<string, unknown>): Promise<Record<string, string[]>> {
+  const clean: Record<string, string[]> = {};
+  for (const g of GRADES) clean[g] = normalizeChain(input[g]);
+  const value = JSON.stringify(clean);
+  await prisma.appConfig.upsert({ where: { key: MATRIX_KEY }, update: { value }, create: { key: MATRIX_KEY, value } });
+  matrixCache = clean;
+  return clean;
+}
 
 // عمود المعتمد المسند لكل مستوى
 const APPROVER_FIELD: Record<string, 'approverTlId' | 'approverCmId' | 'approverPmId'> = {
@@ -40,7 +82,7 @@ export function isValidGrade(g: string): g is Grade {
 
 // المستويات المطلوبة لدرجة معيّنة (قبل حساب مين مسند) — للتحذيرات في إدارة الحسابات
 export function requiredLevelsFor(grade: string): readonly string[] {
-  return CHAIN_BY_GRADE[grade] ?? CHAIN_BY_GRADE.junior;
+  return matrixCache[grade] ?? matrixCache.junior ?? DEFAULT_MATRIX.junior;
 }
 
 // قائمة المستويات المعرّفة (بالترتيب) — أعمدة الجدول في تاب الاعتمادات

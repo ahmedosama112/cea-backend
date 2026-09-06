@@ -5,6 +5,7 @@ import { prisma } from './config/prisma';
 import { scheduleDailyBackup } from './services/backup';
 import { scheduleTokenCleanup } from './services/auth.service';
 import { scheduleActivityCleanup } from './services/activityLog';
+import { loadApprovalMatrix } from './services/approvalChain';
 
 fs.mkdirSync(env.uploadDir, { recursive: true });
 
@@ -17,6 +18,8 @@ if (env.nodeEnv === 'production') scheduleDailyBackup();
 // (L5) تنظيف يومي للتوكنات المنتهية/الملغية — بدونه جداول التوكنات تنمو للأبد
 if (env.nodeEnv !== 'test') scheduleTokenCleanup();
 if (env.nodeEnv !== 'test') scheduleActivityCleanup();
+// مصفوفة "مين يعتمد لمين" بتتحمّل من app_config مرة عند الإقلاع (وبتتحدث بعد أي حفظ)
+void loadApprovalMatrix();
 
 async function shutdown(signal: string) {
   console.log(`${signal} received — shutting down gracefully`);
