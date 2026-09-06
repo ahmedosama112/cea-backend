@@ -10,6 +10,7 @@ import {
   refreshSchema,
   registerSchema,
 } from '../schema/auth.schema';
+import { logActivity } from '../services/activityLog';
 
 export const authRoutes = Router();
 
@@ -20,6 +21,11 @@ const authLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: true, // الدخول الناجح لا يستهلك رصيد الحماية من التخمين
+  // 429 بيطلع من هنا مباشرة (مش من errorHandler) — نسجّله بالإيميل عشان يبان في سجل النشاط
+  handler: (req, res) => {
+    logActivity(req, 'LOGIN_FAIL', { email: String((req.body || {}).email || '').toLowerCase(), status: 429, detail: 'محاولات دخول كتير من نفس الجهاز — استنى شوية وجرّب تاني' });
+    res.status(429).json({ success: false, message: 'محاولات كتير — استنى شوية وجرّب تاني', code: 'RATE_LIMITED' });
+  },
 });
 
 // إنشاء الحسابات: أدمن فقط (optionalAuthenticate يقرأ التوكن، والخدمة ترفض غير الأدمن —

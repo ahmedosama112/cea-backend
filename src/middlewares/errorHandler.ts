@@ -22,6 +22,10 @@ export function errorHandler(err: unknown, _req: Request, res: Response, _next: 
   }
 
   if (err instanceof ZodError) {
+    // سجل النشاط: أخطاء التحقق هي أكتر سبب لـ"سجل لسه ما اترفعش" — من غيرها الأدمن ما كانش بيشوف السبب
+    // (حصل فعليًا: 86 × 400 على /api/records في يوم واحد ومفيش سطر واحد في السجل)
+    const fields = err.issues.slice(0, 3).map((i) => `${i.path.join('.') || '?'}: ${i.message}`).join(' · ');
+    logActivity(_req, 'API_ERR', { status: 400, detail: 'بيانات غير صحيحة — ' + fields });
     return res.status(400).json({
       success: false,
       message: 'بيانات غير صحيحة',
@@ -32,6 +36,7 @@ export function errorHandler(err: unknown, _req: Request, res: Response, _next: 
 
   // (M9) أخطاء multer برسائل واضحة وأكواد صحيحة بدل ما تسقط كـ 500
   if (err instanceof multer.MulterError) {
+    logActivity(_req, 'API_ERR', { status: 400, detail: 'ملف مرفوض — ' + err.code });
     if (err.code === 'LIMIT_FILE_SIZE') {
       return res.status(413).json({ success: false, message: 'حجم الملف أكبر من المسموح', code: 'FILE_TOO_LARGE' });
     }

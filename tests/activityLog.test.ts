@@ -59,6 +59,18 @@ describe('سجل النشاط', () => {
     expect(adminRow.errTop).toBeNull();
   });
 
+  it('خطأ التحقق (400) بيتسجل بالحقل والسبب — ده سبب "سجل لسه ما اترفعش" الأشهر', async () => {
+    await request(app).put(`/api/admin/users/${eng.id}/settings`).set(auth(admin.token)).send({ enabledModules: ['records'] });
+    const bad = await request(app).post('/api/records').set(auth(eng.token))
+      .send({ day: 'السبت', date: '2026-09-05', contractor: 'مقاول', qty: 0, price: 100 }); // qty لازم > 0
+    expect(bad.status).toBe(400);
+    await wait();
+    const rows = (await request(app).get(`/api/admin/activity?userId=${eng.id}`).set(auth(admin.token))).body.data;
+    const err = rows.find((r: { event: string; path: string }) => r.event === 'API_ERR' && r.path === '/api/records');
+    expect(err.status).toBe(400);
+    expect(err.detail).toContain('qty');
+  });
+
   it('السجل للأدمن فقط', async () => {
     const denied = await request(app).get('/api/admin/activity').set(auth(eng.token));
     expect(denied.status).toBe(403);
