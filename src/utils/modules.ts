@@ -33,6 +33,8 @@ export const ALL_FEATURES = [
   // الاعتمادات — زرار Google Form لكل موقع (الاسم المعروض في الواجهة بيتبع أسماء المواقع من app_config)
   { key: 'gform_site1', label: 'زرار Google Form — الموقع الأول', group: 'الاعتمادات' },
   { key: 'gform_site2', label: 'زرار Google Form — الموقع الثاني', group: 'الاعتمادات' },
+  // سراكي المعدات — كارت الإعدادات (المقاول الثابت + الموقع في راس الكشف): مش في الافتراضي، الأدمن يظهره ليظبط ثم يخفيه
+  { key: 'equipment_settings', label: 'إعدادات السركي الشهري (المقاول الثابت + الموقع)', group: 'سراكي المعدات' },
   // الإعدادات
   { key: 'set_appearance', label: 'المظهر (الوضع الداكن)', group: 'الإعدادات' },
   { key: 'set_contractors', label: 'إدارة المقاولين', group: 'الإعدادات' },
@@ -52,7 +54,7 @@ export type FeatureKey = (typeof ALL_FEATURES)[number]['key'];
 const FEATURE_KEYS = ALL_FEATURES.map((f) => f.key) as FeatureKey[];
 // الافتراضي: كل الكروت ظاهرة ماعدا الخطرة/الإدارية اللي المهندس مش محتاجها
 export const DEFAULT_FEATURES: FeatureKey[] = FEATURE_KEYS.filter(
-  (k) => !['set_danger', 'set_records_import', 'set_items_import', 'gform_site2'].includes(k),
+  (k) => !['set_danger', 'set_records_import', 'set_items_import', 'gform_site2', 'equipment_settings'].includes(k),
 );
 
 // أي مسار API تابع لأنهي وحدة (للحماية على السيرفر)
