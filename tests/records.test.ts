@@ -45,6 +45,13 @@ describe('Records (سراكي)', () => {
     recordId = d.id;
   });
 
+  it('نوع الكمية "عدد" (موجود في الواجهة من زمان) بيتقبل ويرجع زي ما هو — كان بيترفض بـ 400', async () => {
+    const res = await request(app).post('/api/records').set(auth(admin.token)).send({ ...baseRecord, qty: 7.2, qtyType: 'عدد' });
+    expect(res.status).toBe(201);
+    expect(res.body.data.qtyType).toBe('عدد');
+    await request(app).delete(`/api/records/${res.body.data.id}`).set(auth(admin.token));
+  });
+
   it('ربط المقاول بالاسم snapshot حتى بدون صف مقاول فعلي', async () => {
     const row = await prisma.record.findUnique({ where: { id: BigInt(recordId) } });
     expect(row!.contractorName).toBe(baseRecord.contractor);

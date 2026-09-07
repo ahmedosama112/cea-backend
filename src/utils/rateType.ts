@@ -2,13 +2,13 @@ import { z } from 'zod';
 
 // الواجهة الأمامية تستخدم النصوص العربية حرفيًا ('يومية' / 'ساعة' / 'مقطوعية') —
 // نحوّلها من/إلى أسماء enum في Prisma حتى لا يتغير أي شيء في عقد الـ API مع الواجهة
-export const AR_TO_ENUM = { يومية: 'DAILY', ساعة: 'HOURLY', مقطوعية: 'LUMPSUM' } as const;
-export const ENUM_TO_AR = { DAILY: 'يومية', HOURLY: 'ساعة', LUMPSUM: 'مقطوعية' } as const;
+export const AR_TO_ENUM = { يومية: 'DAILY', ساعة: 'HOURLY', مقطوعية: 'LUMPSUM', عدد: 'COUNT' } as const;
+export const ENUM_TO_AR = { DAILY: 'يومية', HOURLY: 'ساعة', LUMPSUM: 'مقطوعية', COUNT: 'عدد' } as const;
 
 export type RateTypeAr = keyof typeof AR_TO_ENUM;
 export type RateTypeEnum = keyof typeof ENUM_TO_AR;
 
-export const rateTypeArSchema = z.enum(['يومية', 'ساعة', 'مقطوعية']);
+export const rateTypeArSchema = z.enum(['يومية', 'ساعة', 'مقطوعية', 'عدد']);
 
 export function toEnum(ar: RateTypeAr): RateTypeEnum {
   return AR_TO_ENUM[ar];
