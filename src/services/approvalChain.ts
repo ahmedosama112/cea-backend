@@ -163,7 +163,8 @@ export async function pushSubmissionToSheet(submissionId: bigint): Promise<void>
 // النسخة الموقّعة عابرة (بتتولّد عند الطلب من الأصل + سجل المراجعات) فما بتتخزنش، وده بيخلي
 // المعاينة/التحميل بعد الاعتماد الكامل مطابقين دايمًا للي وصل الشيت.
 // فشل الختم مايوقفش حاجة — بيرجع الأصل بلا توقيعات والخطأ بيتسجّل. null = الملف نفسه مش موجود.
-export async function signedFileBuffer(submissionId: bigint): Promise<Buffer | null> {
+// mode: 'clear' = النسخة اللي بتروح جوجل/الـ DC (السطر المشطوب يوم فاضي) · 'strike' = معاينة/تحميل داخل التطبيق (السطر أحمر بسببه)
+export async function signedFileBuffer(submissionId: bigint, mode: RejectMode = 'clear'): Promise<Buffer | null> {
   const sub = await prisma.submission.findUnique({
     where: { id: submissionId },
     include: {
@@ -180,7 +181,7 @@ export async function signedFileBuffer(submissionId: bigint): Promise<Buffer | n
   if (!original) return null;
   // السطور المشطوبة (النسخة الحالية) بتتطبق على الملف قبل الختم — نفس اللي بيشوفه المعتمدين وبيوصل جوجل
   // النسخة النهائية (تتختم وتروح جوجل/الـ DC): السطور المشطوبة بتبقى أيام فاضية — نضيفة بلا أثر أحمر (السبب في خانة سلسلة الاعتماد بالشيت)
-  const buffer = await rejectedFileBuffer(original, sub.rowRejections, sub.revision, sub.kind as Kind, 'clear');
+  const buffer = await rejectedFileBuffer(original, sub.rowRejections, sub.revision, sub.kind as Kind, mode);
   try {
     const sigs = await collectSignatures(sub.reviews, sub.revision);
     if (!sigs.length) return buffer;

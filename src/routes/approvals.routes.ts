@@ -104,7 +104,8 @@ approvalsRoutes.get(
     // بعد اكتمال السلسلة (SENT) المعاينة/التحميل بيرجّعوا النسخة **الموقّعة** — نفس اللي وصلت جوجل شيت.
     // أثناء المراجعة بيرجّع الأصل زي ما بعته المهندس + السطور المشطوبة (عشان المعتمد اللي بعده يشوفها).
     let buffer: Buffer | null;
-    if (sub.reviewState === 'SENT') buffer = await signedFileBuffer(sub.id);
+    // بعد الاعتماد: نفس التوقيعات اللي راحت جوجل، لكن السطور المشطوبة تفضل ظاهرة بالأحمر جوّه التطبيق (نسخة الـ DC نضيفة)
+    if (sub.reviewState === 'SENT') buffer = await signedFileBuffer(sub.id, 'strike');
     else {
       const original = await storage.read(sub.file.filePath).catch(() => null);
       buffer = original ? await rejectedFileBuffer(original, sub.rowRejections, sub.revision, sub.kind as Kind) : null;
