@@ -58,10 +58,13 @@ describe('اعتمادات المديرين', () => {
     expect(res.body.data.gsheetRow).toBeFalsy();
   });
 
-  it('مدير فريق تاني مايشوفش كشوف مهندسين مش مسندين له ولا يقدر يعتمدها', async () => {
+  it('مدير فريق تاني بيشوف الكشف في الطابور (الرؤية للجميع) لكن مش دوره (canAct=false) ولا يقدر يعتمده', async () => {
     const sub = (await request(app).get('/api/approvals/queue').set(auth(tl.token))).body.data[0];
+    expect(sub.canAct).toBe(true);
     const q2 = await request(app).get('/api/approvals/queue').set(auth(tl2.token));
-    expect(q2.body.data.find((s: { id: string }) => s.id === sub.id)).toBeUndefined();
+    const seen = q2.body.data.find((s: { id: string }) => s.id === sub.id);
+    expect(seen).toBeDefined();
+    expect(seen.canAct).toBe(false);
     const tryIt = await request(app).post(`/api/approvals/${sub.id}/decide`).set(auth(tl2.token)).send({ decision: 'APPROVED' });
     expect(tryIt.status).toBe(403);
   });
@@ -138,9 +141,9 @@ describe('اعتمادات المديرين', () => {
     expect(viaApr.headers['content-disposition']).toContain('attachment');
     const denied = await request(app).get(`/api/approvals/${id}/file`).set(auth(eng.token));
     expect(denied.status).toBe(403);
-    // (فحص أمني 6 سبتمبر) معتمد عنده الوحدة لكن الكشف مش في نطاقه (مدير فريق تاني) → 404، والأدمن يفتح أي كشف
-    const outOfScope = await request(app).get(`/api/approvals/${id}/file`).set(auth(tl2.token));
-    expect(outOfScope.status).toBe(404);
+    // (7 سبتمبر — قرار صاحب المشروع) أي معتمد عنده الوحدة يفتح أي كشف (الرؤية للجميع)، والاعتماد هو المحصور
+    const otherApprover = await request(app).get(`/api/approvals/${id}/file`).set(auth(tl2.token));
+    expect(otherApprover.status).toBe(200);
     const adm = await request(app).get(`/api/approvals/${id}/file`).set(auth(admin.token));
     expect(adm.status).toBe(200);
   });

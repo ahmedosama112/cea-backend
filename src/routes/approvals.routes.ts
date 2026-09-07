@@ -53,21 +53,10 @@ approvalsRoutes.get(
       queueHiddenAt: null,
       OR: [{ reviewState: 'IN_REVIEW' }, { reviewState: { in: ['RETURNED', 'SENT'] }, createdAt: { gte: since } }],
     };
-    // نطاق المعتمد: مهندسينه المسندين له + أي كشف مسند له شخصيًا
-    // + الكشوف القديمة (قبل نظام الإسناد، current_approver_id = NULL) اللي واقفة عند مستوى درجته
-    const scope = isAdmin
-      ? {}
-      : {
-        OR: [
-          { user: { OR: [{ approverTlId: myId }, { approverCmId: myId }, { approverPmId: myId }] } },
-          { currentApproverId: myId },
-          // كشوف اعتمدها/رفضها بالفعل — تفضل ظاهرة له في نافذة الـ 7 أيام حتى بعد ما تكمل السلسلة
-          { reviews: { some: { byUserId: myId } } },
-          ...(isApprover ? [{ currentApproverId: null, currentLevel: myLevel }] : []),
-        ],
-      };
+    // (7 سبتمبر 2026 — قرار صاحب المشروع) الطابور بيعرض **كل** الكشوف لكل من عنده الوحدة (كلهم مديرين):
+    // الرؤية للجميع، والاعتماد (canAct/decide) محصور على المعتمد المسند بس.
     const rows = await prisma.submission.findMany({
-      where: { AND: [stateFilter, scope] },
+      where: stateFilter,
       include: SUB_INCLUDE,
       orderBy: { createdAt: 'desc' },
       take: 200,
@@ -102,24 +91,14 @@ approvalsRoutes.get(
 
 // ملف الكشف للمراجعة/التحميل من تاب الاعتمادات — لأي حساب عنده وحدة approvals (المعتمدين مش أصحاب الملف ولا أدمن،
 // فمسار /submissions/:id/file بيرفضهم: محمي بوحدة submissions وبشرط صاحب الملف/أدمن)
-// النطاق (فحص أمني 6 سبتمبر 2026): كان أي حساب عنده الوحدة يقدر ينزّل أي كشف بمعرّفه (IDOR).
-// بقى مقصور على: الأدمن، أو الكشف مسند له، أو صاحب الكشف من مهندسيه المسندين، أو اعتمده/رفضه قبل كده،
-// أو كشف قديم (بلا إسناد) واقف عند مستوى درجته — نفس نطاق الطابور بلا نافذة زمنية.
+// (7 سبتمبر 2026 — قرار صاحب المشروع) الملف متاح لأي حساب عنده وحدة الاعتمادات (كلهم مديرين — الرؤية للجميع
+// زي الطابور)، والاعتماد نفسه هو المحصور على المعتمد المسند. الوحدة بتتمنح من الأدمن فقط (requireModule).
 approvalsRoutes.get(
   '/:id/file',
   validate({ params: idParamSchema }),
   asyncHandler(async (req: Request, res: Response) => {
-    const sub = await prisma.submission.findUnique({ where: { id: BigInt(req.params.id) }, include: { file: true, user: { select: { approverTlId: true, approverCmId: true, approverPmId: true } }, reviews: { select: { byUserId: true } } } });
+    const sub = await prisma.submission.findUnique({ where: { id: BigInt(req.params.id) }, include: { file: true } });
     if (!sub) throw AppError.notFound('الكشف غير موجود');
-    if (req.user!.role !== 'ADMIN') {
-      const myId = req.user!.id;
-      const me = await prisma.user.findUnique({ where: { id: myId }, select: { grade: true } });
-      const inScope = sub.currentApproverId === myId
-        || sub.user.approverTlId === myId || sub.user.approverCmId === myId || sub.user.approverPmId === myId
-        || sub.reviews.some((r) => r.byUserId === myId)
-        || (sub.currentApproverId === null && !!me?.grade && (APPROVING_GRADES as readonly string[]).includes(me.grade) && sub.currentLevel === me.grade);
-      if (!inScope) throw AppError.notFound('الكشف غير موجود');
-    }
     // بعد اكتمال السلسلة (SENT) المعاينة/التحميل بيرجّعوا النسخة **الموقّعة** — نفس اللي وصلت جوجل شيت.
     // أثناء المراجعة بيرجّع الأصل زي ما بعته المهندس (التوقيعات لسه ما اكتملتش).
     const buffer = sub.reviewState === 'SENT'
