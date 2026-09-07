@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { asyncHandler } from '../utils/asyncHandler';
 import { validate } from '../middlewares/validate';
 import { ymdDate } from '../schema/entities.schema';
-import { contractorsReport, placesReport, resolveScope, trendSeries } from '../services/analytics.service';
+import { contractorsReport, matrixReport, placesReport, resolveScope, trendSeries } from '../services/analytics.service';
 
 // ═══════════ تحليلات الأماكن والمقاولين — مسارات القراءة فقط ═══════════
 // (authenticate + requireModule('analytics') مطبّقين في routes/index.ts)
@@ -74,6 +74,19 @@ analyticsRoutes.get(
     const scope = await resolveScope(req.user!, { site: q.site, userId: q.userId });
     const key = `c|${req.user!.id}|${q.from ?? ''}|${q.to ?? ''}|${q.site ?? ''}|${q.userId ?? ''}`;
     const report = await cached(key, () => contractorsReport(scope.ids, { from: q.from, to: q.to }), q.fresh === '1');
+    res.json({ success: true, level: scope.level, data: report });
+  }),
+);
+
+// مصفوفة مقاول × مكان — مين اشتغل فين وبكام
+analyticsRoutes.get(
+  '/matrix',
+  validate({ query: filterQuery.extend({ limit: z.coerce.number().int().min(5).max(30).optional().default(15) }) }),
+  asyncHandler(async (req: Request, res: Response) => {
+    const q = req.query as unknown as z.infer<typeof filterQuery> & { limit: number };
+    const scope = await resolveScope(req.user!, { site: q.site, userId: q.userId });
+    const key = `m|${req.user!.id}|${q.from ?? ''}|${q.to ?? ''}|${q.site ?? ''}|${q.userId ?? ''}|${q.limit}`;
+    const report = await cached(key, () => matrixReport(scope.ids, { from: q.from, to: q.to }, q.limit), q.fresh === '1');
     res.json({ success: true, level: scope.level, data: report });
   }),
 );

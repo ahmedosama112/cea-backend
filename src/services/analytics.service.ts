@@ -541,3 +541,163 @@ export async function contractorsReport(ids: bigint[], range: { from?: string; t
     rows,
   };
 }
+
+// ═══════════ مصفوفة مقاول × مكان ═══════════
+// كل خانة = شغل مقاول معيّن في مكان معيّن. استعلام واحد groupBy على العمودين،
+// والباقي تجميع في الذاكرة.
+//
+// السقف مقصود: الجدول ده بيتعرض للبني آدم، ومصفوفة 60×40 مالهاش قيمة على شاشة.
+// بناخد أعلى N مقاول وأعلى M مكان بالمنصرف، وبنقول صراحةً كام اتشال وبكام
+// (hiddenContractors / hiddenPlaces / hiddenTotal) — مش بنخفي فرق من غير ما نقوله.
+
+export interface MatrixAxis {
+  key: string;
+  name: string;
+  total: number;
+  records: number;
+}
+export interface MatrixCell {
+  c: string; // مفتاح المقاول
+  p: string; // مفتاح المكان
+  total: number;
+  records: number;
+  lastDate: string | null;
+}
+export interface MatrixReport {
+  from: string | null;
+  to: string | null;
+  contractors: MatrixAxis[];
+  places: MatrixAxis[];
+  cells: MatrixCell[];
+  // أعلى الثنائيات بالاسم — للعرض على الموبايل حيث الشبكة العريضة مش عملية
+  topPairs: Array<{ name: string; total: number; records: number }>;
+  totals: {
+    total: number;
+    records: number;
+    pairs: number; // عدد الثنائيات (مقاول+مكان) اللي فيها شغل فعلًا
+    contractors: number;
+    places: number;
+    hiddenContractors: number;
+    hiddenPlaces: number;
+    hiddenTotal: number; // المنصرف اللي برّا الشبكة المعروضة
+  };
+}
+
+export async function matrixReport(
+  ids: bigint[],
+  range: { from?: string; to?: string },
+  limit = 15,
+): Promise<MatrixReport> {
+  const empty: MatrixReport = {
+    from: range.from ?? null,
+    to: range.to ?? null,
+    contractors: [],
+    places: [],
+    cells: [],
+    topPairs: [],
+    totals: { total: 0, records: 0, pairs: 0, contractors: 0, places: 0, hiddenContractors: 0, hiddenPlaces: 0, hiddenTotal: 0 },
+  };
+  if (!ids.length) return empty;
+
+  const dateFilter: { gte?: Date; lte?: Date } = {};
+  if (range.from) dateFilter.gte = new Date(range.from + 'T00:00:00Z');
+  if (range.to) dateFilter.lte = new Date(range.to + 'T00:00:00Z');
+  const hasRange = Boolean(range.from || range.to);
+
+  const [dict, rows] = await Promise.all([
+    contractorDict(),
+    prisma.record.groupBy({
+      by: ['contractorName', 'placeName'],
+      where: { userId: { in: ids }, ...(hasRange ? { date: dateFilter } : {}) },
+      _sum: { total: true },
+      _count: { _all: true },
+      _max: { date: true },
+    }),
+  ]);
+
+  // تجميع بالاسم الموحّد + تتبّع الكتابة الأكتر استخدامًا لكل محور
+  const cAxis = new Map<string, MatrixAxis & { _spell: Map<string, number> }>();
+  const pAxis = new Map<string, MatrixAxis & { _spell: Map<string, number> }>();
+  const cells = new Map<string, MatrixCell>();
+  const axis = (m: typeof cAxis, raw: string, fallback: string) => {
+    const label = (raw || '').trim() || fallback;
+    const key = normName(label) || fallback;
+    let a = m.get(key);
+    if (!a) { a = { key, name: '', total: 0, records: 0, _spell: new Map() }; m.set(key, a); }
+    a._spell.set(label, (a._spell.get(label) ?? 0) + 1);
+    return a;
+  };
+
+  let grandTotal = 0;
+  let grandRecords = 0;
+  for (const r of rows) {
+    const total = num(r._sum.total);
+    const n = r._count._all;
+    const c = axis(cAxis, r.contractorName, NO_CONTRACTOR);
+    const p = axis(pAxis, r.placeName, NO_PLACE);
+    c.total += total; c.records += n;
+    p.total += total; p.records += n;
+    grandTotal += total; grandRecords += n;
+
+    const ck = c.key + ' ' + p.key;
+    let cell = cells.get(ck);
+    if (!cell) { cell = { c: c.key, p: p.key, total: 0, records: 0, lastDate: null }; cells.set(ck, cell); }
+    cell.total += total;
+    cell.records += n;
+    const last = r._max.date ? ymd(r._max.date) : null;
+    if (last && (!cell.lastDate || last > cell.lastDate)) cell.lastDate = last;
+  }
+
+  const finish = (m: typeof cAxis, useDict: boolean): MatrixAxis[] =>
+    [...m.values()]
+      .map((a) => {
+        const best = [...a._spell.entries()].sort((x, y) => y[1] - x[1])[0]?.[0] ?? a.key;
+        return {
+          key: a.key,
+          name: (useDict ? dict.get(a.key)?.name : null) ?? best,
+          total: Math.round(a.total * 100) / 100,
+          records: a.records,
+        };
+      })
+      .sort((a, b) => b.total - a.total);
+
+  const allC = finish(cAxis, true);
+  const allP = finish(pAxis, false);
+  const topC = allC.slice(0, limit);
+  const topP = allP.slice(0, limit);
+  const keepC = new Set(topC.map((a) => a.key));
+  const keepP = new Set(topP.map((a) => a.key));
+
+  const shown = [...cells.values()].filter((x) => keepC.has(x.c) && keepP.has(x.p));
+  const shownTotal = shown.reduce((s, x) => s + x.total, 0);
+
+  const cName = new Map(allC.map((a) => [a.key, a.name]));
+  const pName = new Map(allP.map((a) => [a.key, a.name]));
+  const topPairs = [...cells.values()]
+    .sort((a, b) => b.total - a.total)
+    .slice(0, 10)
+    .map((x) => ({
+      name: `${cName.get(x.c) ?? x.c} — ${pName.get(x.p) ?? x.p}`,
+      total: Math.round(x.total * 100) / 100,
+      records: x.records,
+    }));
+
+  return {
+    from: range.from ?? null,
+    to: range.to ?? null,
+    contractors: topC,
+    places: topP,
+    cells: shown.map((x) => ({ ...x, total: Math.round(x.total * 100) / 100 })),
+    topPairs,
+    totals: {
+      total: Math.round(grandTotal * 100) / 100,
+      records: grandRecords,
+      pairs: cells.size,
+      contractors: allC.length,
+      places: allP.length,
+      hiddenContractors: Math.max(0, allC.length - topC.length),
+      hiddenPlaces: Math.max(0, allP.length - topP.length),
+      hiddenTotal: Math.round((grandTotal - shownTotal) * 100) / 100,
+    },
+  };
+}

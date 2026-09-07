@@ -186,6 +186,39 @@ describe('تحليلات الأماكن', () => {
     expect(res.body.data[1].total).toBe(50);
   });
 
+  it('مصفوفة مقاول × مكان: خانة لكل ثنائي فيه شغل', async () => {
+    const res = await request(app).get('/api/analytics/matrix').set(auth(admin.token));
+    expect(res.status).toBe(200);
+    const d = res.body.data;
+    expect(d.totals.pairs).toBe(4); // م1×الأرضي · م2×الأرضي · م3×الأرضي · م1×السطح
+    expect(d.totals.total).toBe(1340);
+    expect(d.totals.hiddenContractors).toBe(0);
+    expect(d.totals.hiddenPlaces).toBe(0);
+    expect(d.totals.hiddenTotal).toBe(0);
+
+    const cell = (c: string, p: string) =>
+      d.cells.find((x: { c: string; p: string }) => x.c === normName(c) && x.p === normName(p));
+    // الكتابتين المختلفتين للمكان بيقعوا في نفس العمود
+    expect(cell('م2', 'الدور الأرضي').total).toBe(200);
+    expect(cell('م1', 'الدور الارضي').total).toBe(90);
+    expect(cell('م1', 'السطح').total).toBe(50);
+    expect(cell('م2', 'السطح')).toBeUndefined(); // ثنائي مفيهوش شغل = مفيش خانة
+
+    expect(d.contractors[0].key).toBe(normName('م3')); // الأعلى منصرفًا (1000)
+    expect(d.topPairs[0].total).toBe(1000);
+  });
+
+  it('المصفوفة بتقصّ على السقف وبتقول اللي اتشال', async () => {
+    const res = await request(app).get('/api/analytics/matrix?limit=5&from=2026-08-01&to=2026-08-31').set(auth(admin.token));
+    expect(res.status).toBe(200);
+    // 3 مقاولين ومكان واحد في أغسطس — أقل من السقف، مفيش قص
+    expect(res.body.data.totals.hiddenContractors).toBe(0);
+    expect(res.body.data.totals.total).toBe(1290);
+
+    const one = await request(app).get('/api/analytics/matrix?limit=5&userId=' + eng1.id).set(auth(admin.token));
+    expect(one.body.data.totals.total).toBe(140); // النطاق والفلاتر بتتطبق زي باقي المسارات
+  });
+
   it('نطاق الرؤية بيرجع قائمة المهندسين للفلاتر', async () => {
     const res = await request(app).get('/api/analytics/scope').set(auth(tl.token));
     expect(res.status).toBe(200);
