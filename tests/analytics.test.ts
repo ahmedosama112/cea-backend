@@ -1,6 +1,6 @@
 import { beforeAll, afterAll, describe, expect, it } from 'vitest';
 import { app, prisma, request, resetDb, createAdmin, createEngineer, auth, TestUser } from './helpers';
-import { normPlace } from '../src/services/analytics.service';
+import { normName } from '../src/services/analytics.service';
 
 // تحليلات الأماكن — التجميع بيعدّي عبر حسابات كتير، فالمهم هنا حاجتين:
 // 1) الأرقام بتتجمّع صح والكتابات المختلفة لنفس المكان بتتوحّد
@@ -28,7 +28,7 @@ async function addRecord(token: string, r: { date: string; place: string; contra
 }
 const placesOf = (body: { data: { rows: Array<{ name: string }> } }) => body.data.rows.map((r) => r.name);
 const rowOf = (body: { data: { rows: Array<{ key: string }> } }, name: string) =>
-  body.data.rows.find((r) => r.key === normPlace(name));
+  body.data.rows.find((r) => r.key === normName(name));
 
 describe('تحليلات الأماكن', () => {
   let admin: TestUser, tl: TestUser, tl2: TestUser, eng1: TestUser, eng2: TestUser, eng3: TestUser, plain: TestUser;
@@ -61,13 +61,17 @@ describe('تحليلات الأماكن', () => {
     await request(app).post('/api/ir-records').set(auth(eng1.token)).send({
       date: '2026-08-10', item: 'قواعد', place: 'الدور الأرضي', inspector: 'الاستشاري', status: 'A',
     });
+
+    // قائمة المقاولين عند الأدمن = المعجم. "م3" مش فيها عمدًا (يمثّل اسم قديم في سجل قديم).
+    await request(app).post('/api/contractors').set(auth(admin.token)).send({ name: 'م1', spec: 'نجارة', rate: 300, rateType: 'يومية' });
+    await request(app).post('/api/contractors').set(auth(admin.token)).send({ name: 'م2', spec: 'حدادة' });
   });
   afterAll(async () => { await prisma.$disconnect(); });
 
   it('توحيد كتابة اسم المكان', () => {
-    expect(normPlace('الدور الأرضي')).toBe(normPlace('الدور  الارضي'));
-    expect(normPlace('  السطح ')).toBe(normPlace('السّطح'));
-    expect(normPlace('الدور الأرضي')).not.toBe(normPlace('السطح'));
+    expect(normName('الدور الأرضي')).toBe(normName('الدور  الارضي'));
+    expect(normName('  السطح ')).toBe(normName('السّطح'));
+    expect(normName('الدور الأرضي')).not.toBe(normName('السطح'));
   });
 
   it('حساب من غير وحدة analytics بيتمنع', async () => {
@@ -141,6 +145,45 @@ describe('تحليلات الأماكن', () => {
     expect(res.status).toBe(200);
     expect(res.body.data).toHaveLength(1); // الكتابتين مكان واحد
     expect(res.body.data[0].total).toBe(1290);
+  });
+
+  it('جدول المقاولين بيتجمّع عبر المهندسين، والاسم اللي مش في قائمة الأدمن بيتعلّم', async () => {
+    const res = await request(app).get('/api/analytics/contractors').set(auth(admin.token));
+    expect(res.status).toBe(200);
+    const by = (n: string) => res.body.data.rows.find((r: { key: string }) => r.key === normName(n));
+
+    const m1 = by('م1')!;
+    expect(m1.inList).toBe(true);
+    expect(m1.spec).toBe('نجارة');
+    expect(m1.rate).toBe(300);
+    expect(m1.rateType).toBe('يومية'); // مش 'DAILY' — الـ API بيتكلم عربي زي باقي المسارات
+    expect(m1.total).toBe(140); // 90 (الدور الأرضي) + 50 (السطح)
+    expect(m1.places).toBe(2);
+    expect(m1.engineers).toBe(1);
+
+    const m3 = by('م3')!;
+    expect(m3.inList).toBe(false); // اسم في السجلات مش في قائمة الأدمن
+    expect(m3.total).toBe(1000);
+
+    expect(res.body.data.totals.contractors).toBe(3);
+    expect(res.body.data.totals.unknown).toBe(1);
+    expect(res.body.data.totals.total).toBe(1340);
+  });
+
+  it('جدول المقاولين بيحترم نطاق مدير الفريق', async () => {
+    const res = await request(app).get('/api/analytics/contractors').set(auth(tl.token));
+    expect(res.status).toBe(200);
+    const keys = res.body.data.rows.map((r: { key: string }) => r.key);
+    expect(keys).not.toContain(normName('م3')); // مقاول eng3 (فريق tl2)
+    expect(res.body.data.totals.total).toBe(340); // eng1 (90+50) + eng2 (200)
+  });
+
+  it('الاتجاه الزمني لمقاول واحد', async () => {
+    const res = await request(app).get('/api/analytics/trend?bucket=month&contractor=' + encodeURIComponent('م1')).set(auth(admin.token));
+    expect(res.status).toBe(200);
+    expect(res.body.data.map((p: { bucket: string }) => p.bucket)).toEqual(['2026-08', '2026-09']);
+    expect(res.body.data[0].total).toBe(90);
+    expect(res.body.data[1].total).toBe(50);
   });
 
   it('نطاق الرؤية بيرجع قائمة المهندسين للفلاتر', async () => {
