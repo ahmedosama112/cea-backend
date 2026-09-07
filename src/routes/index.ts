@@ -11,6 +11,7 @@ import { submissionsRoutes } from './submissions.routes';
 import { contractorsRouter, equipmentRouter, inspectorsRouter, irRouter, placesRouter, todosRouter } from './entities.routes';
 import { inventoryRoutes } from './inventory.routes';
 import { approvalsRoutes } from './approvals.routes';
+import { analyticsRoutes } from './analytics.routes';
 import { authenticate } from '../middlewares/auth';
 import { requireModule } from '../middlewares/moduleGuard';
 
@@ -39,3 +40,4 @@ router.use('/daily-records', authenticate, requireModule('site_daily'), dailyRou
 router.use('/inventory', authenticate, requireModule('inventory'), inventoryRoutes);
 router.use('/approvals', authenticate, requireModule('approvals'), approvalsRoutes);
 router.use('/equipment-records', authenticate, requireModule('equipment'), equipmentRouter);
+router.use('/analytics', authenticate, requireModule('analytics'), analyticsRoutes);
