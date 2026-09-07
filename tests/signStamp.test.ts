@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import ExcelJS from 'exceljs';
-import { stampSignatures, hasSignatureBox, imageSize, fitInBlock, blocksForSheet, SIGNATURE_ROW, CAPTION_ROW } from '../src/services/signStamp';
+import { stampSignatures, hasSignatureBox, imageSize, fitInBlock, blocksForSheet, SIGNATURE_ROW, CAPTION_ROW, MAX_ROWS_PER_SHEET, StampLimitError } from '../src/services/signStamp';
 
 // ختم توقيعات المعتمدين على ملف الكشف قبل ما يتبعت لجوجل
 // (الملف الحقيقي بيتبني في الواجهة بنفس exceljs، فالقراءة/الكتابة هنا نفس المسار)
@@ -156,6 +156,11 @@ describe('ختم التوقيعات على الكشف', () => {
     expect(hasSignatureBox('junior')).toBe(false);
     const same2 = await stampSignatures(src, [{ level: 'junior', image: PNG_1PX, ext: 'png' }]);
     expect(same2).toBe(src);
+  });
+
+  it('(N11) مصنّف أكبر من الحد (ورقة فيها صفوف أكتر من المسموح) يترفض قبل الختم بدل ما يستهلك السيرفر', async () => {
+    const huge = await makeSheet(MAX_ROWS_PER_SHEET + 1, 1);
+    await expect(stampSignatures(huge, [{ level: 'project manager', image: PNG_1PX, ext: 'png' }])).rejects.toBeInstanceOf(StampLimitError);
   });
 
   it('ورقة أقصر من صف التوقيعات بتتساب زي ما هي (ملف بشكل مختلف)', async () => {

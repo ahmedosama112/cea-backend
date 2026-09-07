@@ -137,12 +137,21 @@ export function fitInBlock(
 
 // بيرجع نسخة جديدة من الملف بعد لصق التوقيعات على كل أوراق المصنّف (ورقة لكل مقاول).
 // أي فشل بيترمي — المستدعي بيقرر يبعت الأصل ولا يوقف.
+// (فحص أمني 2026-09-06 — N11) الملف جاي من جهاز المهندس: حدود على حجمه المفكوك قبل الختم —
+// مصنّف ضخم أو مشوّه (zip-bomb) مايستهلكش السيرفر. الملف الحقيقي: 1–20 ورقة × ~20 صف.
+export const MAX_SHEETS = 60;
+export const MAX_ROWS_PER_SHEET = 5000;
+export class StampLimitError extends Error {}
+
 export async function stampSignatures(fileBuffer: Buffer, signatures: LevelSignature[]): Promise<Buffer> {
   const usable = signatures.filter((s) => hasSignatureBox(s.level) && s.image?.length);
   if (!usable.length) return fileBuffer;
 
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(fileBuffer as unknown as ArrayBuffer);
+  if (wb.worksheets.length > MAX_SHEETS) throw new StampLimitError(`المصنّف فيه ${wb.worksheets.length} ورقة — أكبر من الحد ${MAX_SHEETS}`);
+  const big = wb.worksheets.find((ws) => ws.rowCount > MAX_ROWS_PER_SHEET);
+  if (big) throw new StampLimitError(`ورقة "${big.name}" فيها ${big.rowCount} صف — أكبر من الحد ${MAX_ROWS_PER_SHEET}`);
 
   // الصورة بتتسجل مرة واحدة في المصنّف وبتتلزق على كل ورقة بنفس الـ id
   const imageIds = usable.map((s) => ({

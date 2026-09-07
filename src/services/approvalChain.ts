@@ -177,7 +177,10 @@ export async function signedFileBuffer(submissionId: bigint): Promise<Buffer | n
   if (!buffer) return null;
   try {
     const sigs = await collectSignatures(sub.reviews, sub.revision);
-    return sigs.length ? await stampSignatures(buffer, sigs) : buffer;
+    if (!sigs.length) return buffer;
+    // (N11) مهلة للختم: ملف غريب بياخد وقت طويل مايعلّقش الطلب — بنرجع الأصل بلا توقيعات ونسجّل
+    const timeout = new Promise<never>((_, rej) => setTimeout(() => rej(new Error('انتهت مهلة ختم التوقيعات (20 ث)')), 20_000).unref?.());
+    return await Promise.race([stampSignatures(buffer, sigs), timeout]);
   } catch (e) {
     console.error('[approval] فشل ختم التوقيعات — استُخدمت النسخة بلا توقيعات', submissionId.toString(), (e as Error).message);
     return buffer;
