@@ -5,7 +5,8 @@ import { AppError } from '../utils/AppError';
 import { asyncHandler } from '../utils/asyncHandler';
 import { validate } from '../middlewares/validate';
 import { idParamSchema } from '../utils/crudFactory';
-import { getApprovalLevels, APPROVING_GRADES, buildChain, nextLevel, resolveChainForUser, soleProjectManagerId, pushSubmissionToSheet, signedFileBuffer } from '../services/approvalChain';
+import { getApprovalLevels, APPROVING_GRADES, buildChain, nextLevel, resolveChainForUser, soleProjectManagerId, pushSubmissionToSheet, signedFileBuffer, rejectedFileBuffer } from '../services/approvalChain';
+import { countDataRows, Kind } from '../services/rowReject';
 import { storage } from '../services/storage';
 
 // ═══════════ اعتمادات المديرين — تبويب المراجعة والاعتماد ═══════════
@@ -17,6 +18,7 @@ const SUB_INCLUDE = {
   file: { select: { id: true, fileName: true, fileSize: true } },
   user: { select: { id: true, email: true, title: true, grade: true, approverTlId: true, approverCmId: true, approverPmId: true } },
   reviews: { orderBy: { createdAt: 'asc' as const }, include: { byUser: { select: { email: true, title: true } } } },
+  rowRejections: { orderBy: { createdAt: 'asc' as const }, include: { byUser: { select: { email: true, title: true } } } },
 } as const;
 
 function shape(s: Record<string, unknown> & { weekStart: Date; weekEnd: Date; createdAt: Date }) {
@@ -97,13 +99,16 @@ approvalsRoutes.get(
   '/:id/file',
   validate({ params: idParamSchema }),
   asyncHandler(async (req: Request, res: Response) => {
-    const sub = await prisma.submission.findUnique({ where: { id: BigInt(req.params.id) }, include: { file: true } });
+    const sub = await prisma.submission.findUnique({ where: { id: BigInt(req.params.id) }, include: { file: true, rowRejections: true } });
     if (!sub) throw AppError.notFound('الكشف غير موجود');
     // بعد اكتمال السلسلة (SENT) المعاينة/التحميل بيرجّعوا النسخة **الموقّعة** — نفس اللي وصلت جوجل شيت.
-    // أثناء المراجعة بيرجّع الأصل زي ما بعته المهندس (التوقيعات لسه ما اكتملتش).
-    const buffer = sub.reviewState === 'SENT'
-      ? await signedFileBuffer(sub.id)
-      : await storage.read(sub.file.filePath).catch(() => null);
+    // أثناء المراجعة بيرجّع الأصل زي ما بعته المهندس + السطور المشطوبة (عشان المعتمد اللي بعده يشوفها).
+    let buffer: Buffer | null;
+    if (sub.reviewState === 'SENT') buffer = await signedFileBuffer(sub.id);
+    else {
+      const original = await storage.read(sub.file.filePath).catch(() => null);
+      buffer = original ? await rejectedFileBuffer(original, sub.rowRejections, sub.revision, sub.kind as Kind) : null;
+    }
     if (!buffer) throw AppError.notFound('ملف الكشف لم يعد موجودًا على السيرفر');
     res.setHeader('Content-Type', sub.file.mimeType);
     res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(sub.file.fileName)}`);
@@ -124,6 +129,48 @@ approvalsRoutes.post(
     if (sub.reviewState === 'IN_REVIEW') throw AppError.validation('الكشف لسه في المراجعة — ما ينفعش يتخفي قبل ما السلسلة تخلص أو يترفض');
     if (!sub.queueHiddenAt) await prisma.submission.update({ where: { id }, data: { queueHiddenAt: new Date() } });
     res.json({ success: true });
+  }),
+);
+
+// ── شطب سطر (رفض جزئي): من أي مستوى دوره على الكشف، بسبب إلزامي، بلا إلغاء ──
+// لو كل سطور البيانات في الملف اتشطبت → رفض كامل تلقائي (يرجع للمهندس). غير كده الكشف يكمّل السلسلة بدون السطر.
+approvalsRoutes.post(
+  '/:id/rows/reject',
+  validate({ params: idParamSchema, body: z.object({
+    sheetIndex: z.coerce.number().int().min(0).max(200),
+    row: z.coerce.number().int().min(1).max(100),
+    label: z.string().trim().min(1).max(190),
+    note: z.string().trim().min(1, 'اكتب سبب الشطب').max(500),
+  }) }),
+  asyncHandler(async (req: Request, res: Response) => {
+    const id = BigInt(req.params.id);
+    const { sheetIndex, row, label, note } = req.body as { sheetIndex: number; row: number; label: string; note: string };
+    const sub = await prisma.submission.findUnique({ where: { id }, include: { file: true, rowRejections: true } });
+    if (!sub) throw AppError.notFound('الكشف غير موجود');
+    if (sub.reviewState !== 'IN_REVIEW') throw AppError.validation('الكشف مش في مرحلة مراجعة');
+    const me = await prisma.user.findUnique({ where: { id: req.user!.id }, select: { grade: true } });
+    const isAdmin = req.user!.role === 'ADMIN';
+    const isApprover = !!me?.grade && (APPROVING_GRADES as readonly string[]).includes(me.grade);
+    const mine = sub.currentApproverId === req.user!.id || (sub.currentApproverId === null && isApprover && me!.grade === sub.currentLevel);
+    if (!isAdmin && !mine) throw AppError.forbidden('مش دورك في الاعتماد على الكشف ده دلوقتي');
+    if (sub.rowRejections.some((r) => r.revision === sub.revision && r.sheetIndex === sheetIndex && r.row === row)) throw AppError.validation('السطر ده مشطوب بالفعل');
+    const level = isAdmin && !sub.currentLevel ? 'admin' : (sub.currentLevel ?? 'admin');
+    const rejection = await prisma.submissionRowRejection.create({
+      data: { submissionId: id, revision: sub.revision, sheetIndex, row, label, note, level, byUserId: req.user!.id },
+    });
+    // كل السطور اتشطبت؟ → رفض كامل
+    let fullyRejected = false;
+    const original = await storage.read(sub.file.filePath).catch(() => null);
+    const total = original ? await countDataRows(original, sub.kind === 'equipment' ? 'equipment' : 'labor') : null;
+    const struck = new Set(sub.rowRejections.filter((r) => r.revision === sub.revision).map((r) => r.sheetIndex + ':' + r.row)).add(sheetIndex + ':' + row).size;
+    if (total !== null && total > 0 && struck >= total) {
+      fullyRejected = true;
+      await prisma.submissionReview.create({
+        data: { submissionId: id, level: sub.currentLevel ?? '', decision: 'REJECTED', note: 'كل سطور الكشف اتشطبت — آخر سبب: ' + note, revision: sub.revision, byUserId: req.user!.id },
+      });
+      await prisma.submission.update({ where: { id }, data: { reviewState: 'RETURNED', currentLevel: null, currentApproverId: null } });
+    }
+    res.status(201).json({ success: true, data: { ...rejection, id: rejection.id.toString(), submissionId: rejection.submissionId.toString(), byUserId: rejection.byUserId?.toString() ?? null }, fullyRejected, struck, total });
   }),
 );
 

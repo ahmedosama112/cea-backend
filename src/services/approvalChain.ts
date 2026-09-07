@@ -2,6 +2,7 @@ import { prisma } from '../config/prisma';
 import { storage } from './storage';
 import { pushSubmissionToGoogle } from './googleSheet';
 import { stampSignatures, hasSignatureBox, LevelSignature } from './signStamp';
+import { applyRowRejections, Kind } from './rowReject';
 
 // ═══════════ سلسلة اعتمادات المديرين (داخل التطبيق قبل جوجل شيت) ═══════════
 // الكشف بيعدّي على المعتمدين المسندين لصاحبه بالترتيب؛ وبس بعد ما يخلص كلهم بيتبعت لجوجل شيت.
@@ -149,12 +150,13 @@ export async function pushSubmissionToSheet(submissionId: bigint): Promise<void>
         orderBy: { createdAt: 'asc' },
         include: { byUser: { select: { email: true, title: true, accountSettings: { select: { signatureFile: true } } } } },
       },
+      rowRejections: { orderBy: { createdAt: 'asc' } },
     },
   });
   if (!sub) return;
   const toSend = await signedFileBuffer(submissionId);
   if (!toSend) { console.error('[approval] ملف التسليم غير موجود عند الدفع لجوجل', submissionId.toString()); return; }
-  await pushSubmissionToGoogle(sub.id, toSend, sub.file.fileName, sub.user.email.split('@')[0], sub.user.project ?? null, sub.site, approvalSummary(sub.reviews, sub.revision));
+  await pushSubmissionToGoogle(sub.id, toSend, sub.file.fileName, sub.user.email.split('@')[0], sub.user.project ?? null, sub.site, approvalSummary(sub.reviews, sub.revision, sub.rowRejections));
 }
 
 // ملف الكشف **موقّعًا** بتوقيعات معتمدي النسخة الحالية — نفس النسخة اللي بتتبعت لجوجل.
@@ -170,11 +172,14 @@ export async function signedFileBuffer(submissionId: bigint): Promise<Buffer | n
         orderBy: { createdAt: 'asc' },
         include: { byUser: { select: { accountSettings: { select: { signatureFile: true } } } } },
       },
+      rowRejections: true,
     },
   });
   if (!sub) return null;
-  const buffer = await storage.read(sub.file.filePath).catch(() => null);
-  if (!buffer) return null;
+  const original = await storage.read(sub.file.filePath).catch(() => null);
+  if (!original) return null;
+  // السطور المشطوبة (النسخة الحالية) بتتطبق على الملف قبل الختم — نفس اللي بيشوفه المعتمدين وبيوصل جوجل
+  const buffer = await rejectedFileBuffer(original, sub.rowRejections, sub.revision, sub.kind as Kind);
   try {
     const sigs = await collectSignatures(sub.reviews, sub.revision);
     if (!sigs.length) return buffer;
@@ -184,6 +189,19 @@ export async function signedFileBuffer(submissionId: bigint): Promise<Buffer | n
   } catch (e) {
     console.error('[approval] فشل ختم التوقيعات — استُخدمت النسخة بلا توقيعات', submissionId.toString(), (e as Error).message);
     return buffer;
+  }
+}
+
+// الملف بعد تطبيق شطب السطور (النسخة الحالية فقط) — بيُستخدم أثناء المراجعة (للمعتمدين اللي بعده) وقبل الختم
+type RowRejectionRow = { revision: number; sheetIndex: number; row: number; level: string; note: string | null };
+export async function rejectedFileBuffer(original: Buffer, rejections: RowRejectionRow[], revision: number, kind: Kind): Promise<Buffer> {
+  const cur = rejections.filter((r) => r.revision === revision);
+  if (!cur.length) return original;
+  try {
+    return await applyRowRejections(original, cur, kind === 'equipment' ? 'equipment' : 'labor');
+  } catch (e) {
+    console.error('[approval] فشل تطبيق شطب السطور — استُخدم الأصل', (e as Error).message);
+    return original;
   }
 }
 
@@ -218,7 +236,8 @@ export async function collectSignatures(reviews: SignatureReview[], revision: nu
 // ملخص سلسلة الاعتماد (للنسخة الحالية) — بيتكتب في خانة "سلسلة الاعتماد" في جوجل شيت لما الكشف ينزل
 // مثال: "team leader: ✅ معتمد (ahmed) 03/09 22:10 | project manager: 📝 بملاحظات: راجع الإجمالي (mostafa) 03/09 22:40"
 type ReviewRow = { level: string; decision: string; note: string | null; revision: number; createdAt: Date; byUser: { email: string; title: string | null } | null };
-export function approvalSummary(reviews: ReviewRow[], revision: number): string {
+type RejectionRow = { revision: number; label: string; level: string; note: string | null };
+export function approvalSummary(reviews: ReviewRow[], revision: number, rowRejections: RejectionRow[] = []): string {
   const label: Record<string, string> = { APPROVED: '✅ معتمد', APPROVED_NOTES: '📝 بملاحظات', REJECTED: '❌ مرفوض' };
   const fmt = (d: Date) => {
     const p = (n: number) => String(n).padStart(2, '0');
@@ -230,9 +249,11 @@ export function approvalSummary(reviews: ReviewRow[], revision: number): string 
       const who = r.byUser ? (r.byUser.title || r.byUser.email.split('@')[0]) : '';
       return `${r.level}: ${label[r.decision] ?? r.decision}${r.note ? ': ' + r.note : ''}${who ? ' (' + who + ')' : ''} ${fmt(r.createdAt)}`;
     });
-  if (!parts.length) return 'اتبعت مباشرة (مفيش معتمدين مضبوطين في التطبيق)';
+  // السطور المشطوبة (رفض جزئي) — بتظهر في خانة سلسلة الاعتماد كمان عشان الـ DC يعرف إيه اللي اتشال
+  const struck = rowRejections.filter((r) => r.revision === revision).map((r) => `❌ سطر مشطوب: ${r.label} — ${r.level}${r.note ? ': ' + r.note : ''}`);
+  if (!parts.length && !struck.length) return 'اتبعت مباشرة (مفيش معتمدين مضبوطين في التطبيق)';
   // كل اعتماد في سطر (الخانة في الشيت wrap) — أوضح من الفصل بـ |
-  return (revision > 0 ? `نسخة ${revision}\n` : '') + parts.join('\n');
+  return (revision > 0 ? `نسخة ${revision}\n` : '') + [...parts, ...struck].join('\n');
 }
 
 // بدء السلسلة لكشف جديد (أو إعادة إرسال): أول معتمد مسند لصاحب الكشف.

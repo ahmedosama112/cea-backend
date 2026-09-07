@@ -1,0 +1,102 @@
+import ExcelJS from 'exceljs';
+
+// ═══════════ شطب سطر من الكشف (رفض جزئي) ═══════════
+// المعتمد يشطب سطر يوم معيّن بدل ما يرفض الكشف كله: السطر بيتلوّن أحمر بخط في النص، إجماليه يبقى صفر،
+// السبب بيتكتب في خانة الملاحظات، وإجمالي الورقة بيتعاد حسابه. الكشف يكمّل السلسلة ويوصل الـ DC مشطوب.
+// التخطيط معروف من الواجهة (buildApprovedSheet / buildEquipmentSheet):
+//   العمالة:  صفوف الأيام 8..14، التاريخ عمود 13، إجمالي السطر عمود 8، بيان الأعمال (مدموج 3..7) → الملاحظة في 3، إجمالي الورقة صف 15 عمود 8
+//   المعدات:  صفوف الأيام 8..12، التاريخ عمود 13، المدة عمود 7 ("h:mm")، الملاحظات عمود 1، إجمالي الورقة صف 13 عمود 7، إجمالي الشهر صف 13 عمود 6
+
+export type Kind = 'labor' | 'equipment';
+export type RowRejection = { sheetIndex: number; row: number; level: string; note: string | null };
+
+const LAYOUT = {
+  labor: { firstRow: 8, lastRow: 14, dateCol: 13, valueCol: 8, noteCol: 3, totalRow: 15 },
+  equipment: { firstRow: 8, lastRow: 12, dateCol: 13, valueCol: 7, noteCol: 1, totalRow: 13 },
+} as const;
+
+function text(v: ExcelJS.CellValue): string {
+  if (v == null) return '';
+  if (typeof v === 'object' && 'richText' in (v as object)) return (v as { richText: { text: string }[] }).richText.map((x) => x.text).join('');
+  return String(v);
+}
+function minutesOf(v: ExcelJS.CellValue): number {
+  const m = text(v).replace(/‏/g, '').match(/(\d+):(\d{2})/);
+  return m ? Number(m[1]) * 60 + Number(m[2]) : 0;
+}
+function fmtMinutes(m: number): string { return '‏' + Math.floor(m / 60) + ':' + String(m % 60).padStart(2, '0'); }
+
+// صفوف الأيام اللي فيها بيانات فعلًا في ورقة (تاريخ + قيمة) — الأساس لحساب "كل السطور اتشطبت"
+export function dataRowsOf(ws: ExcelJS.Worksheet, kind: Kind): number[] {
+  const L = LAYOUT[kind];
+  const out: number[] = [];
+  for (let r = L.firstRow; r <= L.lastRow; r++) {
+    if (text(ws.getCell(r, L.dateCol).value) && text(ws.getCell(r, L.valueCol).value)) out.push(r);
+  }
+  return out;
+}
+
+// عدد سطور البيانات في المصنّف كله (لو الملف مش xlsx حقيقي بيرجع null — ما نقدرش نحكم)
+export async function countDataRows(buffer: Buffer, kind: Kind): Promise<number | null> {
+  try {
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(buffer as unknown as ArrayBuffer);
+    return wb.worksheets.reduce((a, ws) => a + dataRowsOf(ws, kind).length, 0);
+  } catch {
+    return null;
+  }
+}
+
+// تطبيق الشطب على الملف: بيرجع نسخة معدّلة (الأصل في التخزين ما بيتغيرش). فشل القراءة → نفس الملف.
+export async function applyRowRejections(buffer: Buffer, rejections: RowRejection[], kind: Kind): Promise<Buffer> {
+  if (!rejections.length) return buffer;
+  const L = LAYOUT[kind];
+  let wb: ExcelJS.Workbook;
+  try {
+    wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(buffer as unknown as ArrayBuffer);
+  } catch {
+    return buffer;
+  }
+  const touched = new Set<number>();
+  for (const rj of rejections) {
+    const ws = wb.worksheets[rj.sheetIndex];
+    if (!ws || rj.row < L.firstRow || rj.row > L.lastRow) continue;
+    touched.add(rj.sheetIndex);
+    for (let c = 1; c <= 13; c++) {
+      const cell = ws.getCell(rj.row, c);
+      cell.font = { ...(cell.font || {}), strike: true, color: { argb: 'FFB71C1C' } };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFDE8E8' } };
+    }
+    ws.getCell(rj.row, L.valueCol).value = kind === 'labor' ? 0 : fmtMinutes(0);
+    const noteCell = ws.getCell(rj.row, L.noteCol);
+    const prev = text(noteCell.value);
+    noteCell.value = (prev ? prev + '\n' : '') + '❌ مرفوض (' + rj.level + ')' + (rj.note ? ': ' + rj.note : '');
+    noteCell.alignment = { ...(noteCell.alignment || {}), wrapText: true };
+    ws.getRow(rj.row).height = Math.max(Number(ws.getRow(rj.row).height) || 30, 44);
+  }
+  // إعادة حساب إجمالي الورقة
+  for (const idx of touched) {
+    const ws = wb.worksheets[idx];
+    if (kind === 'labor') {
+      let sum = 0;
+      for (let r = L.firstRow; r <= L.lastRow; r++) sum += Number(ws.getCell(r, L.valueCol).value) || 0;
+      ws.getCell(L.totalRow, L.valueCol).value = sum;
+    } else {
+      let sum = 0;
+      for (let r = L.firstRow; r <= L.lastRow; r++) sum += minutesOf(ws.getCell(r, L.valueCol).value);
+      ws.getCell(L.totalRow, L.valueCol).value = fmtMinutes(sum);
+    }
+  }
+  // المعدات: إجمالي الشهر (كل ورقات نفس المعدة — الاسم "n- المعدة") بيتعاد حسابه بعد الشطب
+  if (kind === 'equipment' && touched.size) {
+    const groups = new Map<string, ExcelJS.Worksheet[]>();
+    wb.worksheets.forEach((ws) => { const k = ws.name.replace(/^\d+-\s*/, ''); (groups.get(k) ?? groups.set(k, []).get(k)!).push(ws); });
+    for (const list of groups.values()) {
+      let mins = 0, days = 0;
+      for (const ws of list) for (let r = L.firstRow; r <= L.lastRow; r++) { const m = minutesOf(ws.getCell(r, L.valueCol).value); if (m > 0) { mins += m; days++; } }
+      for (const ws of list) ws.getCell(L.totalRow, 6).value = `إجمالي الشهر: ${fmtMinutes(mins).replace(/‏/g, '')} ساعة (${days} يوم تشغيل)`;
+    }
+  }
+  return Buffer.from(await wb.xlsx.writeBuffer());
+}

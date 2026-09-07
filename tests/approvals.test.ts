@@ -1,6 +1,8 @@
 import { beforeAll, afterAll, describe, expect, it } from 'vitest';
 import { app, prisma, request, resetDb, createAdmin, createEngineer, auth, TestUser } from './helpers';
 import { collectSignatures } from '../src/services/approvalChain';
+import ExcelJS from 'exceljs';
+import { applyRowRejections, dataRowsOf } from '../src/services/rowReject';
 
 // اعتمادات المديرين — سلسلة المراجعة داخل التطبيق قبل جوجل شيت
 // السلسلة بتتحدد لكل مهندس: درجته (المصفوفة) + المعتمدين المسندين له بالاسم
@@ -14,6 +16,22 @@ async function submit(token: string) {
     .field('weekEnd', '2026-08-18').field('total', '500').field('recordsCount', '2')
     .attach('file', xlsx, 'k.xlsx');
   return res;
+}
+// كشف عمالة حقيقي بتخطيط الواجهة: 7 صفوف أيام (8..14) بتاريخ في العمود 13، واتنين منهم فيهم إجمالي في العمود 8، وإجمالي الورقة صف 15
+async function realLaborXlsx(): Promise<Buffer> {
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('مقاول');
+  for (let i = 0; i < 7; i++) { const r = 8 + i; ws.getCell(r, 13).value = '2026-08-' + (12 + i); ws.getCell(r, 12).value = 'يوم'; }
+  ws.getCell(8, 8).value = 300; ws.getCell(8, 3).value = 'أعمال أ';
+  ws.getCell(10, 8).value = 200; ws.getCell(10, 3).value = 'أعمال ب';
+  ws.getCell(15, 8).value = 500;
+  return Buffer.from(await wb.xlsx.writeBuffer());
+}
+async function submitReal(token: string) {
+  return request(app).post('/api/submissions').set(auth(token))
+    .field('contractorName', 'مقاول').field('placeName', 'موقع').field('weekStart', '2026-08-12')
+    .field('weekEnd', '2026-08-18').field('total', '500').field('recordsCount', '2')
+    .attach('file', await realLaborXlsx(), 'real.xlsx');
 }
 async function patchUser(adminToken: string, userId: string, body: Record<string, unknown>) {
   return request(app).patch(`/api/admin/users/${userId}`).set(auth(adminToken)).send(body);
@@ -146,6 +164,54 @@ describe('اعتمادات المديرين', () => {
     expect(otherApprover.status).toBe(200);
     const adm = await request(app).get(`/api/approvals/${id}/file`).set(auth(admin.token));
     expect(adm.status).toBe(200);
+  });
+
+  it('شطب سطر: بيتلوّن ويتصفّر إجماليه ويتعاد حساب إجمالي الورقة، ويظهر للمعتمد التالي وللمهندس؛ غير المسند ممنوع؛ شطب الكل = رفض كامل', async () => {
+    const res = await submitReal(eng.token);
+    expect(res.status).toBe(201);
+    const id = res.body.data.id;
+    // وحدة الخدمة نفسها: صفوف البيانات = 8 و10
+    const raw = await realLaborXlsx();
+    const wb0 = new ExcelJS.Workbook(); await wb0.xlsx.load(raw as unknown as ArrayBuffer);
+    expect(dataRowsOf(wb0.worksheets[0], 'labor')).toEqual([8, 10]);
+    const struckBuf = await applyRowRejections(raw, [{ sheetIndex: 0, row: 8, level: 'team leader', note: 'مش شغال اليوم ده' }], 'labor');
+    const wb1 = new ExcelJS.Workbook(); await wb1.xlsx.load(struckBuf as unknown as ArrayBuffer);
+    const ws1 = wb1.worksheets[0];
+    expect(ws1.getCell(8, 13).font?.strike).toBe(true);
+    expect(Number(ws1.getCell(8, 8).value)).toBe(0);
+    expect(Number(ws1.getCell(15, 8).value)).toBe(200);
+    expect(String(ws1.getCell(8, 3).value)).toContain('❌ مرفوض (team leader): مش شغال اليوم ده');
+
+    // غير المسند (tl2) ممنوع، والسبب إلزامي
+    const denied = await request(app).post(`/api/approvals/${id}/rows/reject`).set(auth(tl2.token)).send({ sheetIndex: 0, row: 8, label: 'الأربعاء 2026-08-12', note: 'x' });
+    expect(denied.status).toBe(403);
+    const noNote = await request(app).post(`/api/approvals/${id}/rows/reject`).set(auth(tl.token)).send({ sheetIndex: 0, row: 8, label: 'الأربعاء 2026-08-12', note: '' });
+    expect(noNote.status).toBe(400);
+    // المسند (tl) يشطب سطر → الكشف لسه IN_REVIEW، والملف من مسار الاعتمادات فيه الشطب
+    const ok = await request(app).post(`/api/approvals/${id}/rows/reject`).set(auth(tl.token)).send({ sheetIndex: 0, row: 8, label: 'الأربعاء 2026-08-12 — 300 ج.م', note: 'مش شغال اليوم ده' });
+    expect(ok.status).toBe(201);
+    expect(ok.body.fullyRejected).toBe(false);
+    const again = await request(app).post(`/api/approvals/${id}/rows/reject`).set(auth(tl.token)).send({ sheetIndex: 0, row: 8, label: 'x', note: 'y' });
+    expect(again.status).toBe(400); // مشطوب بالفعل — مفيش إلغاء ولا تكرار
+    const q = await request(app).get('/api/approvals/queue').set(auth(tl.token));
+    const row = q.body.data.find((s: { id: string }) => s.id === id);
+    expect(row.reviewState).toBe('IN_REVIEW');
+    expect(row.rowRejections).toHaveLength(1);
+    const file = await request(app).get(`/api/approvals/${id}/file`).set(auth(pm.token)).buffer(true).parse((r, cb) => { const chunks: Buffer[] = []; r.on('data', (c: Buffer) => chunks.push(c)); r.on('end', () => cb(null, Buffer.concat(chunks))); });
+    const wb2 = new ExcelJS.Workbook(); await wb2.xlsx.load(file.body as unknown as ArrayBuffer);
+    expect(wb2.worksheets[0].getCell(8, 13).font?.strike).toBe(true);
+    expect(Number(wb2.worksheets[0].getCell(15, 8).value)).toBe(200);
+    // المهندس يشوف السطر المشطوب وسببه في تسليماته
+    const mine = await request(app).get('/api/submissions/mine').set(auth(eng.token));
+    const m = mine.body.data.find((s: { id: string }) => s.id === id);
+    expect(m.rowRejections[0].note).toBe('مش شغال اليوم ده');
+    // شطب السطر الأخير → رفض كامل تلقائي
+    const last = await request(app).post(`/api/approvals/${id}/rows/reject`).set(auth(tl.token)).send({ sheetIndex: 0, row: 10, label: 'الجمعة 2026-08-14 — 200 ج.م', note: 'كمان' });
+    expect(last.status).toBe(201);
+    expect(last.body.fullyRejected).toBe(true);
+    const after = await prisma.submission.findUnique({ where: { id: BigInt(id) }, include: { reviews: true } });
+    expect(after!.reviewState).toBe('RETURNED');
+    expect(after!.reviews.some((r) => r.decision === 'REJECTED' && r.note?.includes('كل سطور الكشف اتشطبت'))).toBe(true);
   });
 
   it('الأدمن يخفي صفًا من الطابور فقط — الكشف يفضل في "تسليماتي" وسجله كامل، وغير الأدمن ممنوع', async () => {
