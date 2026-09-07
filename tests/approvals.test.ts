@@ -180,6 +180,10 @@ describe('اعتمادات المديرين', () => {
     expect(ws1.getCell(8, 13).font?.strike).toBe(true);
     expect(Number(ws1.getCell(8, 8).value)).toBe(0);
     expect(Number(ws1.getCell(15, 8).value)).toBe(200);
+    // السطور التانية ما تتأثرش (ExcelJS بيشارك الـ style بين الخلايا — كان الشيت كله بيبقى أحمر)
+    expect(ws1.getCell(10, 13).font?.strike).toBeFalsy();
+    expect((ws1.getCell(10, 13).fill as { fgColor?: { argb?: string } } | undefined)?.fgColor?.argb).not.toBe('FFFDE8E8');
+    expect(ws1.getCell(15, 8).font?.strike).toBeFalsy();
     expect(String(ws1.getCell(8, 3).value)).toContain('❌ مرفوض (team leader): مش شغال اليوم ده');
 
     // غير المسند (tl2) ممنوع، والسبب إلزامي

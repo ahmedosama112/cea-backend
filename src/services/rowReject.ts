@@ -65,14 +65,19 @@ export async function applyRowRejections(buffer: Buffer, rejections: RowRejectio
     touched.add(rj.sheetIndex);
     for (let c = 1; c <= 13; c++) {
       const cell = ws.getCell(rj.row, c);
-      cell.font = { ...(cell.font || {}), strike: true, color: { argb: 'FFB71C1C' } };
-      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFDE8E8' } };
+      // ⚠ ExcelJS بيشارك كائن الـ style بين الخلايا المتشابهة بعد التحميل — تعديل cell.font مباشرة كان بيلوّن الشيت كله أحمر.
+      // لازم ننسخ الـ style للخلية دي بس قبل التعديل.
+      cell.style = {
+        ...cell.style,
+        font: { ...(cell.style.font || {}), strike: true, color: { argb: 'FFB71C1C' } },
+        fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFDE8E8' } },
+      };
     }
     ws.getCell(rj.row, L.valueCol).value = kind === 'labor' ? 0 : fmtMinutes(0);
     const noteCell = ws.getCell(rj.row, L.noteCol);
     const prev = text(noteCell.value);
     noteCell.value = (prev ? prev + '\n' : '') + '❌ مرفوض (' + rj.level + ')' + (rj.note ? ': ' + rj.note : '');
-    noteCell.alignment = { ...(noteCell.alignment || {}), wrapText: true };
+    noteCell.style = { ...noteCell.style, alignment: { ...(noteCell.style.alignment || {}), wrapText: true } };
     ws.getRow(rj.row).height = Math.max(Number(ws.getRow(rj.row).height) || 30, 44);
   }
   // إعادة حساب إجمالي الورقة
