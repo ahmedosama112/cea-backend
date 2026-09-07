@@ -66,6 +66,10 @@ export function pushSubmissionToGoogle(submissionId: bigint, fileBuffer: Buffer,
 
 async function doPushSubmission(submissionId: bigint, fileBuffer: Buffer, fileName: string, engineerName: string, project: string | null, site: number | null | undefined, approvalSummary?: string): Promise<void> {
   if (!googleSyncEnabled(site)) return;
+  // (7 سبتمبر 2026) حماية من التكرار: الدفع بيتنفذ من طابور — لو كشف اتبعت مرتين (اعتماد + "إعادة الإرسال للشيت" وقت ما الأول لسه شغال)
+  // التاني بيلاقي الصف اتسجل خلاص فبيتخطى بدل ما يعمل صف مكرر في الشيت
+  const already = await prisma.submission.findUnique({ where: { id: submissionId }, select: { gsheetRow: true } }).catch(() => null);
+  if (already?.gsheetRow) return;
   const result = await callWebApp(
     site,
     {
