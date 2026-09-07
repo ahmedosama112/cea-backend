@@ -47,8 +47,22 @@ export async function countDataRows(buffer: Buffer, kind: Kind): Promise<number 
   }
 }
 
+// نمطان (قرار صاحب المشروع 7 سبتمبر 2026):
+//   'strike' — جوّه التطبيق أثناء المراجعة: السطر أحمر بخط في النص + السبب في خانة الملاحظات (المعتمدين اللي بعده يشوفوا إيه اللي اتشال وليه)
+//   'clear'  — النسخة اللي بتتختم وتروح جوجل شيت/الـ DC: السطر يبقى **يوم فاضي** (التاريخ واليوم بس، وتوقيع المهندس على السطر بيتشال)،
+//              من غير أي أثر أحمر — السبب بيوصل الـ DC في خانة "سلسلة الاعتماد" جنب الصف في الشيت
+export type RejectMode = 'strike' | 'clear';
+
+// شيل صور (توقيع المهندس) المرساة على صف معيّن — ExcelJS مافيهاش removeImage عام، فبنفلتر _media
+function removeImagesOnRow(ws: ExcelJS.Worksheet, row: number): void {
+  const media = (ws as unknown as { _media?: Array<{ type: string; range?: { tl?: { nativeRow?: number } } }> })._media;
+  if (!Array.isArray(media)) return;
+  const keep = media.filter((m) => !(m.type === 'image' && m.range?.tl && Math.floor(Number(m.range.tl.nativeRow)) === row - 1));
+  (ws as unknown as { _media: unknown[] })._media = keep;
+}
+
 // تطبيق الشطب على الملف: بيرجع نسخة معدّلة (الأصل في التخزين ما بيتغيرش). فشل القراءة → نفس الملف.
-export async function applyRowRejections(buffer: Buffer, rejections: RowRejection[], kind: Kind): Promise<Buffer> {
+export async function applyRowRejections(buffer: Buffer, rejections: RowRejection[], kind: Kind, mode: RejectMode = 'strike'): Promise<Buffer> {
   if (!rejections.length) return buffer;
   const L = LAYOUT[kind];
   let wb: ExcelJS.Workbook;
@@ -63,6 +77,12 @@ export async function applyRowRejections(buffer: Buffer, rejections: RowRejectio
     const ws = wb.worksheets[rj.sheetIndex];
     if (!ws || rj.row < L.firstRow || rj.row > L.lastRow) continue;
     touched.add(rj.sheetIndex);
+    if (mode === 'clear') {
+      // يوم فاضي: كل القيم تتمسح ماعدا التاريخ (13) واليوم (12) — والتنسيق يفضل زي أي يوم بلا شغل، والتوقيع يتشال
+      for (let c = 1; c <= 11; c++) ws.getCell(rj.row, c).value = null;
+      removeImagesOnRow(ws, rj.row);
+      continue;
+    }
     for (let c = 1; c <= 13; c++) {
       const cell = ws.getCell(rj.row, c);
       // ⚠ ExcelJS بيشارك كائن الـ style بين الخلايا المتشابهة بعد التحميل — تعديل cell.font مباشرة كان بيلوّن الشيت كله أحمر.

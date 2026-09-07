@@ -2,7 +2,7 @@ import { prisma } from '../config/prisma';
 import { storage } from './storage';
 import { pushSubmissionToGoogle } from './googleSheet';
 import { stampSignatures, hasSignatureBox, LevelSignature } from './signStamp';
-import { applyRowRejections, Kind } from './rowReject';
+import { applyRowRejections, Kind, RejectMode } from './rowReject';
 
 // ═══════════ سلسلة اعتمادات المديرين (داخل التطبيق قبل جوجل شيت) ═══════════
 // الكشف بيعدّي على المعتمدين المسندين لصاحبه بالترتيب؛ وبس بعد ما يخلص كلهم بيتبعت لجوجل شيت.
@@ -179,7 +179,8 @@ export async function signedFileBuffer(submissionId: bigint): Promise<Buffer | n
   const original = await storage.read(sub.file.filePath).catch(() => null);
   if (!original) return null;
   // السطور المشطوبة (النسخة الحالية) بتتطبق على الملف قبل الختم — نفس اللي بيشوفه المعتمدين وبيوصل جوجل
-  const buffer = await rejectedFileBuffer(original, sub.rowRejections, sub.revision, sub.kind as Kind);
+  // النسخة النهائية (تتختم وتروح جوجل/الـ DC): السطور المشطوبة بتبقى أيام فاضية — نضيفة بلا أثر أحمر (السبب في خانة سلسلة الاعتماد بالشيت)
+  const buffer = await rejectedFileBuffer(original, sub.rowRejections, sub.revision, sub.kind as Kind, 'clear');
   try {
     const sigs = await collectSignatures(sub.reviews, sub.revision);
     if (!sigs.length) return buffer;
@@ -194,11 +195,11 @@ export async function signedFileBuffer(submissionId: bigint): Promise<Buffer | n
 
 // الملف بعد تطبيق شطب السطور (النسخة الحالية فقط) — بيُستخدم أثناء المراجعة (للمعتمدين اللي بعده) وقبل الختم
 type RowRejectionRow = { revision: number; sheetIndex: number; row: number; level: string; note: string | null };
-export async function rejectedFileBuffer(original: Buffer, rejections: RowRejectionRow[], revision: number, kind: Kind): Promise<Buffer> {
+export async function rejectedFileBuffer(original: Buffer, rejections: RowRejectionRow[], revision: number, kind: Kind, mode: RejectMode = 'strike'): Promise<Buffer> {
   const cur = rejections.filter((r) => r.revision === revision);
   if (!cur.length) return original;
   try {
-    return await applyRowRejections(original, cur, kind === 'equipment' ? 'equipment' : 'labor');
+    return await applyRowRejections(original, cur, kind === 'equipment' ? 'equipment' : 'labor', mode);
   } catch (e) {
     console.error('[approval] فشل تطبيق شطب السطور — استُخدم الأصل', (e as Error).message);
     return original;

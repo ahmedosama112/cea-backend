@@ -184,6 +184,16 @@ describe('اعتمادات المديرين', () => {
     expect(ws1.getCell(10, 13).font?.strike).toBeFalsy();
     expect((ws1.getCell(10, 13).fill as { fgColor?: { argb?: string } } | undefined)?.fgColor?.argb).not.toBe('FFFDE8E8');
     expect(ws1.getCell(15, 8).font?.strike).toBeFalsy();
+    // نمط 'clear' (نسخة الـ DC): السطر يبقى يوم فاضي — التاريخ واليوم بس، بلا أحمر، والإجمالي متحسب من غيره
+    const cleanBuf = await applyRowRejections(raw, [{ sheetIndex: 0, row: 8, level: 'team leader', note: 'x' }], 'labor', 'clear');
+    const wbc = new ExcelJS.Workbook(); await wbc.xlsx.load(cleanBuf as unknown as ArrayBuffer);
+    const wsc = wbc.worksheets[0];
+    expect(String(wsc.getCell(8, 13).value)).toBe('2026-08-12');
+    expect(String(wsc.getCell(8, 12).value)).toBe('يوم');
+    expect(wsc.getCell(8, 8).value).toBeNull();
+    expect(wsc.getCell(8, 3).value).toBeNull();
+    expect(wsc.getCell(8, 13).font?.strike).toBeFalsy();
+    expect(Number(wsc.getCell(15, 8).value)).toBe(200);
     expect(String(ws1.getCell(8, 3).value)).toContain('❌ مرفوض (team leader): مش شغال اليوم ده');
 
     // غير المسند (tl2) ممنوع، والسبب إلزامي
