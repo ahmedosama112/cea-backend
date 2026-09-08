@@ -36,6 +36,18 @@ describe('تسليمات الكشوف المعتمدة', () => {
     subId = res.body.data.id;
   });
 
+  it('كشف بمقاولين كتير (اسم متجمّع > 190 حرف) بيتقبل — كان بيرجّع 400 (8 سبتمبر 2026)', async () => {
+    const many = Array.from({ length: 12 }, (_, i) => 'مقاول رقم ' + (i + 1) + ' عبد الرحمن توفيق').join('، ');
+    expect(many.length).toBeGreaterThan(190);
+    const res = await request(app).post('/api/submissions').set(auth(eng.token))
+      .field('contractorName', many).field('placeName', '15 أماكن').field('weekStart', '2026-09-02')
+      .field('weekEnd', '2026-09-08').field('total', '52032.5').field('recordsCount', '40')
+      .attach('file', fakeXlsx, 'many.xlsx');
+    expect(res.status).toBe(201);
+    expect(res.body.data.contractorName).toBe(many);
+    await request(app).delete(`/api/submissions/${res.body.data.id}`).set(auth(admin.token)); // ما يأثرش على عدّادات الاختبارات التالية
+  });
+
   it('كشف معدات: kind=equipment بيتحفظ، والافتراضي labor', async () => {
     const res = await request(app)
       .post('/api/submissions')
