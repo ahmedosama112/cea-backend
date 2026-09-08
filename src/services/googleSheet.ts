@@ -60,6 +60,9 @@ function enqueuePush(site: number | null | undefined, task: () => Promise<void>)
 // إرسال كشف لجوجل (يشتغل في الخلفية بعد الرد على المهندس — التحويل هناك بياخد ثواني لدقيقة)
 // عند النجاح: بنخزّن رقم الصف وid الملف على التسليم عشان متابعة الحالة لاحقًا
 // approvalSummary: ملخص سلسلة اعتمادات المديرين داخل التطبيق — السكربت بيكتبه في خانة "سلسلة الاعتماد" (اختياري)
+// ⚠ الموقع 2: Code-site2.gs لسه النسخة القديمة — doPost بينده processNewSubmission بـ 3 باراميترات،
+//   فالـ approvalSummary بيتبعت من هنا وبيتترمي هناك (الملاحظات مش بتظهر في الشيت، التوقيعات بتنزل عادي).
+//   اتأجل بقرار صاحب المشروع (8 سبتمبر 2026) لأن الموقع 2 لسه مشتغلش — يتظبط قبل ما يشتغل.
 export function pushSubmissionToGoogle(submissionId: bigint, fileBuffer: Buffer, fileName: string, engineerName: string, project: string | null, site: number | null | undefined, approvalSummary?: string): Promise<void> {
   return enqueuePush(site, () => doPushSubmission(submissionId, fileBuffer, fileName, engineerName, project, site, approvalSummary));
 }

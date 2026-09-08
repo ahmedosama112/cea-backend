@@ -59,8 +59,11 @@ approvalsRoutes.get(
     };
     // (7 سبتمبر 2026 — قرار صاحب المشروع) الطابور بيعرض **كل** الكشوف لكل من عنده الوحدة (كلهم مديرين):
     // الرؤية للجميع، والاعتماد (canAct/decide) محصور على المعتمد المسند بس.
+    // (8 سبتمبر 2026) مشاهد: حساب عنده الوحدة بس مش أدمن ولا درجته من الدرجات المعتمِدة — مهندس عادي عايز يتابع
+    // كشوفه وصلت لفين. بيشوف **كشوفه هو بس**، ومفيش أي إجراء (canAct دايمًا false، والسيرفر رافض decide/reject أصلًا).
+    const isViewer = !isAdmin && !isApprover;
     const rows = await prisma.submission.findMany({
-      where: stateFilter,
+      where: isViewer ? { ...stateFilter, userId: myId } : stateFilter,
       include: SUB_INCLUDE,
       orderBy: { createdAt: 'desc' },
       take: 200,
@@ -71,6 +74,8 @@ approvalsRoutes.get(
     res.json({
       success: true,
       myLevel,
+      // مشاهد = بيتابع كشوفه بس بلا إجراء — الواجهة بتخفي التحميل وبتكتب "مشاهدة" بدل "مراجعة"
+      viewer: isViewer,
       // المستويات المعتمِدة بالترتيب (أعمدة الجدول)
       activeLevels: [...APPROVING_GRADES],
       data: rows.map((r) => {
@@ -112,6 +117,12 @@ approvalsRoutes.get(
   asyncHandler(async (req: Request, res: Response) => {
     const sub = await prisma.submission.findUnique({ where: { id: BigInt(req.params.id) }, include: { file: true, rowRejections: true } });
     if (!sub) throw AppError.notFound('الكشف غير موجود');
+    // (8 سبتمبر 2026) المشاهد (مش أدمن ولا درجته معتمِدة) بيفتح كشوفه هو بس — نفس نطاق الطابور بالظبط
+    if (req.user!.role !== 'ADMIN') {
+      const me = await prisma.user.findUnique({ where: { id: req.user!.id }, select: { grade: true } });
+      const isApprover = !!me?.grade && (APPROVING_GRADES as readonly string[]).includes(me.grade);
+      if (!isApprover && sub.userId !== req.user!.id) throw AppError.notFound('الكشف غير موجود');
+    }
     // بعد اكتمال السلسلة (SENT) المعاينة/التحميل بيرجّعوا النسخة **الموقّعة** — نفس اللي وصلت جوجل شيت.
     // أثناء المراجعة بيرجّع الأصل زي ما بعته المهندس + السطور المشطوبة (عشان المعتمد اللي بعده يشوفها).
     // (8 سبتمبر 2026) أثناء المراجعة كمان: توقيعات اللي اعتمدوا لحد دلوقتي بتنزل على الكشف + "معتمد بواسطة" تحت عنوان البلوك —
