@@ -12,6 +12,7 @@ import { contractorsRouter, equipmentRouter, inspectorsRouter, irRouter, placesR
 import { inventoryRoutes } from './inventory.routes';
 import { approvalsRoutes } from './approvals.routes';
 import { analyticsRoutes } from './analytics.routes';
+import { notificationsRoutes } from './notifications.routes';
 import { authenticate } from '../middlewares/auth';
 import { requireModule } from '../middlewares/moduleGuard';
 
@@ -23,6 +24,8 @@ router.get('/config', authenticate, asyncHandler(async (_req: Request, res: Resp
   res.json({ success: true, data: await readSiteNames() });
 }));
 router.use('/admin', adminRoutes);
+// التنبيهات الداخلية (جرس الهيدر) — متاحة لأي حساب مسجّل؛ الإضافة/التعديل للأدمن (الحارس جوّه الملف)
+router.use('/notifications', authenticate, notificationsRoutes);
 router.use('/account', accountRoutes);
 // بيانات مرجعية — متاحة دايمًا (بتُستخدم في أكتر من وحدة)
 router.use('/contractors', contractorsRouter);

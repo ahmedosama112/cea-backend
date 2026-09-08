@@ -81,6 +81,9 @@ model User {
   rowRejections       SubmissionRowRejection[]
   activityLogs        ActivityLog[]
   equipmentRecords    EquipmentRecord[]
+  notifications       Notification[]       @relation("NotificationAuthor")
+  notificationTargets NotificationTarget[]
+  notificationReads   NotificationRead[]
 
   approverTl          User?  @relation("ApproverTl", fields: [approverTlId], references: [id], onDelete: SetNull)
   approverCm          User?  @relation("ApproverCm", fields: [approverCmId], references: [id], onDelete: SetNull)
@@ -649,4 +652,74 @@ model ActivityLog {
   @@index([userId, createdAt])
   @@index([createdAt])
   @@map("activity_logs")
+}
+
+// ── التنبيهات الداخلية (جرس الهيدر + تاب "التنبيهات" للأدمن) ──
+// الأدمن بيكتب التنبيه ومواعيده، والسيرفر بيخزّن **التعريف** بس (مش كل ظهور على حدة):
+// الواجهة بتحسب مواعيد الظهور من الجدولة محليًا، فالجرس بيشتغل حتى أوفلاين من الكاش.
+model Notification {
+  id            BigInt    @id @default(autoincrement())
+  title         String    @db.VarChar(120)
+  body          String?   @db.VarChar(500)
+  icon          String?   @db.VarChar(12)
+  // info = عادي · warn = مهم (أصفر) · urgent = عاجل (أحمر)
+  level         String    @default("info") @db.VarChar(10)
+  // once = تاريخ واحد · daily = كل يوم · weekly = أيام في الأسبوع · monthly = يوم في الشهر
+  schedule      String    @default("once") @db.VarChar(10)
+  onceDate      DateTime? @map("once_date") @db.Date
+  // أيام الأسبوع لجدولة weekly: "2" أو "0,2,4" (0=الأحد … 6=السبت)
+  weekdays      String?   @db.VarChar(20)
+  // يوم الشهر لجدولة monthly (1..31 — لو الشهر أقصر بيتزحلق لآخر يوم فيه)
+  monthDay      Int?      @map("month_day")
+  timeOfDay     String    @default("08:00") @map("time_of_day") @db.VarChar(5)
+  // يظهر التنبيه قبل موعده بكام يوم (0 = يوم الموعد نفسه)
+  leadDays      Int       @default(0) @map("lead_days")
+  startDate     DateTime? @map("start_date") @db.Date
+  endDate       DateTime? @map("end_date") @db.Date
+  active        Boolean   @default(true)
+  // المستقبلون: me = صاحب التنبيه بس · all = كل الحسابات · site = موقع · grade = درجة · users = حسابات مختارة
+  audience      String    @default("me") @db.VarChar(10)
+  audienceSite  Int?      @map("audience_site")
+  audienceGrade String?   @map("audience_grade") @db.VarChar(60)
+  // تاب يفتح لما المستخدم يضغط على التنبيه (submissions / approvals / equipment ...)
+  linkTab       String?   @map("link_tab") @db.VarChar(30)
+  createdById   BigInt    @map("created_by_id")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  createdBy User                 @relation("NotificationAuthor", fields: [createdById], references: [id], onDelete: Cascade)
+  targets   NotificationTarget[]
+  reads     NotificationRead[]
+
+  @@index([active])
+  @@map("notifications")
+}
+
+// المستقبلون بالاسم (audience = users)
+model NotificationTarget {
+  notificationId BigInt @map("notification_id")
+  userId         BigInt @map("user_id")
+
+  notification Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([notificationId, userId])
+  @@index([userId])
+  @@map("notification_targets")
+}
+
+// "تم" لكل ظهور على حدة — occurrence = تاريخ الظهور (YYYY-MM-DD) عشان تنبيه الثلاثاء الجاي يرجع يظهر
+model NotificationRead {
+  id             BigInt    @id @default(autoincrement())
+  notificationId BigInt    @map("notification_id")
+  userId         BigInt    @map("user_id")
+  occurrence     String    @db.VarChar(10)
+  doneAt         DateTime  @default(now()) @map("done_at")
+
+  notification Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([notificationId, userId, occurrence])
+  @@index([userId])
+  @@map("notification_reads")
 }

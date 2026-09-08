@@ -9,7 +9,7 @@ const WEBAPP_URL = process.env.GOOGLE_WEBAPP_URL || '';
 const WEBAPP_SECRET = process.env.GOOGLE_WEBAPP_SECRET || '';
 
 export async function dumpDatabase(): Promise<Record<string, unknown>> {
-  const [users, accountSettings, contractors, places, inspectors, items, itemStages, records, recordDeductions, irRecords, todos, execRecords, execRecordStages, dailyRecords, files, submissions, appConfig, inventoryItems, issueRequests, issueRequestLines, stockMoves, purchaseRequests] =
+  const [users, accountSettings, contractors, places, inspectors, items, itemStages, records, recordDeductions, irRecords, todos, execRecords, execRecordStages, dailyRecords, files, submissions, appConfig, inventoryItems, issueRequests, issueRequestLines, stockMoves, purchaseRequests, notifications, notificationTargets, notificationReads] =
     await Promise.all([
       prisma.user.findMany(), // passwordHash ضمنها — مطلوب للاستعادة الكاملة، والملف في Drive الخاص بالأدمن
       prisma.accountSettings.findMany(),
@@ -33,12 +33,15 @@ export async function dumpDatabase(): Promise<Record<string, unknown>> {
       prisma.issueRequestLine.findMany(),
       prisma.stockMove.findMany(),
       prisma.purchaseRequest.findMany(),
+      prisma.notification.findMany(),
+      prisma.notificationTarget.findMany(),
+      prisma.notificationRead.findMany(),
     ]);
   return {
     version: 1,
     createdAt: new Date().toISOString(),
     counts: { users: users.length, records: records.length, submissions: submissions.length },
-    tables: { users, accountSettings, contractors, places, inspectors, items, itemStages, records, recordDeductions, irRecords, todos, execRecords, execRecordStages, dailyRecords, files, submissions, appConfig, inventoryItems, issueRequests, issueRequestLines, stockMoves, purchaseRequests },
+    tables: { users, accountSettings, contractors, places, inspectors, items, itemStages, records, recordDeductions, irRecords, todos, execRecords, execRecordStages, dailyRecords, files, submissions, appConfig, inventoryItems, issueRequests, issueRequestLines, stockMoves, purchaseRequests, notifications, notificationTargets, notificationReads },
   };
 }
 
