@@ -79,6 +79,9 @@ describe('اعتمادات المديرين', () => {
   it('مدير فريق تاني بيشوف الكشف في الطابور (الرؤية للجميع) لكن مش دوره (canAct=false) ولا يقدر يعتمده', async () => {
     const sub = (await request(app).get('/api/approvals/queue').set(auth(tl.token))).body.data[0];
     expect(sub.canAct).toBe(true);
+    // أسماء المعتمدين المسندين لكل مستوى في سلسلة الكشف (مدير المشروع الوحيد بيتحدد تلقائيًا)
+    expect(sub.approverNames['team leader']).toBe('tl');
+    expect(sub.approverNames['project manager']).toBe('pm');
     const q2 = await request(app).get('/api/approvals/queue').set(auth(tl2.token));
     const seen = q2.body.data.find((s: { id: string }) => s.id === sub.id);
     expect(seen).toBeDefined();
