@@ -79,7 +79,7 @@ async function doPushSubmission(submissionId: bigint, fileBuffer: Buffer, fileNa
       fileBase64: fileBuffer.toString('base64'),
       approvalSummary: approvalSummary || '',
     },
-    120_000, // التحويل + تجهيز التوقيعات في السكربت ممكن ياخد دقيقة+
+    300_000, // (8 سبتمبر 2026) كان 120 ث: كشف بـ 12 ورقة بياخد أكتر في التحويل + PDF — لو قطعنا الاتصال بدري السكربت بيكمل ويعمل الصف بس إحنا مانعرفش رقمه (خطر تكرار عند إعادة الإرسال). حد Apps Script نفسه 6 دقايق
   );
   if (result && result.ok) {
     await prisma.submission
