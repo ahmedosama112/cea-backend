@@ -192,6 +192,19 @@ async function autoAlerts(req: Request) {
       };
     }
   }
+  // 3) النسخة الاحتياطية اليومية — للأدمن بس: فاشلة، أو ما اتسجلتش، أو أقدم من 36 ساعة.
+  // (النسخة بتتاخد بعد الساعة 3 فجرًا UTC، فـ36 ساعة معناها إن نسخة يوم كامل فاتت.)
+  if (isAdmin) {
+    const row = await prisma.appConfig.findUnique({ where: { key: 'lastBackupStatus' } }).catch(() => null);
+    type BackupStatus = { at?: string; ok?: boolean; detail?: string };
+    let st: BackupStatus | null = null;
+    try { st = row?.value ? (JSON.parse(row.value) as BackupStatus) : null; } catch { st = null; }
+    const atMs = st?.at ? Date.parse(st.at) : NaN;
+    const stale = !Number.isFinite(atMs) || Date.now() - atMs > 36 * 60 * 60 * 1000;
+    if (!st || st.ok !== true || stale) {
+      out.backup = { ok: st?.ok === true, at: st?.at ?? null, detail: st?.detail ?? '', stale };
+    }
+  }
   return out;
 }
 
