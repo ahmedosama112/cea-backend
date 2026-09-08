@@ -254,6 +254,23 @@ describe('اعتمادات المديرين', () => {
     expect(mine.reviews.length).toBe(1);
   });
 
+  it('مشاهد (عنده الوحدة بلا درجة معتمِدة): بيشوف الجدول كله بلا إجراء، ويفتح ملف كشفه هو بس', async () => {
+    await enableApprovals(admin.token, eng2.id);
+    const mine = await submit(eng2.token);
+    const other = (await submit(eng.token)).body.data; // كشف مهندس تاني — لسه IN_REVIEW عند مدير فريقه
+    const q = await request(app).get('/api/approvals/queue').set(auth(eng2.token));
+    expect(q.status).toBe(200);
+    expect(q.body.viewer).toBe(true);
+    expect(q.body.myId).toBe(eng2.id);
+    expect(q.body.data.some((s: { id: string }) => s.id === mine.body.data.id)).toBe(true);
+    expect(q.body.data.some((s: { id: string }) => s.id === other.id)).toBe(true); // كشوف الغير ظاهرة
+    expect(q.body.data.every((s: { canAct: boolean }) => s.canAct === false)).toBe(true);
+    expect((await request(app).get(`/api/approvals/${mine.body.data.id}/file`).set(auth(eng2.token))).status).toBe(200);
+    expect((await request(app).get(`/api/approvals/${other.id}/file`).set(auth(eng2.token))).status).toBe(404);
+    expect((await request(app).post(`/api/approvals/${other.id}/decide`).set(auth(eng2.token)).send({ decision: 'APPROVED' })).status).toBe(403);
+    await request(app).put(`/api/admin/users/${eng2.id}/settings`).set(auth(admin.token)).send({ enabledModules: ['records', 'submissions'] });
+  });
+
   it('الوحدة محمية: حساب من غير صلاحية approvals مايوصلش للطابور', async () => {
     const denied = await request(app).get('/api/approvals/queue').set(auth(eng.token));
     expect(denied.status).toBe(403);

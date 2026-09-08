@@ -59,11 +59,12 @@ approvalsRoutes.get(
     };
     // (7 سبتمبر 2026 — قرار صاحب المشروع) الطابور بيعرض **كل** الكشوف لكل من عنده الوحدة (كلهم مديرين):
     // الرؤية للجميع، والاعتماد (canAct/decide) محصور على المعتمد المسند بس.
-    // (8 سبتمبر 2026) مشاهد: حساب عنده الوحدة بس مش أدمن ولا درجته من الدرجات المعتمِدة — مهندس عادي عايز يتابع
-    // كشوفه وصلت لفين. بيشوف **كشوفه هو بس**، ومفيش أي إجراء (canAct دايمًا false، والسيرفر رافض decide/reject أصلًا).
+    // (8 سبتمبر 2026 — تعديل بقرار صاحب المشروع) مشاهد: حساب عنده الوحدة بس مش أدمن ولا درجته معتمِدة.
+    // بيشوف **الجدول كله** بكل معلوماته وملاحظاته زي أي حد (الرؤية للجميع)، لكن مفيش أي إجراء (canAct دايمًا false،
+    // والسيرفر رافض decide/reject)، وفتح الملف (`/:id/file`) مقصور على كشوفه هو بس.
     const isViewer = !isAdmin && !isApprover;
     const rows = await prisma.submission.findMany({
-      where: isViewer ? { ...stateFilter, userId: myId } : stateFilter,
+      where: stateFilter,
       include: SUB_INCLUDE,
       orderBy: { createdAt: 'desc' },
       take: 200,
@@ -74,8 +75,9 @@ approvalsRoutes.get(
     res.json({
       success: true,
       myLevel,
-      // مشاهد = بيتابع كشوفه بس بلا إجراء — الواجهة بتخفي التحميل وبتكتب "مشاهدة" بدل "مراجعة"
+      // مشاهد = بيشوف الكل بلا إجراء — الواجهة بتخفي التحميل وبتعرض "مشاهدة" على كشوفه هو بس (myId للمقارنة)
       viewer: isViewer,
+      myId: myId.toString(),
       // المستويات المعتمِدة بالترتيب (أعمدة الجدول)
       activeLevels: [...APPROVING_GRADES],
       data: rows.map((r) => {
