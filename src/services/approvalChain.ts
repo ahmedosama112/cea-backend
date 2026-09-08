@@ -145,10 +145,10 @@ export async function pushSubmissionToSheet(submissionId: bigint): Promise<void>
     where: { id: submissionId },
     include: {
       file: true,
-      user: { select: { email: true, project: true } },
+      user: { select: { email: true, displayName: true, project: true } },
       reviews: {
         orderBy: { createdAt: 'asc' },
-        include: { byUser: { select: { email: true, title: true, accountSettings: { select: { signatureFile: true } } } } },
+        include: { byUser: { select: { email: true, displayName: true, title: true, accountSettings: { select: { signatureFile: true } } } } },
       },
       rowRejections: { orderBy: { createdAt: 'asc' } },
     },
@@ -156,7 +156,8 @@ export async function pushSubmissionToSheet(submissionId: bigint): Promise<void>
   if (!sub) return;
   const toSend = await signedFileBuffer(submissionId);
   if (!toSend) { console.error('[approval] ملف التسليم غير موجود عند الدفع لجوجل', submissionId.toString()); return; }
-  await pushSubmissionToGoogle(sub.id, toSend, sub.file.fileName, sub.user.email.split('@')[0], sub.user.project ?? null, sub.site, approvalSummary(sub.reviews, sub.revision, sub.rowRejections));
+  // اسم المهندس في الشيت: الاسم بالعربي لو محدد، وإلا أول الإيميل (زي زمان)
+  await pushSubmissionToGoogle(sub.id, toSend, sub.file.fileName, sub.user.displayName || sub.user.email.split('@')[0], sub.user.project ?? null, sub.site, approvalSummary(sub.reviews, sub.revision, sub.rowRejections));
 }
 
 // ملف الكشف **موقّعًا** بتوقيعات معتمدي النسخة الحالية — نفس النسخة اللي بتتبعت لجوجل.
@@ -171,7 +172,7 @@ export async function signedFileBuffer(submissionId: bigint, mode: RejectMode = 
       file: true,
       reviews: {
         orderBy: { createdAt: 'asc' },
-        include: { byUser: { select: { email: true, title: true, accountSettings: { select: { signatureFile: true } } } } },
+        include: { byUser: { select: { email: true, displayName: true, title: true, accountSettings: { select: { signatureFile: true } } } } },
       },
       rowRejections: true,
     },
@@ -215,7 +216,7 @@ type SignatureReview = {
   decision: string;
   revision: number;
   createdAt?: Date;
-  byUser: { email?: string; title?: string | null; accountSettings: { signatureFile: { filePath: string; mimeType: string } | null } | null } | null;
+  byUser: { email?: string; displayName?: string | null; title?: string | null; accountSettings: { signatureFile: { filePath: string; mimeType: string } | null } | null } | null;
 };
 export async function collectSignatures(reviews: SignatureReview[], revision: number): Promise<LevelSignature[]> {
   const byLevel = new Map<string, SignatureReview>();
@@ -227,7 +228,7 @@ export async function collectSignatures(reviews: SignatureReview[], revision: nu
   }
   const out: LevelSignature[] = [];
   for (const [level, r] of byLevel) {
-    const by = r.byUser ? (r.byUser.title || (r.byUser.email ? r.byUser.email.split('@')[0] : '')) : '';
+    const by = r.byUser ? (r.byUser.displayName || r.byUser.title || (r.byUser.email ? r.byUser.email.split('@')[0] : '')) : '';
     const f = r.byUser?.accountSettings?.signatureFile;
     // معتمد بلا توقيع مرفوع: بنكتب "معتمد بواسطة" بس (البلوك فاضي) — image = null
     if (!f) { out.push({ level, image: null, ext: 'png', by: by || undefined, at: r.createdAt }); continue; }
@@ -240,7 +241,7 @@ export async function collectSignatures(reviews: SignatureReview[], revision: nu
 
 // ملخص سلسلة الاعتماد (للنسخة الحالية) — بيتكتب في خانة "سلسلة الاعتماد" في جوجل شيت لما الكشف ينزل
 // مثال: "team leader: ✅ معتمد (ahmed) 03/09 22:10 | project manager: 📝 بملاحظات: راجع الإجمالي (mostafa) 03/09 22:40"
-type ReviewRow = { level: string; decision: string; note: string | null; revision: number; createdAt: Date; byUser: { email: string; title: string | null } | null };
+type ReviewRow = { level: string; decision: string; note: string | null; revision: number; createdAt: Date; byUser: { email: string; displayName?: string | null; title: string | null } | null };
 type RejectionRow = { revision: number; label: string; level: string; note: string | null };
 export function approvalSummary(reviews: ReviewRow[], revision: number, rowRejections: RejectionRow[] = []): string {
   const label: Record<string, string> = { APPROVED: '✅ معتمد', APPROVED_NOTES: '📝 بملاحظات', REJECTED: '❌ مرفوض' };
@@ -251,7 +252,7 @@ export function approvalSummary(reviews: ReviewRow[], revision: number, rowRejec
   const parts = reviews
     .filter((r) => r.revision === revision)
     .map((r) => {
-      const who = r.byUser ? (r.byUser.title || r.byUser.email.split('@')[0]) : '';
+      const who = r.byUser ? (r.byUser.displayName || r.byUser.title || r.byUser.email.split('@')[0]) : '';
       return `${r.level}: ${label[r.decision] ?? r.decision}${r.note ? ': ' + r.note : ''}${who ? ' (' + who + ')' : ''} ${fmt(r.createdAt)}`;
     });
   // السطور المشطوبة (رفض جزئي) — بتظهر في خانة سلسلة الاعتماد كمان عشان الـ DC يعرف إيه اللي اتشال

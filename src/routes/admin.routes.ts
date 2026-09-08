@@ -67,7 +67,7 @@ adminRoutes.get(
   asyncHandler(async (_req: Request, res: Response) => {
     const users = await prisma.user.findMany({
       select: {
-        id: true, email: true, role: true, title: true, project: true, site: true, grade: true, lastSeenAt: true, createdAt: true,
+        id: true, email: true, displayName: true, role: true, title: true, project: true, site: true, grade: true, lastSeenAt: true, createdAt: true,
         approverTlId: true, approverCmId: true, approverPmId: true,
         syncLocalRecords: true, syncUnsynced: true, syncReportedAt: true,
       },
@@ -265,7 +265,7 @@ adminRoutes.get(
   asyncHandler(async (_req: Request, res: Response) => {
     const approvers = await prisma.user.findMany({
       where: { grade: { in: [...APPROVING_GRADES] } },
-      select: { id: true, email: true, title: true, grade: true },
+      select: { id: true, email: true, displayName: true, title: true, grade: true },
       orderBy: { email: 'asc' },
     });
     res.json({
@@ -308,7 +308,7 @@ adminRoutes.get(
 
     const users = await prisma.user.findMany({
       select: {
-        id: true, email: true, title: true, grade: true, site: true, lastSeenAt: true, createdAt: true,
+        id: true, email: true, displayName: true, title: true, grade: true, site: true, lastSeenAt: true, createdAt: true,
         syncLocalRecords: true, syncUnsynced: true, syncReportedAt: true,
         accountSettings: { select: { enabledModules: true } },
       },
@@ -454,7 +454,7 @@ adminRoutes.post(
 // ── تعديل بيانات حساب: المسمى الوظيفي و/أو الصلاحية و/أو المشروع/الموقع ──
 adminRoutes.patch(
   '/users/:userId',
-  validate({ params: userIdParam, body: z.object({ title: z.string().trim().max(100).nullable().optional(), role: z.enum(['ADMIN', 'ENGINEER']).optional(), project: z.enum(['سكني', 'تجاري']).nullable().optional(), site: z.coerce.number().int().min(1).max(2).optional(), grade: z.string().trim().max(60).optional(), approverTlId: z.coerce.bigint().nullable().optional(), approverCmId: z.coerce.bigint().nullable().optional(), approverPmId: z.coerce.bigint().nullable().optional() }) }),
+  validate({ params: userIdParam, body: z.object({ displayName: z.string().trim().max(120).nullable().optional(), title: z.string().trim().max(100).nullable().optional(), role: z.enum(['ADMIN', 'ENGINEER']).optional(), project: z.enum(['سكني', 'تجاري']).nullable().optional(), site: z.coerce.number().int().min(1).max(2).optional(), grade: z.string().trim().max(60).optional(), approverTlId: z.coerce.bigint().nullable().optional(), approverCmId: z.coerce.bigint().nullable().optional(), approverPmId: z.coerce.bigint().nullable().optional() }) }),
   asyncHandler(async (req: Request, res: Response) => {
     const userId = BigInt(req.params.userId);
     await assertUserExists(userId);
@@ -467,6 +467,7 @@ adminRoutes.patch(
       ...(req.body.site !== undefined ? { site: req.body.site } : {}),
       // الدرجة — بتحدد مين بيعتمد له، وبتخليه معتمدًا لو من الدرجات التلاتة الأعلى
       ...(req.body.grade !== undefined ? { grade: req.body.grade } : {}),
+      ...(req.body.displayName !== undefined ? { displayName: req.body.displayName || null } : {}),
       // المعتمدون المسندون — null = يتشال الإسناد (المستوى يتخطى في سلسلته)
       ...(req.body.approverTlId !== undefined ? { approverTlId: req.body.approverTlId } : {}),
       ...(req.body.approverCmId !== undefined ? { approverCmId: req.body.approverCmId } : {}),
@@ -482,7 +483,7 @@ adminRoutes.patch(
       if (!a) throw AppError.validation('المعتمد المختار غير موجود');
       if (a.grade !== level) throw AppError.validation(`المعتمد المختار مش درجته "${level}"`);
     }
-    const u = await prisma.user.update({ where: { id: userId }, data, select: { id: true, email: true, role: true, title: true, project: true, site: true, grade: true, approverTlId: true, approverCmId: true, approverPmId: true } });
+    const u = await prisma.user.update({ where: { id: userId }, data, select: { id: true, email: true, displayName: true, role: true, title: true, project: true, site: true, grade: true, approverTlId: true, approverCmId: true, approverPmId: true } });
     // تغيير الصلاحية يُبطل جلسات الحساب (التوكن فيه الدور القديم)
     if (req.body.role !== undefined) await prisma.refreshToken.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: new Date() } });
     res.json({ success: true, data: u });

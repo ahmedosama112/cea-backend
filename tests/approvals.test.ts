@@ -82,6 +82,11 @@ describe('اعتمادات المديرين', () => {
     // أسماء المعتمدين المسندين لكل مستوى في سلسلة الكشف (مدير المشروع الوحيد بيتحدد تلقائيًا)
     expect(sub.approverNames['team leader']).toBe('tl');
     expect(sub.approverNames['project manager']).toBe('pm');
+    // الاسم بالعربي (displayName) بياخد الأولوية على اللقب/الإيميل في كل مكان
+    await patchUser(admin.token, tl.id, { displayName: 'م. أحمد' });
+    const sub2 = (await request(app).get('/api/approvals/queue').set(auth(tl.token))).body.data[0];
+    expect(sub2.approverNames['team leader']).toBe('م. أحمد');
+    await patchUser(admin.token, tl.id, { displayName: null });
     const q2 = await request(app).get('/api/approvals/queue').set(auth(tl2.token));
     const seen = q2.body.data.find((s: { id: string }) => s.id === sub.id);
     expect(seen).toBeDefined();

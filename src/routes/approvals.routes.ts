@@ -16,11 +16,11 @@ export const approvalsRoutes = Router();
 
 const SUB_INCLUDE = {
   file: { select: { id: true, fileName: true, fileSize: true } },
-  user: { select: { id: true, email: true, title: true, grade: true, approverTlId: true, approverCmId: true, approverPmId: true,
+  user: { select: { id: true, email: true, displayName: true, title: true, grade: true, approverTlId: true, approverCmId: true, approverPmId: true,
     // أسماء المعتمدين المسندين — بتتعرض في الجدول تحت "دورك/منتظر" (مين المفروض يعتمد المستوى ده)
-    approverTl: { select: { email: true, title: true } }, approverCm: { select: { email: true, title: true } }, approverPm: { select: { email: true, title: true } } } },
-  reviews: { orderBy: { createdAt: 'asc' as const }, include: { byUser: { select: { email: true, title: true } } } },
-  rowRejections: { orderBy: { createdAt: 'asc' as const }, include: { byUser: { select: { email: true, title: true } } } },
+    approverTl: { select: { email: true, displayName: true, title: true } }, approverCm: { select: { email: true, displayName: true, title: true } }, approverPm: { select: { email: true, displayName: true, title: true } } } },
+  reviews: { orderBy: { createdAt: 'asc' as const }, include: { byUser: { select: { email: true, displayName: true, title: true } } } },
+  rowRejections: { orderBy: { createdAt: 'asc' as const }, include: { byUser: { select: { email: true, displayName: true, title: true } } } },
 } as const;
 
 function shape(s: Record<string, unknown> & { weekStart: Date; weekEnd: Date; createdAt: Date }) {
@@ -66,8 +66,8 @@ approvalsRoutes.get(
       take: 200,
     });
     const solePmId = await soleProjectManagerId();
-    const solePm = solePmId ? await prisma.user.findUnique({ where: { id: solePmId }, select: { email: true, title: true } }) : null;
-    const nameOf = (u: { email: string; title: string | null } | null | undefined) => (u ? (u.title || u.email.split('@')[0]) : null);
+    const solePm = solePmId ? await prisma.user.findUnique({ where: { id: solePmId }, select: { email: true, displayName: true, title: true } }) : null;
+    const nameOf = (u: { email: string; displayName?: string | null; title: string | null } | null | undefined) => (u ? (u.displayName || u.title || u.email.split('@')[0]) : null);
     res.json({
       success: true,
       myLevel,
@@ -82,7 +82,8 @@ approvalsRoutes.get(
           chain: chain.map((c) => c.level),
           // مين المسند لكل مستوى في سلسلة الكشف ده (بالاسم) — الواجهة بتعرضه تحت حالة المستوى
           approverNames: Object.fromEntries(chain.map((c) => {
-            const u = r.user as unknown as { approverTl?: { email: string; title: string | null } | null; approverCm?: { email: string; title: string | null } | null; approverPm?: { email: string; title: string | null } | null };
+            type P = { email: string; displayName?: string | null; title: string | null } | null;
+            const u = r.user as unknown as { approverTl?: P; approverCm?: P; approverPm?: P };
             const who = c.level === 'team leader' ? u.approverTl : c.level === 'construction manager' ? u.approverCm : (u.approverPm ?? solePm);
             return [c.level, nameOf(who)];
           })),
