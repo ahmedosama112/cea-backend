@@ -23,7 +23,9 @@ const prisma = new PrismaClient();
 const INSERT_ORDER = [
   'users', 'files', 'accountSettings', 'contractors', 'places', 'inspectors',
   'items', 'itemStages', 'records', 'recordDeductions', 'irRecords', 'todos',
-  'execRecords', 'execRecordStages', 'dailyRecords', 'submissions', 'appConfig',
+  'execRecords', 'execRecordStages', 'dailyRecords', 'equipmentRecords',
+  // الكشوف قبل مراجعاتها وسطورها المشطوبة
+  'submissions', 'submissionReviews', 'submissionRowRejections', 'appConfig',
   // المخازن: الأصناف قبل الطلبات، والطلبات قبل الحركات (stockMoves بتشاور على issueRequestId)
   'inventoryItems', 'issueRequests', 'issueRequestLines', 'stockMoves', 'purchaseRequests',
   // التنبيهات: التعريف قبل المستقبلين و"تم"
@@ -39,6 +41,8 @@ const DELEGATES: Record<TableKey, { createMany: (args: { data: unknown[] }) => P
   recordDeductions: prisma.recordDeduction, irRecords: prisma.irRecord, todos: prisma.todo,
   execRecords: prisma.execRecord, execRecordStages: prisma.execRecordStage,
   dailyRecords: prisma.dailyRecord, submissions: prisma.submission,
+  equipmentRecords: prisma.equipmentRecord,
+  submissionReviews: prisma.submissionReview, submissionRowRejections: prisma.submissionRowRejection,
   appConfig: prisma.appConfig,
   inventoryItems: prisma.inventoryItem, issueRequests: prisma.issueRequest,
   issueRequestLines: prisma.issueRequestLine, stockMoves: prisma.stockMove,
@@ -70,6 +74,17 @@ async function main(): Promise<void> {
   const dump = JSON.parse(fs.readFileSync(filePath, 'utf8')) as { version?: number; createdAt?: string; tables?: Record<string, Array<Record<string, unknown>>> };
   if (!dump.tables || !Array.isArray(dump.tables.users)) { console.error('صيغة الملف غير متوقعة — ده مش ملف cea-db-backup-*.json (بتاع الباك اب اليومي)'); process.exit(1); }
   console.log(`📦 ملف باك اب بتاريخ: ${dump.createdAt ?? '؟'} — مستخدمين: ${dump.tables.users.length}`);
+
+  // ⚠ حارس: أي جدول موجود في الملف ومش في INSERT_ORDER كان بيتخطى في صمت والاستعادة تقول "اكتملت"
+  // وهي مضيّعاه (ده اللي حصل مع سراكي المعدات وسجل الاعتمادات). الوقوف هنا أرخص من اكتشافها بعدين.
+  const unknown = Object.keys(dump.tables).filter((k) => !(INSERT_ORDER as readonly string[]).includes(k));
+  if (unknown.length) {
+    console.error(`⛔ الملف فيه جداول السكربت ده مايعرفهاش: ${unknown.join(', ')}`);
+    console.error('   ضيفها في INSERT_ORDER وDELEGATES (بترتيب يحترم الـFK) وأعد التشغيل — الاستعادة من غيرها ناقصة.');
+    process.exit(1);
+  }
+  const emptyInFile = (INSERT_ORDER as readonly string[]).filter((k) => !dump.tables![k]);
+  if (emptyInFile.length) console.warn(`⚠ جداول مش موجودة في الملف (نسخة أقدم من إضافتها؟): ${emptyInFile.join(', ')}`);
 
   const existingUsers = await prisma.user.count();
   if (existingUsers > 0 && !wipe) {
