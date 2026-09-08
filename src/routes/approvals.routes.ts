@@ -5,8 +5,8 @@ import { AppError } from '../utils/AppError';
 import { asyncHandler } from '../utils/asyncHandler';
 import { validate } from '../middlewares/validate';
 import { idParamSchema } from '../utils/crudFactory';
-import { getApprovalLevels, APPROVING_GRADES, buildChain, nextLevel, resolveChainForUser, soleProjectManagerId, pushSubmissionToSheet, signedFileBuffer, rejectedFileBuffer } from '../services/approvalChain';
-import { countDataRows, Kind } from '../services/rowReject';
+import { getApprovalLevels, APPROVING_GRADES, buildChain, nextLevel, resolveChainForUser, soleProjectManagerId, pushSubmissionToSheet, signedFileBuffer } from '../services/approvalChain';
+import { countDataRows } from '../services/rowReject';
 import { storage } from '../services/storage';
 
 // ═══════════ اعتمادات المديرين — تبويب المراجعة والاعتماد ═══════════
@@ -103,13 +103,9 @@ approvalsRoutes.get(
     if (!sub) throw AppError.notFound('الكشف غير موجود');
     // بعد اكتمال السلسلة (SENT) المعاينة/التحميل بيرجّعوا النسخة **الموقّعة** — نفس اللي وصلت جوجل شيت.
     // أثناء المراجعة بيرجّع الأصل زي ما بعته المهندس + السطور المشطوبة (عشان المعتمد اللي بعده يشوفها).
-    let buffer: Buffer | null;
-    // بعد الاعتماد: نفس التوقيعات اللي راحت جوجل، لكن السطور المشطوبة تفضل ظاهرة بالأحمر جوّه التطبيق (نسخة الـ DC نضيفة)
-    if (sub.reviewState === 'SENT') buffer = await signedFileBuffer(sub.id, 'strike');
-    else {
-      const original = await storage.read(sub.file.filePath).catch(() => null);
-      buffer = original ? await rejectedFileBuffer(original, sub.rowRejections, sub.revision, sub.kind as Kind) : null;
-    }
+    // (8 سبتمبر 2026) أثناء المراجعة كمان: توقيعات اللي اعتمدوا لحد دلوقتي بتنزل على الكشف + "معتمد بواسطة" تحت عنوان البلوك —
+    // فالمعتمد اللي بعده يشوف مين اعتمد قبله. بعد SENT نفس الشيء (كل التوقيعات). السطور المشطوبة بالأحمر في الحالتين.
+    const buffer: Buffer | null = await signedFileBuffer(sub.id, 'strike');
     if (!buffer) throw AppError.notFound('ملف الكشف لم يعد موجودًا على السيرفر');
     res.setHeader('Content-Type', sub.file.mimeType);
     res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(sub.file.fileName)}`);

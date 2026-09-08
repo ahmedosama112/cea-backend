@@ -65,7 +65,10 @@ export function blocksForSheet(ws: ExcelJS.Worksheet): Record<string, Block> {
 const MAX_W_RATIO = 0.5;
 const MAX_H_RATIO = 0.58;
 
-export type LevelSignature = { level: string; image: Buffer; ext: 'png' | 'jpeg' };
+// image = null: المعتمد مرفعش توقيعه — البلوك بيفضل فاضي لكن "معتمد بواسطة" بتتكتب تحت العنوان برضو
+export type LevelSignature = { level: string; image: Buffer | null; ext: 'png' | 'jpeg'; by?: string; at?: Date };
+const CAPTION_NOTE = 'معتمد بواسطة';
+function fmtDay(d: Date): string { const p = (n: number) => String(n).padStart(2, '0'); return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}`; }
 
 export function hasSignatureBox(level: string): boolean {
   return level in DEFAULT_BLOCK;
@@ -144,7 +147,8 @@ export const MAX_ROWS_PER_SHEET = 5000;
 export class StampLimitError extends Error {}
 
 export async function stampSignatures(fileBuffer: Buffer, signatures: LevelSignature[]): Promise<Buffer> {
-  const usable = signatures.filter((s) => hasSignatureBox(s.level) && s.image?.length);
+  // usable = مستويات ليها بلوك (بالتوقيع أو بدونه — العنوان بياخد "معتمد بواسطة" في الحالتين)
+  const usable = signatures.filter((s) => hasSignatureBox(s.level));
   if (!usable.length) return fileBuffer;
 
   const wb = new ExcelJS.Workbook();
@@ -154,9 +158,9 @@ export async function stampSignatures(fileBuffer: Buffer, signatures: LevelSigna
   if (big) throw new StampLimitError(`ورقة "${big.name}" فيها ${big.rowCount} صف — أكبر من الحد ${MAX_ROWS_PER_SHEET}`);
 
   // الصورة بتتسجل مرة واحدة في المصنّف وبتتلزق على كل ورقة بنفس الـ id
-  const imageIds = usable.map((s) => ({
+  const imageIds = usable.filter((s) => s.image?.length).map((s) => ({
     level: s.level,
-    size: imageSize(s.image) ?? { width: 3, height: 1 },
+    size: imageSize(s.image as Buffer) ?? { width: 3, height: 1 },
     id: wb.addImage({ buffer: s.image as unknown as ExcelJS.Buffer, extension: s.ext }),
   }));
 
@@ -169,6 +173,19 @@ export async function stampSignatures(fileBuffer: Buffer, signatures: LevelSigna
       const block = blocks[level];
       if (!block) continue;
       ws.addImage(id, { ...fitInBlock(ws, block, size), editAs: 'oneCell' } as unknown as ExcelJS.ImageRange);
+    }
+    // "✔ معتمد بواسطة: الاسم التاريخ" تحت عنوان البلوك — عشان اللي بعده (والـ DC) يعرف مين اعتمد. العنوان الأصلي بيفضل في أول سطر
+    // (مطابقة المستوى من العنوان بتشتغل بـ includes فمش بتتأثر). الخلية بتاخد نسخة من الـ style قبل التعديل (مشاركة الـ style في ExcelJS).
+    for (const s of usable) {
+      if (!s.by) continue;
+      const block = blocks[s.level];
+      if (!block) continue;
+      const cell = ws.getCell(CAPTION_ROW, block.from + 1);
+      const cur = cellText(ws, CAPTION_ROW, block.from + 1);
+      if (cur.includes(CAPTION_NOTE)) continue;
+      cell.value = (cur || '') + '\n✔ ' + CAPTION_NOTE + ': ' + s.by + (s.at ? ' ' + fmtDay(s.at) : '');
+      cell.style = { ...cell.style, alignment: { ...(cell.style.alignment || {}), wrapText: true, vertical: 'top' }, font: { ...(cell.style.font || {}), size: 8 } };
+      ws.getRow(CAPTION_ROW).height = Math.max(Number(ws.getRow(CAPTION_ROW).height) || 15, 30);
     }
   });
 

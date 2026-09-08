@@ -320,12 +320,15 @@ describe('اعتمادات المديرين', () => {
 
     const sub = await prisma.submission.findUnique({
       where: { id: BigInt(id) },
-      include: { reviews: { include: { byUser: { select: { accountSettings: { select: { signatureFile: true } } } } } } },
+      include: { reviews: { include: { byUser: { select: { email: true, title: true, accountSettings: { select: { signatureFile: true } } } } } } },
     });
     const sigs = await collectSignatures(sub!.reviews as never, sub!.revision);
-    const levels = sigs.map((x) => x.level).sort();
-    expect(levels).toEqual(['project manager', 'team leader']); // مدير التنفيذ مرفعش توقيع → اتخطى
-    expect(sigs.every((x) => x.image.length > 0 && x.ext === 'png')).toBe(true);
+    const withImage = sigs.filter((x) => x.image).map((x) => x.level).sort();
+    expect(withImage).toEqual(['project manager', 'team leader']); // مدير التنفيذ مرفعش توقيع → بلوكه بلا صورة
+    expect(sigs.filter((x) => x.image).every((x) => (x.image as Buffer).length > 0 && x.ext === 'png')).toBe(true);
+    // كل مستوى بيحمل اسم اللي اعتمده وتاريخه ("معتمد بواسطة") حتى بلا توقيع
+    expect(sigs.find((x) => x.level === 'construction manager')?.by).toBe('cm');
+    expect(sigs.every((x) => x.by && x.at)).toBe(true);
 
     await patchUser(admin.token, eng.id, { approverCmId: null });
   });

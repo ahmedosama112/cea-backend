@@ -171,7 +171,7 @@ export async function signedFileBuffer(submissionId: bigint, mode: RejectMode = 
       file: true,
       reviews: {
         orderBy: { createdAt: 'asc' },
-        include: { byUser: { select: { accountSettings: { select: { signatureFile: true } } } } },
+        include: { byUser: { select: { email: true, title: true, accountSettings: { select: { signatureFile: true } } } } },
       },
       rowRejections: true,
     },
@@ -214,7 +214,8 @@ type SignatureReview = {
   level: string;
   decision: string;
   revision: number;
-  byUser: { accountSettings: { signatureFile: { filePath: string; mimeType: string } | null } | null } | null;
+  createdAt?: Date;
+  byUser: { email?: string; title?: string | null; accountSettings: { signatureFile: { filePath: string; mimeType: string } | null } | null } | null;
 };
 export async function collectSignatures(reviews: SignatureReview[], revision: number): Promise<LevelSignature[]> {
   const byLevel = new Map<string, SignatureReview>();
@@ -226,11 +227,13 @@ export async function collectSignatures(reviews: SignatureReview[], revision: nu
   }
   const out: LevelSignature[] = [];
   for (const [level, r] of byLevel) {
+    const by = r.byUser ? (r.byUser.title || (r.byUser.email ? r.byUser.email.split('@')[0] : '')) : '';
     const f = r.byUser?.accountSettings?.signatureFile;
-    if (!f) continue;
+    // معتمد بلا توقيع مرفوع: بنكتب "معتمد بواسطة" بس (البلوك فاضي) — image = null
+    if (!f) { out.push({ level, image: null, ext: 'png', by: by || undefined, at: r.createdAt }); continue; }
     const image = await storage.read(f.filePath).catch(() => null);
-    if (!image) { console.error('[approval] توقيع المعتمد مش موجود على السيرفر', level, f.filePath); continue; }
-    out.push({ level, image, ext: f.mimeType.includes('jpeg') || f.mimeType.includes('jpg') ? 'jpeg' : 'png' });
+    if (!image) { console.error('[approval] توقيع المعتمد مش موجود على السيرفر', level, f.filePath); out.push({ level, image: null, ext: 'png', by: by || undefined, at: r.createdAt }); continue; }
+    out.push({ level, image, ext: f.mimeType.includes('jpeg') || f.mimeType.includes('jpg') ? 'jpeg' : 'png', by: by || undefined, at: r.createdAt });
   }
   return out;
 }
