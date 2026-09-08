@@ -16,7 +16,9 @@ export const approvalsRoutes = Router();
 
 const SUB_INCLUDE = {
   file: { select: { id: true, fileName: true, fileSize: true } },
-  user: { select: { id: true, email: true, title: true, grade: true, approverTlId: true, approverCmId: true, approverPmId: true } },
+  user: { select: { id: true, email: true, title: true, grade: true, approverTlId: true, approverCmId: true, approverPmId: true,
+    // أسماء المعتمدين المسندين — بتتعرض في الجدول تحت "دورك/منتظر" (مين المفروض يعتمد المستوى ده)
+    approverTl: { select: { email: true, title: true } }, approverCm: { select: { email: true, title: true } }, approverPm: { select: { email: true, title: true } } } },
   reviews: { orderBy: { createdAt: 'asc' as const }, include: { byUser: { select: { email: true, title: true } } } },
   rowRejections: { orderBy: { createdAt: 'asc' as const }, include: { byUser: { select: { email: true, title: true } } } },
 } as const;
@@ -64,6 +66,8 @@ approvalsRoutes.get(
       take: 200,
     });
     const solePmId = await soleProjectManagerId();
+    const solePm = solePmId ? await prisma.user.findUnique({ where: { id: solePmId }, select: { email: true, title: true } }) : null;
+    const nameOf = (u: { email: string; title: string | null } | null | undefined) => (u ? (u.title || u.email.split('@')[0]) : null);
     res.json({
       success: true,
       myLevel,
@@ -76,6 +80,12 @@ approvalsRoutes.get(
           ...shape(r as never),
           // سلسلة الكشف ده تحديدًا (مستويات صاحبه) — الواجهة بتستخدمها للأعمدة الفاضية والمتخطاة
           chain: chain.map((c) => c.level),
+          // مين المسند لكل مستوى في سلسلة الكشف ده (بالاسم) — الواجهة بتعرضه تحت حالة المستوى
+          approverNames: Object.fromEntries(chain.map((c) => {
+            const u = r.user as unknown as { approverTl?: { email: string; title: string | null } | null; approverCm?: { email: string; title: string | null } | null; approverPm?: { email: string; title: string | null } | null };
+            const who = c.level === 'team leader' ? u.approverTl : c.level === 'construction manager' ? u.approverCm : (u.approverPm ?? solePm);
+            return [c.level, nameOf(who)];
+          })),
           // آخر مستوى في سلسلته → رسالة "بعد اعتمادك الكشف هيتبعت للتوقيع"
           isLast: r.reviewState === 'IN_REVIEW' && inChain && chain[chain.length - 1]?.level === r.currentLevel,
           // الكشف واقف عند مستوى مش في سلسلة صاحبه (درجته أو إسناده اتغيّر) → الأدمن بس اللي يحرّكه
