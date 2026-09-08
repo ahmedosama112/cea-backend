@@ -158,7 +158,7 @@ describe('ختم التوقيعات على الكشف', () => {
     expect(same2).toBe(src);
   });
 
-  it('"معتمد بواسطة: الاسم التاريخ" بتتكتب تحت عنوان البلوك — مع التوقيع أو بدونه، ومطابقة المستوى من العنوان لسه شغالة', async () => {
+  it('الشيت بيفضل نضيف: التوقيع بس — مفيش نص "معتمد بواسطة" جوّه الملف (بيتعرض في التطبيق برّه الشيت)', async () => {
     const buf = await makeSheet(20, 1);
     const at = new Date('2026-09-08T10:00:00Z');
     const out = await stampSignatures(buf, [
@@ -166,16 +166,9 @@ describe('ختم التوقيعات على الكشف', () => {
       { level: 'construction manager', image: null, ext: 'png', by: 'مصطفى', at },
     ]);
     const ws = (await load(out)).worksheets[0];
-    expect(String(ws.getCell(CAPTION_ROW, 10).value)).toContain('توقيع مدير الفريق');
-    expect(String(ws.getCell(CAPTION_ROW, 10).value)).toContain('معتمد بواسطة: أحمد 08/09/2026');
-    expect(String(ws.getCell(CAPTION_ROW, 7).value)).toContain('معتمد بواسطة: مصطفى');
-    expect(String(ws.getCell(CAPTION_ROW, 1).value)).not.toContain('معتمد بواسطة'); // مدير المشروع لسه ما اعتمدش
-    expect(ws.getImages().length).toBe(1); // صورة واحدة بس (مصطفى بلا توقيع)
-    expect(blocksForSheet(ws)['team leader']).toEqual({ from: 9, to: 13 }); // العنوان لسه بيتعرّف عليه
-    // إعادة الختم بنفس البيانات ما بتكررش السطر
-    const again = await stampSignatures(out, [{ level: 'team leader', image: PNG_1PX, ext: 'png', by: 'أحمد', at }]);
-    const ws2 = (await load(again)).worksheets[0];
-    expect((String(ws2.getCell(CAPTION_ROW, 10).value).match(/معتمد بواسطة/g) || []).length).toBe(1);
+    expect(String(ws.getCell(CAPTION_ROW, 10).value)).toBe('توقيع مدير الفريق');
+    expect(String(ws.getCell(CAPTION_ROW, 7).value)).toBe('توقيع مدير التنفيذ');
+    expect(ws.getImages().length).toBe(1); // مصطفى بلا توقيع → مفيش صورة ولا نص
   });
 
   it('(N11) مصنّف أكبر من الحد (ورقة فيها صفوف أكتر من المسموح) يترفض قبل الختم بدل ما يستهلك السيرفر', async () => {
