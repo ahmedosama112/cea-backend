@@ -4,6 +4,7 @@ import { prisma } from '../config/prisma';
 import { AppError } from '../utils/AppError';
 import { asyncHandler } from '../utils/asyncHandler';
 import { validate } from '../middlewares/validate';
+import { requireWindow } from '../middlewares/windowGuard';
 import { idParamSchema } from '../utils/crudFactory';
 import { getApprovalLevels, APPROVING_GRADES, buildChain, nextLevel, resolveChainForUser, soleProjectManagerId, pushSubmissionToSheet, signedFileBuffer } from '../services/approvalChain';
 import { countDataRows } from '../services/rowReject';
@@ -157,6 +158,7 @@ approvalsRoutes.post(
 // لو كل سطور البيانات في الملف اتشطبت → رفض كامل تلقائي (يرجع للمهندس). غير كده الكشف يكمّل السلسلة بدون السطر.
 approvalsRoutes.post(
   '/:id/rows/reject',
+  requireWindow('approve'),
   validate({ params: idParamSchema, body: z.object({
     sheetIndex: z.coerce.number().int().min(0).max(200),
     row: z.coerce.number().int().min(1).max(100),
@@ -198,6 +200,7 @@ approvalsRoutes.post(
 // قرار اعتماد: معتمد بدون ملاحظات / معتمد بملاحظات / مرفوض بملاحظات
 approvalsRoutes.post(
   '/:id/decide',
+  requireWindow('approve'),
   validate({ params: idParamSchema, body: z.object({ decision: z.enum(['APPROVED', 'APPROVED_NOTES', 'REJECTED']), note: z.string().trim().max(500).optional().default('') }) }),
   asyncHandler(async (req: Request, res: Response) => {
     const id = BigInt(req.params.id);

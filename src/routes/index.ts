@@ -15,6 +15,7 @@ import { analyticsRoutes } from './analytics.routes';
 import { notificationsRoutes } from './notifications.routes';
 import { authenticate } from '../middlewares/auth';
 import { requireModule } from '../middlewares/moduleGuard';
+import { allWindowStates } from '../services/windows';
 
 export const router = Router();
 
@@ -22,6 +23,11 @@ router.use('/auth', authRoutes);
 // إعدادات عامة (أسماء المواقع) — قراءة لأي مستخدم مسجّل؛ التعديل من /admin/config فقط
 router.get('/config', authenticate, asyncHandler(async (_req: Request, res: Response) => {
   res.json({ success: true, data: await readSiteNames() });
+}));
+// مواعيد الإرسال والاعتماد — قراءة لأي مستخدم مسجّل (الواجهة بتبني منها العدّاد وبتقفل الأزرار).
+// serverNow مقصود: ساعة جهاز المستخدم ممكن تكون غلط، فالواجهة بتحسب فرقها مرة واحدة وتعوّضه في العدّاد.
+router.get('/windows', authenticate, asyncHandler(async (_req: Request, res: Response) => {
+  res.json({ success: true, data: await allWindowStates(), serverNow: new Date().toISOString() });
 }));
 router.use('/admin', adminRoutes);
 // التنبيهات الداخلية (جرس الهيدر) — متاحة لأي حساب مسجّل؛ الإضافة/التعديل للأدمن (الحارس جوّه الملف)

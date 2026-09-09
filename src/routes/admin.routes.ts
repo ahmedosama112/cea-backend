@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { Request, Response } from 'express';
 import { z } from 'zod';
 import { prisma } from '../config/prisma';
+import { allWindowStates, WindowKind, writeWindowConfig } from '../services/windows';
 import { AppError } from '../utils/AppError';
 import { asyncHandler } from '../utils/asyncHandler';
 import { authenticate, requireRole } from '../middlewares/auth';
@@ -58,6 +59,26 @@ adminRoutes.patch(
       await prisma.appConfig.upsert({ where: { key }, update: { value }, create: { key, value } });
     }
     res.json({ success: true, data: await readSiteNames() });
+  }),
+);
+
+// ── مواعيد الإرسال والاعتماد ──
+// القراءة للكل من GET /api/windows — هنا التعديل بس (الراوتر كله محمي بـ requireRole('ADMIN'))
+const windowEdgeSchema = z.object({ day: z.coerce.number().int().min(0).max(6), time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/) });
+const windowCfgSchema = z.object({
+  enabled: z.boolean(),
+  windows: z.array(z.object({ from: windowEdgeSchema, to: windowEdgeSchema })).min(1).max(7),
+  openUntil: z.string().datetime().nullable().optional(),
+});
+adminRoutes.patch(
+  '/windows',
+  validate({ body: z.object({ submit: windowCfgSchema.optional(), approve: windowCfgSchema.optional() }) }),
+  asyncHandler(async (req: Request, res: Response) => {
+    const body = req.body as Record<string, unknown>;
+    for (const kind of ['submit', 'approve'] as WindowKind[]) {
+      if (body[kind] !== undefined) await writeWindowConfig(kind, body[kind]);
+    }
+    res.json({ success: true, data: await allWindowStates(), serverNow: new Date().toISOString() });
   }),
 );
 
