@@ -382,6 +382,9 @@ adminRoutes.get(
       return {
         id: u.id.toString(),
         email: u.email,
+        // (9 سبتمبر 2026) كان منسي: مختار في الـ select فوق لكن مش مترجّع هنا،
+        // فجدول "نشاط الحسابات" كان بيوقع لـ personName() على أول الإيميل بدل الاسم العربي
+        displayName: u.displayName,
         title: u.title,
         grade: u.grade,
         site: u.site,
