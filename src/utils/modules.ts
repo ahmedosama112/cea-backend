@@ -31,6 +31,7 @@ export const ALL_FEATURES = [
   { key: 'records_search', label: 'فلتر البحث', group: 'السراكي' },
   { key: 'records_sort', label: 'فلتر الترتيب', group: 'السراكي' },
   { key: 'records_export_chips', label: 'مقاولين وأماكن محددين للتصدير المعتمد', group: 'السراكي' },
+  { key: 'records_statement', label: 'بيان أعمال المقاول (PDF غير رسمي)', group: 'السراكي' },
   // الاعتمادات — زرار Google Form لكل موقع (الاسم المعروض في الواجهة بيتبع أسماء المواقع من app_config)
   { key: 'gform_site1', label: 'زرار Google Form — الموقع الأول', group: 'الاعتمادات' },
   { key: 'gform_site2', label: 'زرار Google Form — الموقع الثاني', group: 'الاعتمادات' },
