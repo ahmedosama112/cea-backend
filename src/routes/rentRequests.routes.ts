@@ -1,10 +1,13 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../config/prisma';
 import { AppError } from '../utils/AppError';
 import { asyncHandler } from '../utils/asyncHandler';
 import { validate } from '../middlewares/validate';
 import { idParamSchema } from '../utils/crudFactory';
+import { ymdDate } from '../schema/entities.schema';
+import { rateTypeArSchema, toEnum, arabizeRateTypes } from '../utils/rateType';
 
 // ═══════════ طلبات الإيجار (معدات/عمالة) — المهندس يطلب، مدير المشروع يعتمد/يرفض ═══════════
 // (authenticate + requireModule('rent_requests') مطبّقين في routes/index.ts)
@@ -12,6 +15,7 @@ import { idParamSchema } from '../utils/crudFactory';
 export const rentRequestsRoutes = Router();
 
 const REVIEW_INCLUDE = {
+  user: { select: { email: true, displayName: true, title: true, grade: true } },
   reviews: { orderBy: { createdAt: 'asc' as const }, include: { byUser: { select: { email: true, displayName: true, title: true } } } },
 } as const;
 
@@ -22,20 +26,21 @@ function shapeReview(r: ReviewRow) {
 
 type RentRow = {
   id: bigint; userId: bigint; requestNo: string; contractorId: bigint | null; contractorName: string;
-  placeId: bigint | null; placeName: string; resourceType: string; qty: number; statementOfWork: string;
-  dateFrom: Date | null; dateTo: Date | null; status: string; decidedAt: Date | null; decidedById: bigint | null;
+  placeId: bigint | null; placeName: string; resourceType: string; statementOfWork: string;
+  day: string; date: Date; qty: Prisma.Decimal; qtyType: string; price: Prisma.Decimal; total: Prisma.Decimal;
+  status: string; decidedAt: Date | null; decidedById: bigint | null;
   createdAt: Date; updatedAt: Date; reviews?: ReviewRow[];
+  user?: { email: string; displayName: string | null; title: string | null; grade: string | null };
 };
 function shape(r: RentRow) {
   return {
-    ...r,
+    ...arabizeRateTypes(r as unknown as Record<string, unknown>),
     id: r.id.toString(),
     userId: r.userId.toString(),
     contractorId: r.contractorId?.toString() ?? null,
     placeId: r.placeId?.toString() ?? null,
     decidedById: r.decidedById?.toString() ?? null,
-    dateFrom: r.dateFrom ? r.dateFrom.toISOString().slice(0, 10) : null,
-    dateTo: r.dateTo ? r.dateTo.toISOString().slice(0, 10) : null,
+    date: r.date.toISOString().slice(0, 10),
     decidedAt: r.decidedAt ? r.decidedAt.toISOString() : null,
     createdAt: r.createdAt.toISOString(),
     updatedAt: r.updatedAt.toISOString(),
@@ -97,24 +102,29 @@ rentRequestsRoutes.get(
 );
 
 // طلب جديد — يبدأ PENDING دايمًا. المقاول/المكان لازم يخصّوا صاحب الطلب، واسمهم بيتلقّط كنسخة نصية وقت الطلب
+// نفس شكل سطر السركي (Record) بالظبط: يوم/تاريخ/كمية/نوع كمية/سعر — عشان يتقارنوا لاحقًا بسهولة
 const createSchema = z.object({
   contractorId: z.coerce.bigint(),
   placeId: z.coerce.bigint(),
   resourceType: z.enum(['EQUIPMENT', 'LABOR']),
-  qty: z.coerce.number().int('الكمية لازم تكون رقم صحيح').min(1, 'الكمية لازم تكون 1 على الأقل'),
+  day: z.string().trim().min(1, 'اليوم مطلوب').max(20),
+  date: ymdDate,
+  qty: z.coerce.number().finite().positive('أدخل الكمية').max(1_000_000),
+  qtyType: rateTypeArSchema.optional().default('يومية'),
+  price: z.coerce.number().finite().min(0).max(100_000_000),
   statementOfWork: z.string().trim().min(1, 'بيان الأعمال مطلوب').max(2000),
-  dateFrom: z.string().trim().min(1).optional(),
-  dateTo: z.string().trim().min(1).optional(),
-}).refine((b) => !b.dateFrom || !b.dateTo || new Date(b.dateTo) >= new Date(b.dateFrom), {
-  message: 'تاريخ النهاية لازم يكون بعد أو يساوي تاريخ البداية',
-  path: ['dateTo'],
 });
+
+// total = qty × price — نفس معادلة computeTotal في records.service.ts بدون خصم (مفيش discount هنا)
+function computeTotal(qty: number, price: number): Prisma.Decimal {
+  return new Prisma.Decimal(qty).mul(price);
+}
 
 rentRequestsRoutes.post(
   '/',
   validate({ body: createSchema }),
   asyncHandler(async (req: Request, res: Response) => {
-    const body = req.body as { contractorId: bigint; placeId: bigint; resourceType: 'EQUIPMENT' | 'LABOR'; qty: number; statementOfWork: string; dateFrom?: string; dateTo?: string };
+    const body = req.body as { contractorId: bigint; placeId: bigint; resourceType: 'EQUIPMENT' | 'LABOR'; day: string; date: string; qty: number; qtyType: 'يومية' | 'ساعة' | 'مقطوعية' | 'عدد'; price: number; statementOfWork: string };
     const contractor = await prisma.contractor.findFirst({ where: { id: body.contractorId, userId: req.user!.id } });
     if (!contractor) throw AppError.validation('المقاول غير موجود أو لا يخصك');
     const place = await prisma.place.findFirst({ where: { id: body.placeId, userId: req.user!.id } });
@@ -139,10 +149,13 @@ rentRequestsRoutes.post(
               placeId: place.id,
               placeName: place.name,
               resourceType: body.resourceType,
-              qty: body.qty,
               statementOfWork: body.statementOfWork,
-              dateFrom: body.dateFrom ? new Date(body.dateFrom) : null,
-              dateTo: body.dateTo ? new Date(body.dateTo) : null,
+              day: body.day,
+              date: new Date(body.date),
+              qty: new Prisma.Decimal(body.qty),
+              qtyType: toEnum(body.qtyType),
+              price: new Prisma.Decimal(body.price),
+              total: computeTotal(body.qty, body.price),
             },
           });
         }) as unknown as RentRow;

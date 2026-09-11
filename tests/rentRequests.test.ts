@@ -19,6 +19,8 @@ async function seedPlace(adminToken: string, userId: string, name: string) {
   return res.body.data.id as string;
 }
 
+const baseLine = { day: 'السبت', date: '2026-09-12', qty: 2, qtyType: 'يومية', price: 100 };
+
 describe('طلبات الإيجار', () => {
   let admin: TestUser, eng: TestUser, otherEng: TestUser, pm: TestUser, noRentEng: TestUser;
   let contractorId: string, placeId: string, otherContractorId: string;
@@ -50,7 +52,7 @@ describe('طلبات الإيجار', () => {
 
   it('إنشاء طلب: PENDING ورقم مولّد على السيرفر', async () => {
     const res = await request(app).post('/api/rent-requests').set(auth(eng.token))
-      .send({ contractorId, placeId, resourceType: 'EQUIPMENT', qty: 2, statementOfWork: 'حفر أساسات' });
+      .send({ contractorId, placeId, resourceType: 'EQUIPMENT', ...baseLine, statementOfWork: 'حفر أساسات' });
     expect(res.status).toBe(201);
     expect(res.body.data.status).toBe('PENDING');
     expect(res.body.data.requestNo).toMatch(/^RR-\d{6}-\d{4}$/);
@@ -58,30 +60,66 @@ describe('طلبات الإيجار', () => {
 
   it('مقاول حساب تاني مرفوض', async () => {
     const res = await request(app).post('/api/rent-requests').set(auth(eng.token))
-      .send({ contractorId: otherContractorId, placeId, resourceType: 'EQUIPMENT', qty: 1, statementOfWork: 'عمل ما' });
+      .send({ contractorId: otherContractorId, placeId, resourceType: 'EQUIPMENT', ...baseLine, statementOfWork: 'عمل ما' });
     expect(res.status).toBe(400);
   });
 
   it('status وrequestNo من العميل بيتجاهلوا', async () => {
     const res = await request(app).post('/api/rent-requests').set(auth(eng.token))
-      .send({ contractorId, placeId, resourceType: 'LABOR', qty: 3, statementOfWork: 'عمالة نظافة', status: 'APPROVED', requestNo: 'FAKE-001' });
+      .send({ contractorId, placeId, resourceType: 'LABOR', ...baseLine, statementOfWork: 'عمالة نظافة', status: 'APPROVED', requestNo: 'FAKE-001' });
     expect(res.status).toBe(201);
     expect(res.body.data.status).toBe('PENDING');
     expect(res.body.data.requestNo).not.toBe('FAKE-001');
   });
 
-  it('qty صفر أو رقم كسور مرفوض', async () => {
+  it('qty صفر أو سالب أو price سالب مرفوض', async () => {
     const zero = await request(app).post('/api/rent-requests').set(auth(eng.token))
-      .send({ contractorId, placeId, resourceType: 'EQUIPMENT', qty: 0, statementOfWork: 'x' });
+      .send({ contractorId, placeId, resourceType: 'EQUIPMENT', ...baseLine, qty: 0, statementOfWork: 'x' });
     expect(zero.status).toBe(400);
-    const frac = await request(app).post('/api/rent-requests').set(auth(eng.token))
-      .send({ contractorId, placeId, resourceType: 'EQUIPMENT', qty: 1.5, statementOfWork: 'x' });
-    expect(frac.status).toBe(400);
+    const negQty = await request(app).post('/api/rent-requests').set(auth(eng.token))
+      .send({ contractorId, placeId, resourceType: 'EQUIPMENT', ...baseLine, qty: -1, statementOfWork: 'x' });
+    expect(negQty.status).toBe(400);
+    const negPrice = await request(app).post('/api/rent-requests').set(auth(eng.token))
+      .send({ contractorId, placeId, resourceType: 'EQUIPMENT', ...baseLine, price: -1, statementOfWork: 'x' });
+    expect(negPrice.status).toBe(400);
+  });
+
+  it('qtyType غير صحيح مرفوض', async () => {
+    const res = await request(app).post('/api/rent-requests').set(auth(eng.token))
+      .send({ contractorId, placeId, resourceType: 'EQUIPMENT', ...baseLine, qtyType: 'شهرية', statementOfWork: 'x' });
+    expect(res.status).toBe(400);
+  });
+
+  it('dateFrom/dateTo القديمين اتشالوا — لو اتبعتوا بيتجاهلوا ومبيتخزنوش', async () => {
+    const res = await request(app).post('/api/rent-requests').set(auth(eng.token))
+      .send({ contractorId, placeId, resourceType: 'EQUIPMENT', ...baseLine, statementOfWork: 'قديم', dateFrom: '2026-01-01', dateTo: '2026-01-05' });
+    expect(res.status).toBe(201);
+    expect(res.body.data.dateFrom).toBeUndefined();
+    expect(res.body.data.dateTo).toBeUndefined();
+  });
+
+  it('total بيتحسب على السيرفر (qty × price) وبيتجاهل أي total من العميل', async () => {
+    const res = await request(app).post('/api/rent-requests').set(auth(eng.token))
+      .send({ contractorId, placeId, resourceType: 'EQUIPMENT', ...baseLine, statementOfWork: 'حساب الإجمالي', total: 999999 });
+    expect(res.status).toBe(201);
+    expect(Number(res.body.data.total)).toBe(baseLine.qty * baseLine.price);
+  });
+
+  it('الطلب المُنشأ بيرجّع نفس بيانات السطر (day/date/qty/qtyType/price/total)', async () => {
+    const res = await request(app).post('/api/rent-requests').set(auth(eng.token))
+      .send({ contractorId, placeId, resourceType: 'EQUIPMENT', ...baseLine, statementOfWork: 'راوند تريب' });
+    expect(res.status).toBe(201);
+    expect(res.body.data.day).toBe(baseLine.day);
+    expect(res.body.data.date).toBe(baseLine.date);
+    expect(Number(res.body.data.qty)).toBe(baseLine.qty);
+    expect(res.body.data.qtyType).toBe(baseLine.qtyType);
+    expect(Number(res.body.data.price)).toBe(baseLine.price);
+    expect(Number(res.body.data.total)).toBe(baseLine.qty * baseLine.price);
   });
 
   it('مهندس مش مدير مشروع ولا أدمن ممنوع من القرار', async () => {
     const created = await request(app).post('/api/rent-requests').set(auth(eng.token))
-      .send({ contractorId, placeId, resourceType: 'EQUIPMENT', qty: 1, statementOfWork: 'اختبار صلاحية' });
+      .send({ contractorId, placeId, resourceType: 'EQUIPMENT', ...baseLine, statementOfWork: 'اختبار صلاحية' });
     const res = await request(app).post(`/api/rent-requests/${created.body.data.id}/decide`).set(auth(eng.token))
       .send({ decision: 'APPROVED' });
     expect(res.status).toBe(403);
@@ -89,7 +127,7 @@ describe('طلبات الإيجار', () => {
 
   it('مدير المشروع يعتمد/يعتمد بملاحظات/يرفض — وكل قرار يسجل مراجعة واحدة بالظبط', async () => {
     const mk = async () => (await request(app).post('/api/rent-requests').set(auth(eng.token))
-      .send({ contractorId, placeId, resourceType: 'EQUIPMENT', qty: 1, statementOfWork: 'اختبار قرار' })).body.data.id;
+      .send({ contractorId, placeId, resourceType: 'EQUIPMENT', ...baseLine, statementOfWork: 'اختبار قرار' })).body.data.id;
 
     const idApprove = await mk();
     const approve = await request(app).post(`/api/rent-requests/${idApprove}/decide`).set(auth(pm.token)).send({ decision: 'APPROVED' });
@@ -115,7 +153,7 @@ describe('طلبات الإيجار', () => {
 
   it('قائمة الطلبات بترجّع reviews وتعرض ملاحظة القرار من غير فتح كل طلب لوحده', async () => {
     const created = await request(app).post('/api/rent-requests').set(auth(eng.token))
-      .send({ contractorId, placeId, resourceType: 'EQUIPMENT', qty: 1, statementOfWork: 'اختبار القائمة' });
+      .send({ contractorId, placeId, resourceType: 'EQUIPMENT', ...baseLine, statementOfWork: 'اختبار القائمة' });
     const id = created.body.data.id;
 
     const beforeDecision = await request(app).get('/api/rent-requests').set(auth(eng.token));
@@ -135,7 +173,7 @@ describe('طلبات الإيجار', () => {
 
   it('اعتماد بملاحظات أو رفض بلا ملاحظة مرفوض', async () => {
     const created = await request(app).post('/api/rent-requests').set(auth(eng.token))
-      .send({ contractorId, placeId, resourceType: 'EQUIPMENT', qty: 1, statementOfWork: 'بلا ملاحظة' });
+      .send({ contractorId, placeId, resourceType: 'EQUIPMENT', ...baseLine, statementOfWork: 'بلا ملاحظة' });
     const id = created.body.data.id;
     const notesNoNote = await request(app).post(`/api/rent-requests/${id}/decide`).set(auth(pm.token)).send({ decision: 'APPROVED_NOTES' });
     expect(notesNoNote.status).toBe(400);
@@ -145,7 +183,7 @@ describe('طلبات الإيجار', () => {
 
   it('القرار على طلب اتقرر فيه بالفعل مرفوض', async () => {
     const created = await request(app).post('/api/rent-requests').set(auth(eng.token))
-      .send({ contractorId, placeId, resourceType: 'EQUIPMENT', qty: 1, statementOfWork: 'مرتين' });
+      .send({ contractorId, placeId, resourceType: 'EQUIPMENT', ...baseLine, statementOfWork: 'مرتين' });
     const id = created.body.data.id;
     const first = await request(app).post(`/api/rent-requests/${id}/decide`).set(auth(pm.token)).send({ decision: 'APPROVED' });
     expect(first.status).toBe(200);
@@ -155,17 +193,29 @@ describe('طلبات الإيجار', () => {
 
   it('المهندس غير الأدمن يشوف طلباته هو بس', async () => {
     await request(app).post('/api/rent-requests').set(auth(otherEng.token))
-      .send({ contractorId: otherContractorId, placeId: await seedPlace(admin.token, otherEng.id, 'مكان تاني'), resourceType: 'LABOR', qty: 2, statementOfWork: 'عمالة تانية' });
+      .send({ contractorId: otherContractorId, placeId: await seedPlace(admin.token, otherEng.id, 'مكان تاني'), resourceType: 'LABOR', ...baseLine, statementOfWork: 'عمالة تانية' });
     const mine = await request(app).get('/api/rent-requests').set(auth(eng.token));
     expect(mine.status).toBe(200);
     expect(mine.body.data.length).toBeGreaterThan(0);
     expect(mine.body.data.every((r: { userId: string }) => r.userId === eng.id)).toBe(true);
   });
 
+  it('قائمة الطلبات بترجّع اسم المهندس صاحب الطلب (لتاب اعتماد طلبات الإيجار)', async () => {
+    await patchUser(admin.token, eng.id, { displayName: 'أحمد المهندس' });
+    const created = await request(app).post('/api/rent-requests').set(auth(eng.token))
+      .send({ contractorId, placeId, resourceType: 'EQUIPMENT', ...baseLine, statementOfWork: 'اختبار اسم المهندس' });
+    const list = await request(app).get('/api/rent-requests').set(auth(pm.token));
+    expect(list.status).toBe(200);
+    const row = list.body.data.find((r: { id: string }) => r.id === created.body.data.id);
+    expect(row.user).toBeTruthy();
+    expect(row.user.displayName).toBe('أحمد المهندس');
+    expect(row.createdAt).toEqual(expect.any(String));
+  });
+
   it('GET /approved يرجّع المعتمد بس (بنوعيه) ويطبّق الفلاتر', async () => {
     const place2 = await seedPlace(admin.token, eng.id, 'مكان اعتماد');
     const pending = await request(app).post('/api/rent-requests').set(auth(eng.token))
-      .send({ contractorId, placeId: place2, resourceType: 'LABOR', qty: 1, statementOfWork: 'لسه معلق' });
+      .send({ contractorId, placeId: place2, resourceType: 'LABOR', ...baseLine, statementOfWork: 'لسه معلق' });
 
     const approvedList = await request(app).get('/api/rent-requests/approved').set(auth(eng.token));
     expect(approvedList.status).toBe(200);

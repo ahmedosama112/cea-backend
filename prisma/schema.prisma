@@ -752,10 +752,13 @@ model RentRequest {
   placeId        BigInt?           @map("place_id")
   placeName      String            @map("place_name") @db.VarChar(190)
   resourceType   RentResourceType  @map("resource_type")
-  qty            Int
   statementOfWork String           @map("statement_of_work") @db.Text // بيان الأعمال
-  dateFrom       DateTime?         @map("date_from") @db.Date
-  dateTo         DateTime?         @map("date_to") @db.Date
+  day            String            @db.VarChar(20)
+  date           DateTime          @db.Date
+  qty            Decimal           @db.Decimal(10, 2)
+  qtyType        RateType          @default(DAILY) @map("qty_type")
+  price          Decimal           @db.Decimal(10, 2)
+  total          Decimal           @db.Decimal(10, 2)
   status         RentRequestStatus @default(PENDING)
   decidedAt      DateTime?         @map("decided_at")
   decidedById    BigInt?           @map("decided_by_id")
@@ -770,6 +773,7 @@ model RentRequest {
 
   @@index([userId, status])
   @@index([userId, createdAt])
+  @@index([userId, date])
   @@map("rent_requests")
 }
 

@@ -2,7 +2,7 @@
 // يحددها الأدمن من "إدارة الحسابات". الواجهة فيها نسخة مطابقة من نفس القائمة (app.js: FEATURES).
 
 // ── الوحدات: بتقفل الشاشة كلها + السيرفر يرفض مساراتها ──
-export const ALL_MODULES = ['records', 'submissions', 'ir', 'site_daily', 'site_exec', 'todo', 'summary', 'inventory', 'approvals', 'equipment', 'analytics', 'rent_requests'] as const;
+export const ALL_MODULES = ['records', 'submissions', 'ir', 'site_daily', 'site_exec', 'todo', 'summary', 'inventory', 'approvals', 'equipment', 'analytics', 'rent_requests', 'rent_approvals'] as const;
 export type ModuleKey = (typeof ALL_MODULES)[number];
 export const DEFAULT_MODULES: ModuleKey[] = ['records', 'submissions', 'todo', 'summary'];
 export const MODULE_LABELS: Record<ModuleKey, string> = {
@@ -18,6 +18,7 @@ export const MODULE_LABELS: Record<ModuleKey, string> = {
   equipment: 'سراكي معدات (شهري) — إيجار معدات 20→19',
   analytics: 'تحليلات المشروع (أماكن + مقاولين — للمديرين)',
   rent_requests: 'طلبات الإيجار (طلب معدات/عمالة + اعتماد مدير المشروع)',
+  rent_approvals: 'اعتماد طلبات الإيجار (مراجعة واعتماد طلبات المعدات والعمالة)',
 };
 
 // ── الكروت: إخفاء/إظهار أجزاء داخل الشاشات (واجهة فقط — البيانات لسه محمية بالوحدات) ──
