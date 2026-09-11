@@ -33,6 +33,28 @@ async function submitReal(token: string) {
     .field('weekEnd', '2026-08-18').field('total', '500').field('recordsCount', '2')
     .attach('file', await realLaborXlsx(), 'real.xlsx');
 }
+// كشف عمالة بنفس تخطيط realLaborXlsx لكن بورقتين متطابقتين — لاختبار حذف الورقة اللي بتتفضّى بالكامل بعد الشطب
+async function twoSheetLaborXlsx(): Promise<Buffer> {
+  const wb = new ExcelJS.Workbook();
+  for (const name of ['شيت1', 'شيت2']) {
+    const ws = wb.addWorksheet(name);
+    ws.getCell(8, 13).value = '2026-08-12'; ws.getCell(8, 12).value = 'يوم';
+    ws.getCell(10, 13).value = '2026-08-14'; ws.getCell(10, 12).value = 'يوم';
+    ws.getCell(8, 8).value = 300; ws.getCell(8, 3).value = 'أعمال أ';
+    ws.getCell(10, 8).value = 200; ws.getCell(10, 3).value = 'أعمال ب';
+    ws.getCell(15, 8).value = 500;
+  }
+  return Buffer.from(await wb.xlsx.writeBuffer());
+}
+// كشوف معدّات بتخطيط الواجهة: صف بيانات واحد (8) بالمدة "h:mm" في عمود 7 والتاريخ في 13 — لاختبار "إجمالي الشهر"
+async function equipmentXlsx(sheets: { name: string; date: string; value: string }[]): Promise<Buffer> {
+  const wb = new ExcelJS.Workbook();
+  for (const s of sheets) {
+    const ws = wb.addWorksheet(s.name);
+    ws.getCell(8, 13).value = s.date; ws.getCell(8, 12).value = 'يوم'; ws.getCell(8, 7).value = s.value;
+  }
+  return Buffer.from(await wb.xlsx.writeBuffer());
+}
 async function patchUser(adminToken: string, userId: string, body: Record<string, unknown>) {
   return request(app).patch(`/api/admin/users/${userId}`).set(auth(adminToken)).send(body);
 }
@@ -400,5 +422,64 @@ describe('اعتمادات المديرين', () => {
     expect(row.grade).toBe('junior');
     expect(row.missingApprovers).toContain('construction manager');
     expect(row.missingApprovers).not.toContain('team leader');
+  });
+});
+
+describe('نمط clear: الورقة اللي بتتفضّى بالكامل بعد الشطب تتشال قبل ما توصل للتوقيع والـ DC', () => {
+  it('كل صفوف الورقة التانية اتشطبت → المصنّف يفضل بورقة واحدة (الأولى)', async () => {
+    const raw = await twoSheetLaborXlsx();
+    const buf = await applyRowRejections(raw, [
+      { sheetIndex: 1, row: 8, level: 'team leader', note: 'x' },
+      { sheetIndex: 1, row: 10, level: 'team leader', note: 'y' },
+    ], 'labor', 'clear');
+    const wb = new ExcelJS.Workbook(); await wb.xlsx.load(buf as unknown as ArrayBuffer);
+    expect(wb.worksheets.length).toBe(1);
+    expect(wb.worksheets[0].name).toBe('شيت1');
+    expect(Number(wb.worksheets[0].getCell(8, 8).value)).toBe(300);
+  });
+
+  it('شطب جزئي (سطر واحد بس) ما بيشيلش الورقة، وباقي صفوفها زي ما هي', async () => {
+    const raw = await twoSheetLaborXlsx();
+    const buf = await applyRowRejections(raw, [{ sheetIndex: 1, row: 8, level: 'team leader', note: 'x' }], 'labor', 'clear');
+    const wb = new ExcelJS.Workbook(); await wb.xlsx.load(buf as unknown as ArrayBuffer);
+    expect(wb.worksheets.length).toBe(2);
+    const ws2 = wb.worksheets[1];
+    expect(ws2.getCell(8, 8).value).toBeNull();
+    expect(Number(ws2.getCell(10, 8).value)).toBe(200);
+  });
+
+  it('نمط strike (المعاينة داخل التطبيق): نفس الشطب الكامل ما بيشيلش ورقة خالص', async () => {
+    const raw = await twoSheetLaborXlsx();
+    const buf = await applyRowRejections(raw, [
+      { sheetIndex: 1, row: 8, level: 'team leader', note: 'x' },
+      { sheetIndex: 1, row: 10, level: 'team leader', note: 'y' },
+    ], 'labor', 'strike');
+    const wb = new ExcelJS.Workbook(); await wb.xlsx.load(buf as unknown as ArrayBuffer);
+    expect(wb.worksheets.length).toBe(2);
+  });
+
+  it('المعدات: 3 ورقات لنفس المعدة، وحدة اتشطبت بالكامل → إجمالي الشهر في الباقيتين بيتحسب من غيرها بس', async () => {
+    const raw = await equipmentXlsx([
+      { name: '1- ونش', date: '2026-08-01', value: '8:00' },
+      { name: '2- ونش', date: '2026-08-02', value: '6:00' },
+      { name: '3- ونش', date: '2026-08-03', value: '4:00' },
+    ]);
+    const buf = await applyRowRejections(raw, [{ sheetIndex: 1, row: 8, level: 'team leader', note: 'x' }], 'equipment', 'clear');
+    const wb = new ExcelJS.Workbook(); await wb.xlsx.load(buf as unknown as ArrayBuffer);
+    expect(wb.worksheets.map((w) => w.name)).toEqual(['1- ونش', '3- ونش']);
+    for (const ws of wb.worksheets) {
+      expect(String(ws.getCell(13, 6).value)).toBe('إجمالي الشهر: 12:00 ساعة (2 يوم تشغيل)');
+    }
+  });
+
+  it('ضمان: مصنّف بورقة واحدة وكل صفوفها اتشطبت في clear → الورقة تفضل موجودة، مايتصفرش المصنّف', async () => {
+    const raw = await realLaborXlsx();
+    const buf = await applyRowRejections(raw, [
+      { sheetIndex: 0, row: 8, level: 'team leader', note: 'x' },
+      { sheetIndex: 0, row: 10, level: 'team leader', note: 'y' },
+    ], 'labor', 'clear');
+    const wb = new ExcelJS.Workbook(); await wb.xlsx.load(buf as unknown as ArrayBuffer);
+    expect(wb.worksheets.length).toBe(1);
+    expect(wb.worksheets[0].name).toBe('مقاول');
   });
 });

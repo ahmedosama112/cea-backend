@@ -100,9 +100,21 @@ export async function applyRowRejections(buffer: Buffer, rejections: RowRejectio
     noteCell.style = { ...noteCell.style, alignment: { ...(noteCell.style.alignment || {}), wrapText: true } };
     ws.getRow(rj.row).height = Math.max(Number(ws.getRow(rj.row).height) || 30, 44);
   }
-  // إعادة حساب إجمالي الورقة
-  for (const idx of touched) {
-    const ws = wb.worksheets[idx];
+  // نلقط الورقات اللي اتلمست هنا (لسه الـ index صح) — هنحتاجها بعد الحذف المحتمل تحت
+  const touchedSheets = [...touched].map((idx) => wb.worksheets[idx]).filter((ws): ws is ExcelJS.Worksheet => !!ws);
+
+  // 'clear': ورقة اتفضّت تمامًا بالشطب (كل صفوفها بقت أيام فاضية) تتشال من المصنّف كله —
+  // من غير كده الـ DC هيستلم ورقة فاضية لسه شايلة بلوكات التوقيع. لو الشيل هيسيب المصنّف من غير ورقات خالص، نوقف (ضمان دفاعي).
+  if (mode === 'clear') {
+    for (const ws of touchedSheets) {
+      if (wb.worksheets.length <= 1) break;
+      if (dataRowsOf(ws, kind).length === 0) wb.removeWorksheet(ws.id);
+    }
+  }
+
+  // إعادة حساب إجمالي الورقة (بس للورقات اللي لسه موجودة بعد الحذف المحتمل)
+  for (const ws of touchedSheets) {
+    if (!wb.worksheets.includes(ws)) continue;
     if (kind === 'labor') {
       let sum = 0;
       for (let r = L.firstRow; r <= L.lastRow; r++) sum += Number(ws.getCell(r, L.valueCol).value) || 0;
