@@ -84,6 +84,9 @@ model User {
   notifications       Notification[]       @relation("NotificationAuthor")
   notificationTargets NotificationTarget[]
   notificationReads   NotificationRead[]
+  rentRequests        RentRequest[]        @relation("RentRequestOwner")
+  rentRequestsDecided RentRequest[]        @relation("RentRequestDecider")
+  rentRequestReviews  RentRequestReview[]
 
   approverTl          User?  @relation("ApproverTl", fields: [approverTlId], references: [id], onDelete: SetNull)
   approverCm          User?  @relation("ApproverCm", fields: [approverCmId], references: [id], onDelete: SetNull)
@@ -158,6 +161,7 @@ model Contractor {
 
   user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   records Record[]
+  rentRequests RentRequest[]
 
   @@unique([userId, name])
   @@map("contractors")
@@ -174,6 +178,7 @@ model Place {
 
   user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   records Record[]
+  rentRequests RentRequest[]
 
   @@unique([userId, name])
   @@map("places")
@@ -722,4 +727,65 @@ model NotificationRead {
   @@unique([notificationId, userId, occurrence])
   @@index([userId])
   @@map("notification_reads")
+}
+
+// ── طلبات الإيجار (معدات/عمالة) — المهندس يطلب، مدير المشروع يعتمد/يرفض قبل أي تعاقد فعلي ──
+enum RentResourceType {
+  EQUIPMENT
+  LABOR
+}
+
+enum RentRequestStatus {
+  PENDING
+  APPROVED
+  APPROVED_NOTES
+  REJECTED
+}
+
+model RentRequest {
+  id     BigInt @id @default(autoincrement())
+  userId BigInt @map("user_id")
+  // رقم بشري يُولَّد على السيرفر (RR-<YYYYMM>-<تسلسل الشهر>) — العميل لا يرسله أبدًا
+  requestNo      String            @unique @map("request_no") @db.VarChar(30)
+  contractorId   BigInt?           @map("contractor_id")
+  contractorName String            @map("contractor_name") @db.VarChar(190) // نسخة نصية وقت الطلب — لا تتأثر بحذف/تعديل المقاول لاحقًا
+  placeId        BigInt?           @map("place_id")
+  placeName      String            @map("place_name") @db.VarChar(190)
+  resourceType   RentResourceType  @map("resource_type")
+  qty            Int
+  statementOfWork String           @map("statement_of_work") @db.Text // بيان الأعمال
+  dateFrom       DateTime?         @map("date_from") @db.Date
+  dateTo         DateTime?         @map("date_to") @db.Date
+  status         RentRequestStatus @default(PENDING)
+  decidedAt      DateTime?         @map("decided_at")
+  decidedById    BigInt?           @map("decided_by_id")
+  createdAt      DateTime          @default(now()) @map("created_at")
+  updatedAt      DateTime          @updatedAt @map("updated_at")
+
+  user       User                @relation("RentRequestOwner", fields: [userId], references: [id], onDelete: Cascade)
+  contractor Contractor?         @relation(fields: [contractorId], references: [id], onDelete: SetNull)
+  place      Place?              @relation(fields: [placeId], references: [id], onDelete: SetNull)
+  decidedBy  User?               @relation("RentRequestDecider", fields: [decidedById], references: [id], onDelete: SetNull)
+  reviews    RentRequestReview[]
+
+  @@index([userId, status])
+  @@index([userId, createdAt])
+  @@map("rent_requests")
+}
+
+// قرار اعتماد واحد على طلب إيجار — سجل تدقيق (مين/امتى/القرار/الملاحظة)، بنفس نمط SubmissionReview
+model RentRequestReview {
+  id            BigInt   @id @default(autoincrement())
+  rentRequestId BigInt   @map("rent_request_id")
+  // APPROVED = معتمد بدون ملاحظات · APPROVED_NOTES = معتمد بملاحظات · REJECTED = مرفوض
+  decision      String   @db.VarChar(20)
+  note          String?  @db.VarChar(500)
+  byUserId      BigInt?  @map("by_user_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  rentRequest RentRequest @relation(fields: [rentRequestId], references: [id], onDelete: Cascade)
+  byUser      User?       @relation(fields: [byUserId], references: [id], onDelete: SetNull)
+
+  @@index([rentRequestId])
+  @@map("rent_request_reviews")
 }

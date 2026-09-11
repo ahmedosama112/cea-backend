@@ -22,6 +22,7 @@ export async function resetDb() {
     'purchase_requests', 'stock_moves', 'issue_request_lines', 'issue_requests', 'inventory_items',
     'submission_row_rejections', 'submission_reviews', 'submissions', 'app_config',
     'notification_reads', 'notification_targets', 'notifications',
+    'rent_request_reviews', 'rent_requests',
     'account_settings', 'files', 'refresh_tokens', 'password_reset_tokens', 'users',
   ];
   for (const t of tables) await prisma.$executeRawUnsafe(`DELETE FROM \`${t}\``);

@@ -48,6 +48,8 @@ const BACKUP_TABLES: Array<{ key: string; model: string; rows: () => Promise<unk
   { key: 'notifications', model: 'Notification', rows: () => prisma.notification.findMany() },
   { key: 'notificationTargets', model: 'NotificationTarget', rows: () => prisma.notificationTarget.findMany() },
   { key: 'notificationReads', model: 'NotificationRead', rows: () => prisma.notificationRead.findMany() },
+  { key: 'rentRequests', model: 'RentRequest', rows: () => prisma.rentRequest.findMany() },
+  { key: 'rentRequestReviews', model: 'RentRequestReview', rows: () => prisma.rentRequestReview.findMany() },
 ];
 
 // أسماء الجداول بترتيب الإدراج — يستوردها سكربت الاستعادة عشان القايمتين ما يفترقوش تاني

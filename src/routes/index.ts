@@ -13,6 +13,7 @@ import { inventoryRoutes } from './inventory.routes';
 import { approvalsRoutes } from './approvals.routes';
 import { analyticsRoutes } from './analytics.routes';
 import { notificationsRoutes } from './notifications.routes';
+import { rentRequestsRoutes } from './rentRequests.routes';
 import { authenticate } from '../middlewares/auth';
 import { requireModule } from '../middlewares/moduleGuard';
 import { allWindowStates } from '../services/windows';
@@ -50,3 +51,4 @@ router.use('/inventory', authenticate, requireModule('inventory'), inventoryRout
 router.use('/approvals', authenticate, requireModule('approvals'), approvalsRoutes);
 router.use('/equipment-records', authenticate, requireModule('equipment'), equipmentRouter);
 router.use('/analytics', authenticate, requireModule('analytics'), analyticsRoutes);
+router.use('/rent-requests', authenticate, requireModule('rent_requests'), rentRequestsRoutes);
