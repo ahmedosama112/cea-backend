@@ -113,6 +113,26 @@ describe('طلبات الإيجار', () => {
     expect(detR.body.data.reviews.length).toBe(1);
   });
 
+  it('قائمة الطلبات بترجّع reviews وتعرض ملاحظة القرار من غير فتح كل طلب لوحده', async () => {
+    const created = await request(app).post('/api/rent-requests').set(auth(eng.token))
+      .send({ contractorId, placeId, resourceType: 'EQUIPMENT', qty: 1, statementOfWork: 'اختبار القائمة' });
+    const id = created.body.data.id;
+
+    const beforeDecision = await request(app).get('/api/rent-requests').set(auth(eng.token));
+    expect(beforeDecision.status).toBe(200);
+    const rowBefore = beforeDecision.body.data.find((r: { id: string }) => r.id === id);
+    expect(Array.isArray(rowBefore.reviews)).toBe(true);
+    expect(rowBefore.reviews.length).toBe(0);
+
+    await request(app).post(`/api/rent-requests/${id}/decide`).set(auth(pm.token))
+      .send({ decision: 'APPROVED_NOTES', note: 'راجع الكمية قبل التنفيذ' });
+
+    const afterDecision = await request(app).get('/api/rent-requests').set(auth(eng.token));
+    const rowAfter = afterDecision.body.data.find((r: { id: string }) => r.id === id);
+    expect(rowAfter.reviews.length).toBe(1);
+    expect(rowAfter.reviews[0].note).toBe('راجع الكمية قبل التنفيذ');
+  });
+
   it('اعتماد بملاحظات أو رفض بلا ملاحظة مرفوض', async () => {
     const created = await request(app).post('/api/rent-requests').set(auth(eng.token))
       .send({ contractorId, placeId, resourceType: 'EQUIPMENT', qty: 1, statementOfWork: 'بلا ملاحظة' });

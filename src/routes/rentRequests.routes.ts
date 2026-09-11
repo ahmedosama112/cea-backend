@@ -64,6 +64,7 @@ rentRequestsRoutes.get(
       where: { ...(seeAll ? {} : { userId: req.user!.id }), ...(status ? { status } : {}) },
       orderBy: { createdAt: 'desc' },
       take: 200,
+      include: REVIEW_INCLUDE,
     });
     res.json({ success: true, data: rows.map((r) => shape(r as never)) });
   }),
