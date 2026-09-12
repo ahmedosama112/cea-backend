@@ -82,10 +82,7 @@ async function doPushSubmission(submissionId: bigint, fileBuffer: Buffer, fileNa
       fileBase64: fileBuffer.toString('base64'),
       approvalSummary: approvalSummary || '',
     },
-    60_000, // (12 سبتمبر 2026) كان 300 ث: doPost بقى بيرجع فورًا (يحفظ الملف بس ويحط حالة "جاري التحويل")،
-    // والتحويل الفعلي + التوقيعات + الـ PDF بقوا في trigger كل دقيقة (processQueuedRows) — مش جوه الرد.
-    // فالرد بقى المفروض يوصل في ثواني؛ 60 ث هامش أمان لبطء Drive/الشبكة العرضي، من غير ما نرجع لخطر
-    // التكرار القديم (قطع الاتصال بدري والسكربت لسه شغال) لأن الشغل التقيل خارج مسار الرد خالص دلوقتي.
+    300_000, // (8 سبتمبر 2026) كان 120 ث: كشف بـ 12 ورقة بياخد أكتر في التحويل + PDF — لو قطعنا الاتصال بدري السكربت بيكمل ويعمل الصف بس إحنا مانعرفش رقمه (خطر تكرار عند إعادة الإرسال). حد Apps Script نفسه 6 دقايق
   );
   if (result && result.ok) {
     await prisma.submission
