@@ -117,7 +117,11 @@ export async function fetchSheetStatuses(rows: number[], site: number | null | u
   const key = (site === 2 ? 2 : 1) + ':' + [...rows].sort((a, b) => a - b).join(',');
   const cached = statusCache.get(key);
   if (cached && Date.now() - cached.at < STATUS_CACHE_MS) return cached.data;
-  const result = await callWebApp(site, { action: 'status', rows }, 4_000);
+  // (12 سبتمبر 2026) المهلة كانت 4 ث — مع 45+ كشف في الشاشة النداء كان بيتقطع دايمًا
+  // ("This operation was aborted" في اللوجات) فكل الكروت تبقى بلا بيانات شيت: مفيش اعتماد DC
+  // ولا ملاحظته. الحل الأساسي في Code.gs (قراءة رينج واحد بدل خانة بخانة)، ودي مهلة أوسع تحسبًا
+  // لبطء جوجل نفسه. لسه مش حرجة: الفشل بيرجّع آخر نسخة معروفة من الكاش.
+  const result = await callWebApp(site, { action: 'status', rows }, 12_000);
   if (result && result.ok && result.statuses) {
     const data = result.statuses as Record<number, SheetRowStatus>;
     statusCache.set(key, { at: Date.now(), data });
