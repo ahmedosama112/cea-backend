@@ -21,7 +21,15 @@ const env = {
   RATE_LIMIT_MAX: '100000',
 };
 
+// 🛡 قبل أي push بقبول فقدان بيانات: اتأكد إن قاعدة الاختبار مش هي قاعدة التطوير
+if (TEST_DB_URL === process.env.DATABASE_URL) {
+  console.error('TEST_DATABASE_URL مطابق لـ DATABASE_URL — الاختبارات بتمسح القاعدة، فالتشغيل مرفوض');
+  process.exit(1);
+}
+
+// --accept-data-loss: قاعدة الاختبار بتتمسح مع كل تشغيل أصلًا (resetDb)، فتحذيرات فقدان
+// البيانات هنا بلا معنى — من غير الفلاغ ده أي قيد فريد جديد بيوقف التشغيل كله
 console.log('> syncing test database schema (cea_test)');
-execSync('npx prisma db push --skip-generate', { stdio: 'inherit', env });
+execSync('npx prisma db push --skip-generate --accept-data-loss', { stdio: 'inherit', env });
 console.log('> running vitest');
 execSync('npx vitest run', { stdio: 'inherit', env });

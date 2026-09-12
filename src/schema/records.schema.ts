@@ -18,6 +18,9 @@ export const recordCreateSchema = z.object({
   deductOn: z.array(z.string().trim().min(1).max(190)).optional().default([]),
   deductNote: z.string().trim().max(255).optional().default(''),
   done: z.boolean().optional().default(false),
+  // ربط السجل بطلب إيجار معتمد (اختياري). التحقق من الملكية/الاعتماد/عدم التكرار
+  // في recordsService.resolveRentRequest، والضمان النهائي قيد @unique في قاعدة البيانات.
+  rentRequestId: z.coerce.number().int().positive().nullable().optional(),
 });
 
 export const recordUpdateSchema = recordCreateSchema.partial();

@@ -230,3 +230,114 @@ describe('طلبات الإيجار', () => {
     expect(byResource.body.data.every((r: { resourceType: string }) => r.resourceType === 'EQUIPMENT')).toBe(true);
   });
 });
+
+// ═══════════ ربط طلب الإيجار بسطر السركي — طلب واحد = سطر واحد ═══════════
+// الثغرة اللي القيد ده بيقفلها: المهندس ياخد طلب إيجار معتمد واحد ويسجّله في أكتر من سطر سركي،
+// فيتحاسب أكتر من مرة على نفس الشغل. الضمان النهائي UNIQUE على records.rent_request_id.
+describe('ربط طلب الإيجار بالسركي', () => {
+  let admin: TestUser, eng: TestUser, otherEng: TestUser, pm: TestUser;
+  let contractorId: string, placeId: string;
+
+  const recordLine = {
+    day: 'السبت', date: '2026-09-12', contractor: 'مقاول الربط', place: 'موقع الربط',
+    qty: 2, qtyType: 'يومية', price: 100, discount: 0, spec: '', notes: 'شغل الطلب', deductOn: [], deductNote: '',
+  };
+
+  // طلب جديد + اعتماده من مدير المشروع → بيرجّع الـid جاهز للربط
+  async function approvedRequest(sow = 'حفر أساسات') {
+    const created = await request(app).post('/api/rent-requests').set(auth(eng.token))
+      .send({ contractorId, placeId, resourceType: 'EQUIPMENT', day: 'السبت', date: '2026-09-12', qty: 2, qtyType: 'يومية', price: 100, statementOfWork: sow });
+    const id = created.body.data.id as string;
+    await request(app).post(`/api/rent-requests/${id}/decide`).set(auth(pm.token)).send({ decision: 'APPROVED' });
+    return id;
+  }
+
+  beforeAll(async () => {
+    await resetDb();
+    admin = await createAdmin();
+    eng = await createEngineer(admin.token, 'eng-link@test.com');
+    otherEng = await createEngineer(admin.token, 'eng-link-other@test.com');
+    pm = await createEngineer(admin.token, 'pm-link@test.com');
+    await enableRent(admin.token, eng.id);
+    await enableRent(admin.token, otherEng.id);
+    await enableRent(admin.token, pm.id);
+    await patchUser(admin.token, pm.id, { grade: 'project manager' });
+    contractorId = await seedContractor(admin.token, eng.id, 'مقاول الربط');
+    placeId = await seedPlace(admin.token, eng.id, 'موقع الربط');
+  });
+  afterAll(async () => { await prisma.$disconnect(); });
+
+  it('سجل متربط بطلب معتمد يتقبل ويرجّع rentRequestId', async () => {
+    const rrId = await approvedRequest();
+    const res = await request(app).post('/api/records').set(auth(eng.token)).send({ ...recordLine, rentRequestId: rrId });
+    expect(res.status).toBe(201);
+    expect(String(res.body.data.rentRequestId)).toBe(String(rrId));
+  });
+
+  it('🔒 نفس الطلب في سجل تاني يترفض', async () => {
+    const rrId = await approvedRequest();
+    const first = await request(app).post('/api/records').set(auth(eng.token)).send({ ...recordLine, rentRequestId: rrId });
+    expect(first.status).toBe(201);
+
+    const second = await request(app).post('/api/records').set(auth(eng.token)).send({ ...recordLine, rentRequestId: rrId });
+    expect(second.status).toBe(400);
+    expect(second.body.message).toContain('متسجّل قبل كده');
+  });
+
+  it('طلب لسه PENDING أو مرفوض ما ينفعش يتربط', async () => {
+    const pending = await request(app).post('/api/rent-requests').set(auth(eng.token))
+      .send({ contractorId, placeId, resourceType: 'LABOR', day: 'السبت', date: '2026-09-12', qty: 1, qtyType: 'يومية', price: 50, statementOfWork: 'لسه معلق' });
+    const res = await request(app).post('/api/records').set(auth(eng.token)).send({ ...recordLine, rentRequestId: pending.body.data.id });
+    expect(res.status).toBe(400);
+    expect(res.body.message).toContain('معتمد');
+
+    await request(app).post(`/api/rent-requests/${pending.body.data.id}/decide`).set(auth(pm.token)).send({ decision: 'REJECTED', note: 'مش مطلوب' });
+    const afterReject = await request(app).post('/api/records').set(auth(eng.token)).send({ ...recordLine, rentRequestId: pending.body.data.id });
+    expect(afterReject.status).toBe(400);
+  });
+
+  it('طلب مهندس تاني ما ينفعش يتربط', async () => {
+    const rrId = await approvedRequest();
+    const res = await request(app).post('/api/records').set(auth(otherEng.token)).send({ ...recordLine, rentRequestId: rrId });
+    expect(res.status).toBe(400);
+    expect(res.body.message).toContain('لا يخصك');
+  });
+
+  it('تعديل السجل بنفس طلبه بيعدّي (مش بيتحسب استخدام مكرر)', async () => {
+    const rrId = await approvedRequest();
+    const created = await request(app).post('/api/records').set(auth(eng.token)).send({ ...recordLine, rentRequestId: rrId });
+    const res = await request(app).put(`/api/records/${created.body.data.id}`).set(auth(eng.token))
+      .send({ ...recordLine, qty: 3, rentRequestId: rrId });
+    expect(res.status).toBe(200);
+    expect(String(res.body.data.rentRequestId)).toBe(String(rrId));
+  });
+
+  it('مسح السجل بيفك الطلب فيرجع يتسجّل تاني', async () => {
+    const rrId = await approvedRequest();
+    const created = await request(app).post('/api/records').set(auth(eng.token)).send({ ...recordLine, rentRequestId: rrId });
+    await request(app).delete(`/api/records/${created.body.data.id}`).set(auth(eng.token)).expect(200);
+
+    const again = await request(app).post('/api/records').set(auth(eng.token)).send({ ...recordLine, rentRequestId: rrId });
+    expect(again.status).toBe(201);
+  });
+
+  it('GET /approved?unused=1 بيستبعد الطلبات المستخدَمة، و usedByRecordId بيبان', async () => {
+    const rrId = await approvedRequest('طلب للاستبعاد');
+    const before = await request(app).get('/api/rent-requests/approved').set(auth(eng.token)).query({ unused: '1' });
+    expect(before.body.data.some((r: { id: string }) => r.id === rrId)).toBe(true);
+
+    const rec = await request(app).post('/api/records').set(auth(eng.token)).send({ ...recordLine, rentRequestId: rrId });
+    const after = await request(app).get('/api/rent-requests/approved').set(auth(eng.token)).query({ unused: '1' });
+    expect(after.body.data.some((r: { id: string }) => r.id === rrId)).toBe(false);
+
+    const all = await request(app).get('/api/rent-requests/approved').set(auth(eng.token));
+    const row = all.body.data.find((r: { id: string }) => r.id === rrId);
+    expect(String(row.usedByRecordId)).toBe(String(rec.body.data.id));
+  });
+
+  it('سجل بدون طلب إيجار شغّال زي ما هو (rentRequestId = null)', async () => {
+    const res = await request(app).post('/api/records').set(auth(eng.token)).send(recordLine);
+    expect(res.status).toBe(201);
+    expect(res.body.data.rentRequestId ?? null).toBeNull();
+  });
+});

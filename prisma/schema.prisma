@@ -244,13 +244,17 @@ model Record {
   notes          String?  @db.Text
   deductNote     String?  @map("deduct_note") @db.VarChar(255)
   done           Boolean  @default(false)
+  // طلب الإيجار اللي السجل ده اتعمل منه (اختياري). @unique = ضمان على مستوى قاعدة البيانات
+  // إن الطلب الواحد ما يتسجّلش في أكتر من سطر سركي — مش شرط في كود ينفع يتلف حواليه.
+  rentRequestId  BigInt?  @unique @map("rent_request_id")
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
-  user       User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  contractor Contractor?       @relation(fields: [contractorId], references: [id], onDelete: SetNull)
-  place      Place?            @relation(fields: [placeId], references: [id], onDelete: SetNull)
-  deductions RecordDeduction[]
+  user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contractor  Contractor?       @relation(fields: [contractorId], references: [id], onDelete: SetNull)
+  place       Place?            @relation(fields: [placeId], references: [id], onDelete: SetNull)
+  rentRequest RentRequest?      @relation(fields: [rentRequestId], references: [id], onDelete: SetNull)
+  deductions  RecordDeduction[]
 
   @@index([userId, date])
   @@index([userId, contractorId])
@@ -770,6 +774,8 @@ model RentRequest {
   place      Place?              @relation(fields: [placeId], references: [id], onDelete: SetNull)
   decidedBy  User?               @relation("RentRequestDecider", fields: [decidedById], references: [id], onDelete: SetNull)
   reviews    RentRequestReview[]
+  // السجل اللي استهلك الطلب ده — واحد على الأكتر (مضمون بـ@unique على Record.rentRequestId)
+  usedByRecord Record?
 
   @@index([userId, status])
   @@index([userId, createdAt])

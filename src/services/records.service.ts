@@ -23,6 +23,7 @@ interface RecordInput {
   deductOn: string[];
   deductNote: string;
   done: boolean;
+  rentRequestId?: number | null;
 }
 
 // يحاول ربط الاسم النصي بمقاول/مكان فعلي للمستخدم — الاسم يبقى محفوظًا كنسخة snapshot
@@ -33,6 +34,30 @@ async function resolveRefs(userId: bigint, contractorName: string, placeName: st
     placeName ? prisma.place.findFirst({ where: { userId, name: placeName } }) : null,
   ]);
   return { contractorId: contractor?.id ?? null, placeId: place?.id ?? null };
+}
+
+// التحقق من طلب الإيجار قبل الربط. الضمان النهائي (طلب واحد = سطر واحد) على مستوى
+// قاعدة البيانات بـ@unique، والفحص ده بيدّي رسالة عربية واضحة بدل خطأ قيد فريد خام.
+// selfRecordId: عند التعديل، السجل نفسه مش بيتحسب استخدامًا مكررًا لطلبه هو.
+async function resolveRentRequest(
+  userId: bigint,
+  rentRequestId: number | null | undefined,
+  selfRecordId?: bigint,
+): Promise<bigint | null> {
+  if (rentRequestId == null) return null;
+  const id = BigInt(rentRequestId);
+  const rr = await prisma.rentRequest.findFirst({
+    where: { id, userId },
+    select: { id: true, status: true, usedByRecord: { select: { id: true } } },
+  });
+  if (!rr) throw AppError.validation('طلب الإيجار غير موجود أو لا يخصك');
+  if (rr.status !== 'APPROVED' && rr.status !== 'APPROVED_NOTES') {
+    throw AppError.validation('طلب الإيجار لازم يكون معتمد قبل ما يتسجّل في السركي');
+  }
+  if (rr.usedByRecord && rr.usedByRecord.id !== selfRecordId) {
+    throw AppError.validation('طلب الإيجار ده متسجّل قبل كده في سجل تاني');
+  }
+  return id;
 }
 
 function toDbData(userId: bigint, input: RecordInput) {
@@ -91,10 +116,12 @@ export const recordsService = {
 
   async create(userId: bigint, input: RecordInput) {
     const refs = await resolveRefs(userId, input.contractor, input.place);
+    const rentRequestId = await resolveRentRequest(userId, input.rentRequestId);
     return prisma.record.create({
       data: {
         ...toDbData(userId, input),
         ...refs,
+        rentRequestId,
         deductions: { create: input.deductOn.map((name) => ({ name })) },
       },
       include: includeDeductions,
@@ -104,11 +131,13 @@ export const recordsService = {
   async update(userId: bigint, id: bigint, input: RecordInput) {
     await this.getOwned(userId, id);
     const refs = await resolveRefs(userId, input.contractor, input.place);
+    const rentRequestId = await resolveRentRequest(userId, input.rentRequestId, id);
     return prisma.record.update({
       where: { id },
       data: {
         ...toDbData(userId, input),
         ...refs,
+        rentRequestId,
         // استبدال كامل لقائمة الخصومات — نفس سلوك تعديل السجل في الواجهة
         deductions: { deleteMany: {}, create: input.deductOn.map((name) => ({ name })) },
       },

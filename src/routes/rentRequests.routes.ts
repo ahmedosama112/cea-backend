@@ -17,6 +17,8 @@ export const rentRequestsRoutes = Router();
 const REVIEW_INCLUDE = {
   user: { select: { email: true, displayName: true, title: true, grade: true } },
   reviews: { orderBy: { createdAt: 'asc' as const }, include: { byUser: { select: { email: true, displayName: true, title: true } } } },
+  // السجل اللي استهلك الطلب — الواجهة بتستخدمه تعرض "اتسجّل في السركي" وتمنع استخدامه تاني
+  usedByRecord: { select: { id: true } },
 } as const;
 
 type ReviewRow = { id: bigint; rentRequestId: bigint; decision: string; note: string | null; byUserId: bigint | null; createdAt: Date; byUser?: unknown };
@@ -31,6 +33,7 @@ type RentRow = {
   status: string; decidedAt: Date | null; decidedById: bigint | null;
   createdAt: Date; updatedAt: Date; reviews?: ReviewRow[];
   user?: { email: string; displayName: string | null; title: string | null; grade: string | null };
+  usedByRecord?: { id: bigint } | null;
 };
 function shape(r: RentRow) {
   return {
@@ -45,6 +48,7 @@ function shape(r: RentRow) {
     createdAt: r.createdAt.toISOString(),
     updatedAt: r.updatedAt.toISOString(),
     reviews: r.reviews ? r.reviews.map(shapeReview) : undefined,
+    usedByRecordId: r.usedByRecord ? r.usedByRecord.id.toString() : null,
   };
 }
 
@@ -75,17 +79,20 @@ rentRequestsRoutes.get(
   }),
 );
 
-// المعتمد (APPROVED + APPROVED_NOTES) — لدروب داون مستقبلي في التسليمات؛ نفس نطاق المهندس/الأدمن في القائمة العادية
+// المعتمد (APPROVED + APPROVED_NOTES) — مصدر قايمة "من طلبات الإيجار" في فورم السركي.
+// unused=1 بيستبعد الطلبات اللي اتسجّلت في سركي قبل كده، فالطلب بيختفي من القايمة على
+// كل الأجهزة (الحالة على السيرفر، مش على الجهاز). نفس نطاق المهندس/الأدمن في القائمة العادية.
 rentRequestsRoutes.get(
   '/approved',
   validate({ query: z.object({
     contractorId: z.coerce.bigint().optional(),
     placeId: z.coerce.bigint().optional(),
     resourceType: z.enum(['EQUIPMENT', 'LABOR']).optional(),
+    unused: z.enum(['0', '1']).optional(),
   }) }),
   asyncHandler(async (req: Request, res: Response) => {
     const isAdmin = req.user!.role === 'ADMIN';
-    const { contractorId, placeId, resourceType } = req.query as { contractorId?: bigint; placeId?: bigint; resourceType?: 'EQUIPMENT' | 'LABOR' };
+    const { contractorId, placeId, resourceType, unused } = req.query as { contractorId?: bigint; placeId?: bigint; resourceType?: 'EQUIPMENT' | 'LABOR'; unused?: '0' | '1' };
     const rows = await prisma.rentRequest.findMany({
       where: {
         status: { in: ['APPROVED', 'APPROVED_NOTES'] },
@@ -93,9 +100,11 @@ rentRequestsRoutes.get(
         ...(contractorId ? { contractorId } : {}),
         ...(placeId ? { placeId } : {}),
         ...(resourceType ? { resourceType } : {}),
+        ...(unused === '1' ? { usedByRecord: { is: null } } : {}),
       },
       orderBy: { createdAt: 'desc' },
       take: 200,
+      include: { usedByRecord: { select: { id: true } } },
     });
     res.json({ success: true, data: rows.map((r) => shape(r as never)) });
   }),
