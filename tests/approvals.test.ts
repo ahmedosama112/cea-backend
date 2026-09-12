@@ -293,6 +293,43 @@ describe('اعتمادات المديرين', () => {
     await request(app).put(`/api/admin/users/${eng2.id}/settings`).set(auth(admin.token)).send({ enabledModules: ['records', 'submissions'] });
   });
 
+  it('درجة viewer صريحة: بتشوف كل الطابور بلا إجراء، وتفتح أي ملف، ومتترفضش أبدًا اعتماد/رفض، ومش معتمد مقترح في المصفوفة', async () => {
+    const viewerAcc = await createEngineer(admin.token, 'viewer-grade@test.com');
+    await patchUser(admin.token, viewerAcc.id, { grade: 'viewer' });
+    await enableApprovals(admin.token, viewerAcc.id);
+
+    const mine = await submit(viewerAcc.token);
+    const other = (await submit(eng.token)).body.data;
+
+    const q = await request(app).get('/api/approvals/queue').set(auth(viewerAcc.token));
+    expect(q.status).toBe(200);
+    expect(q.body.myLevel).toBe('viewer');
+    expect(q.body.viewer).toBe(true);
+    expect(q.body.data.length).toBeGreaterThan(0);
+    expect(q.body.data.some((s: { id: string }) => s.id === mine.body.data.id)).toBe(true);
+    expect(q.body.data.some((s: { id: string }) => s.id === other.id)).toBe(true);
+    expect(q.body.data.every((s: { canAct: boolean }) => s.canAct === false)).toBe(true);
+
+    // بيفتح ملف أي كشف — كشفه هو وكشوف الغير
+    expect((await request(app).get(`/api/approvals/${mine.body.data.id}/file`).set(auth(viewerAcc.token))).status).toBe(200);
+    expect((await request(app).get(`/api/approvals/${other.id}/file`).set(auth(viewerAcc.token))).status).toBe(200);
+
+    // 403 قبل أي فحص تاني — حتى على كشف مسند أصلًا لمعتمد تاني
+    const decide = await request(app).post(`/api/approvals/${other.id}/decide`).set(auth(viewerAcc.token)).send({ decision: 'APPROVED' });
+    expect(decide.status).toBe(403);
+    const rowReject = await request(app).post(`/api/approvals/${other.id}/rows/reject`).set(auth(viewerAcc.token)).send({ sheetIndex: 0, row: 1, label: 'صف', note: 'سبب' });
+    expect(rowReject.status).toBe(403);
+
+    // مش موجود كمعتمد مقترح في أي مستوى بالمصفوفة (مالوش درجة معتمِدة أصلًا)
+    const lv = await request(app).get('/api/admin/approval-levels').set(auth(admin.token));
+    expect(lv.body.data.approvers.some((a: { email: string }) => a.email === 'viewer-grade@test.com')).toBe(false);
+    // ومحاولة إسناده كمعتمد لمستوى بترفض لأن درجته مش نفس المستوى
+    const badAssign = await patchUser(admin.token, eng.id, { approverTlId: viewerAcc.id });
+    expect(badAssign.status).toBe(400);
+
+    await request(app).put(`/api/admin/users/${viewerAcc.id}/settings`).set(auth(admin.token)).send({ enabledModules: ['records', 'submissions'] });
+  });
+
   it('الوحدة محمية: حساب من غير صلاحية approvals مايوصلش للطابور', async () => {
     const denied = await request(app).get('/api/approvals/queue').set(auth(eng.token));
     expect(denied.status).toBe(403);
@@ -412,7 +449,7 @@ describe('اعتمادات المديرين', () => {
   it('الأدمن يشوف الدرجات والمصفوفة وقوائم المعتمدين + تحذير المستوى الناقص', async () => {
     const lv = await request(app).get('/api/admin/approval-levels').set(auth(admin.token));
     expect(lv.status).toBe(200);
-    expect(lv.body.data.grades).toEqual(['junior', 'senior', 'team leader', 'construction manager', 'project manager']);
+    expect(lv.body.data.grades).toEqual(['junior', 'senior', 'team leader', 'construction manager', 'project manager', 'viewer']);
     expect(lv.body.data.matrix['team leader']).toEqual(['construction manager', 'project manager']);
     expect(lv.body.data.matrix['project manager']).toEqual([]);
     expect(lv.body.data.approvers.some((a: { email: string }) => a.email === 'tl@test.com')).toBe(true);

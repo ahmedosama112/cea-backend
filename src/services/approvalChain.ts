@@ -13,10 +13,11 @@ import { applyRowRejections, Kind, RejectMode } from './rowReject';
 // مستوى من غير شخص مسند بيتخطى (والأدمن بيشوف تحذير في كارت الحساب).
 
 // الدرجات الخمس بالترتيب — ثابتة في الكود بقرار صاحب المشروع (بدل التعديل من app_config)
-export const GRADES = ['junior', 'senior', 'team leader', 'construction manager', 'project manager'] as const;
+// 'viewer' مش رتبة في السلم — حساب بيشوف كل الكشوف وملفاتها بس مايعتمدش ولا يترفض أبدًا (مقصود آخر القائمة)
+export const GRADES = ['junior', 'senior', 'team leader', 'construction manager', 'project manager', 'viewer'] as const;
 export type Grade = (typeof GRADES)[number];
 
-// الدرجات اللي بتعتمد (بترتيب السلسلة) — أعمدة جدول الاعتمادات في الواجهة هي دي
+// الدرجات اللي بتعتمد (بترتيب السلسلة) — أعمدة جدول الاعتمادات في الواجهة هي دي. 'viewer' متعمّد مش موجود هنا.
 export const APPROVING_GRADES = ['team leader', 'construction manager', 'project manager'] as const;
 
 // مين بيعتمد لمين — حسب درجة المرسِل. الافتراضي تحت، والأدمن يقدر يعدّله من شاشة الإدارة
@@ -27,6 +28,7 @@ const DEFAULT_MATRIX: Record<string, readonly string[]> = {
   'team leader': ['construction manager', 'project manager'],
   'construction manager': [],
   'project manager': [],
+  viewer: [],
 };
 const MATRIX_KEY = 'approvalMatrix';
 

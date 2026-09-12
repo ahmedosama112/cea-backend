@@ -100,7 +100,8 @@ approvalsRoutes.get(
           // الكشف واقف عند مستوى مش في سلسلة صاحبه (درجته أو إسناده اتغيّر) → الأدمن بس اللي يحرّكه
           isStuck: r.reviewState === 'IN_REVIEW' && !inChain,
           // دور المعتمد ده دلوقتي: الكشف مسند له، أو كشف قديم واقف عند مستوى درجته
-          canAct: r.reviewState === 'IN_REVIEW'
+          // درجة 'viewer' ممنوعة من أي إجراء دايمًا (myLevel !== 'viewer') حتى لو كان مسند فعليًا بالغلط
+          canAct: myLevel !== 'viewer' && r.reviewState === 'IN_REVIEW'
             && (isAdmin
               || r.currentApproverId === myId
               || (r.currentApproverId === null && isApprover && r.currentLevel === myLevel)),
@@ -120,11 +121,13 @@ approvalsRoutes.get(
   asyncHandler(async (req: Request, res: Response) => {
     const sub = await prisma.submission.findUnique({ where: { id: BigInt(req.params.id) }, include: { file: true, rowRejections: true } });
     if (!sub) throw AppError.notFound('الكشف غير موجود');
-    // (8 سبتمبر 2026) المشاهد (مش أدمن ولا درجته معتمِدة) بيفتح كشوفه هو بس — نفس نطاق الطابور بالظبط
+    // (8 سبتمبر 2026) المشاهد الضمني (مش أدمن ولا درجته معتمِدة) بيفتح كشوفه هو بس.
+    // (12 سبتمبر 2026) درجة 'viewer' الصريحة استثناء: بتفتح أي كشف — الرؤية الكاملة هي بيت القصيد من الدرجة دي.
     if (req.user!.role !== 'ADMIN') {
       const me = await prisma.user.findUnique({ where: { id: req.user!.id }, select: { grade: true } });
       const isApprover = !!me?.grade && (APPROVING_GRADES as readonly string[]).includes(me.grade);
-      if (!isApprover && sub.userId !== req.user!.id) throw AppError.notFound('الكشف غير موجود');
+      const isExplicitViewer = me?.grade === 'viewer';
+      if (!isApprover && !isExplicitViewer && sub.userId !== req.user!.id) throw AppError.notFound('الكشف غير موجود');
     }
     // بعد اكتمال السلسلة (SENT) المعاينة/التحميل بيرجّعوا النسخة **الموقّعة** — نفس اللي وصلت جوجل شيت.
     // أثناء المراجعة بيرجّع الأصل زي ما بعته المهندس + السطور المشطوبة (عشان المعتمد اللي بعده يشوفها).
@@ -172,6 +175,8 @@ approvalsRoutes.post(
     if (!sub) throw AppError.notFound('الكشف غير موجود');
     if (sub.reviewState !== 'IN_REVIEW') throw AppError.validation('الكشف مش في مرحلة مراجعة');
     const me = await prisma.user.findUnique({ where: { id: req.user!.id }, select: { grade: true } });
+    // درجة 'viewer' ممنوعة من أي إجراء اعتماد/رفض — قبل أي فحص تاني، حتى لو كان مسند أو مستوى قديم
+    if (me?.grade === 'viewer') throw AppError.forbidden('حساب مشاهد — مالوش صلاحية اعتماد أو رفض');
     const isAdmin = req.user!.role === 'ADMIN';
     const isApprover = !!me?.grade && (APPROVING_GRADES as readonly string[]).includes(me.grade);
     const mine = sub.currentApproverId === req.user!.id || (sub.currentApproverId === null && isApprover && me!.grade === sub.currentLevel);
@@ -214,6 +219,8 @@ approvalsRoutes.post(
 
     // صلاحية: الكشف لازم يكون مسند للمعتمد ده (الأدمن بيقدر يعتمد أي مستوى)
     const me = await prisma.user.findUnique({ where: { id: req.user!.id }, select: { grade: true } });
+    // درجة 'viewer' ممنوعة من أي إجراء اعتماد/رفض — قبل أي فحص تاني، حتى لو كان مسند أو مستوى قديم
+    if (me?.grade === 'viewer') throw AppError.forbidden('حساب مشاهد — مالوش صلاحية اعتماد أو رفض');
     const isAdmin = req.user!.role === 'ADMIN';
     const isApprover = !!me?.grade && (APPROVING_GRADES as readonly string[]).includes(me.grade);
     const mine = sub.currentApproverId === req.user!.id
