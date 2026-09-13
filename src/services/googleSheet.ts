@@ -101,9 +101,11 @@ async function doPushSubmission(submissionId: bigint, fileBuffer: Buffer, fileNa
 
 // دوّر على صف موجود بالفعل لنفس الكشف (اسم مهندس + اسم ملف) — يُستخدم قبل إعادة رفع بعد
 // ما رد الرفع الأول ضاع (تايم آوت)، عشان "gsync" ما يعملش صف مكرر في الشيت
-export async function findSheetRow(site: number | null | undefined, engineerName: string, fileName: string): Promise<number | null> {
+// notBefore: وقت إنشاء ملف الكشف الحالي — الصفوف الأقدم منه بتخص نسخة سابقة (إعادة إرسال
+// كشف مرفوض بتعمل ملف جديد بنفس الاسم)، فربط الكشف بيها كان هيوصّل حالة النسخة الغلط
+export async function findSheetRow(site: number | null | undefined, engineerName: string, fileName: string, notBefore?: Date | null): Promise<number | null> {
   if (!googleSyncEnabled(site)) return null;
-  const result = await callWebApp(site, { action: 'findRow', engineerName, fileName }, 30_000);
+  const result = await callWebApp(site, { action: 'findRow', engineerName, fileName, notBefore: notBefore ? notBefore.getTime() : undefined }, 30_000);
   if (result && result.ok) return Number(result.row) || null;
   console.error('Google findRow failed (site ' + (site === 2 ? 2 : 1) + '):', result?.error ?? '(no response)');
   return null;
