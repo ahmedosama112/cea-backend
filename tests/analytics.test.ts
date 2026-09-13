@@ -260,15 +260,23 @@ describe('تحليلات "الإجمالي الفعلي"', () => {
       data: { userId: BigInt(userId), fileName: 'k.xlsx', filePath: 'x/k.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', fileSize: 10 },
     });
   }
-  async function seedSubmission(userId: string, body: Record<string, unknown>) {
+  // pmApproved=false: كشف عدّى لجوجل من غير اعتماد — بيحصل لما المهندس مالوش معتمدين مسندين
+  // (startChain بتحط SENT وتبعت فورًا). دي حالة كل الكشوف القديمة، ولازم تفضل برّه الحساب.
+  async function seedSubmission(userId: string, body: Record<string, unknown>, pmApproved = true) {
     const file = await seedFile(userId);
-    return prisma.submission.create({
+    const sub = await prisma.submission.create({
       data: {
         userId: BigInt(userId), fileId: file.id, contractorName: 'مقاول', placeName: 'موقع',
         weekEnd: new Date('2026-08-07'), recordsCount: 1, kind: 'labor', reviewState: 'SENT',
         ...body,
       },
     });
+    if (pmApproved) {
+      await prisma.submissionReview.create({
+        data: { submissionId: sub.id, level: 'project manager', decision: 'APPROVED', revision: sub.revision },
+      });
+    }
+    return sub;
   }
 
   beforeAll(async () => {
@@ -284,14 +292,26 @@ describe('تحليلات "الإجمالي الفعلي"', () => {
     // سركي معدات — مايتحسبش هنا (الإجمالي ساعات مش فلوس)
     await seedSubmission(eng.id, { weekStart: new Date('2026-09-01'), total: 50, approvedTotal: null, kind: 'equipment' });
     // لسه في سلسلة الاعتماد (مش SENT) — مايتحسبش
-    await seedSubmission(eng.id, { weekStart: new Date('2026-08-15'), total: 10, approvedTotal: null, reviewState: 'IN_REVIEW' });
+    await seedSubmission(eng.id, { weekStart: new Date('2026-08-15'), total: 10, approvedTotal: null, reviewState: 'IN_REVIEW' }, false);
+    // ⚠ الحالة المهمة: SENT بس بلا أي اعتماد من مدير المشروع (كشف قديم عدّى من غير سلسلة).
+    // لازم يفضل برّه — SENT معناها "خرج لجوجل" مش "اتعتمد"
+    await seedSubmission(eng.id, { weekStart: new Date('2026-08-22'), total: 5000, approvedTotal: null }, false);
   });
   afterAll(async () => { await prisma.$disconnect(); });
 
-  it('بس الكشوف SENT بتتحسب', async () => {
+  it('بس اللي عليه اعتماد فعلي من مدير المشروع بيتحسب', async () => {
     const res = await request(app).get('/api/analytics/approved-totals').set(auth(admin.token));
     expect(res.status).toBe(200);
-    expect(res.body.data.totals.submissions).toBe(2); // مش الـ IN_REVIEW ومش المعدات
+    // مش الـ IN_REVIEW، ومش المعدات، ومش الكشف اللي عدّى SENT بلا اعتماد
+    expect(res.body.data.totals.submissions).toBe(2);
+    expect(res.body.data.totals.total).toBe(290); // 90 + 200 — الـ5000 بتاعة الكشف غير المعتمد برّه
+  });
+
+  it('كشف SENT بلا اعتماد مدير المشروع مايتحسبش', async () => {
+    const res = await request(app).get('/api/analytics/approved-totals?bucket=week').set(auth(admin.token));
+    expect(res.status).toBe(200);
+    const rows: Array<{ key: string }> = res.body.data.rows;
+    expect(rows.find((r) => r.key === '2026-08-22')).toBeUndefined();
   });
 
   it('سركي المعدات مش داخل الحساب', async () => {

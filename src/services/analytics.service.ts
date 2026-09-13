@@ -629,14 +629,21 @@ export async function approvedTotalsReport(
   if (range.to) dateFilter.lte = new Date(range.to + 'T00:00:00Z');
   const hasRange = Boolean(range.from || range.to);
 
+  // ⚠ reviewState='SENT' **مش** معناها معتمد: لو المهندس مالوش معتمدين مسندين، startChain بتحطها
+  // SENT وتبعت لجوجل من غير أي اعتماد (كل الكشوف القديمة قبل تفعيل السلسلة كده). فالفلتر هنا على
+  // قرار اعتماد **فعلي مسجّل** من مدير المشروع — ده تعريف صاحب المشروع للاعتماد، والـDC مش شرط.
+  const PM_LEVEL = 'project manager';
   const subs = await prisma.submission.findMany({
     where: {
       userId: { in: ids },
-      reviewState: 'SENT', // اعتماد مدير المشروع مش لازم يوصل الـ DC — ده تعريف صاحب المشروع للاعتماد هنا
       kind: 'labor', // إجمالي المعدات ساعات مش فلوس — مزجه هنا مايبقاش له معنى
       ...(hasRange ? { weekStart: dateFilter } : {}),
+      reviews: { some: { level: PM_LEVEL, decision: { in: ['APPROVED', 'APPROVED_NOTES'] } } },
     },
-    select: { weekStart: true, total: true, approvedTotal: true },
+    select: {
+      weekStart: true, total: true, approvedTotal: true, revision: true,
+      reviews: { where: { level: PM_LEVEL, decision: { in: ['APPROVED', 'APPROVED_NOTES'] } }, select: { revision: true } },
+    },
   });
 
   const keyOf = (d: Date): string => {
@@ -647,6 +654,9 @@ export async function approvedTotalsReport(
 
   const acc = new Map<string, ApprovedTotalsRow>();
   for (const s of subs) {
+    // الاعتماد لازم يكون للنسخة الحالية: كشف اتعتمد ثم اترفض واتبعت نسخة جديدة لسه ما اتعتمدتش
+    // عنده اعتماد قديم بـrevision أقدم — ده مايتحسبش
+    if (!s.reviews.some((rv) => rv.revision === s.revision)) continue;
     const key = keyOf(s.weekStart);
     let r = acc.get(key);
     if (!r) {
