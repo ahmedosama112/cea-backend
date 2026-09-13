@@ -2,7 +2,7 @@ import { prisma } from '../config/prisma';
 import { storage } from './storage';
 import { pushSubmissionToGoogle } from './googleSheet';
 import { stampSignatures, hasSignatureBox, LevelSignature } from './signStamp';
-import { applyRowRejections, Kind, RejectMode } from './rowReject';
+import { applyRowRejections, workbookLaborTotal, Kind, RejectMode } from './rowReject';
 
 // ═══════════ سلسلة اعتمادات المديرين (داخل التطبيق قبل جوجل شيت) ═══════════
 // الكشف بيعدّي على المعتمدين المسندين لصاحبه بالترتيب؛ وبس بعد ما يخلص كلهم بيتبعت لجوجل شيت.
@@ -158,6 +158,16 @@ export async function pushSubmissionToSheet(submissionId: bigint): Promise<void>
   if (!sub) return;
   const toSend = await signedFileBuffer(submissionId);
   if (!toSend) { console.error('[approval] ملف التسليم غير موجود عند الدفع لجوجل', submissionId.toString()); return; }
+  // ده الرقم اللي وصل الشيت فعلًا بعد أي شطب — Submission.total بيفضل زي ما هو كسجل لما المهندس بعته.
+  // بيتحفظ في كل دفعة (مش بس لما فيه شطب) عشان العمود يفضل دايمًا فيه اللي اتبعت فعلًا. فشل هنا ما بيوقفش الدفع.
+  if (sub.kind === 'labor') {
+    try {
+      const real = await workbookLaborTotal(toSend);
+      if (real != null) await prisma.submission.update({ where: { id: submissionId }, data: { approvedTotal: real } });
+    } catch (e) {
+      console.error('[approval] فشل حساب الإجمالي الفعلي', submissionId.toString(), (e as Error).message);
+    }
+  }
   // اسم المهندس في الشيت: الاسم بالعربي لو محدد، وإلا أول الإيميل (زي زمان)
   await pushSubmissionToGoogle(sub.id, toSend, sub.file.fileName, sub.user.displayName || sub.user.email.split('@')[0], sub.user.project ?? null, sub.site, approvalSummary(sub.reviews, sub.revision, sub.rowRejections));
 }

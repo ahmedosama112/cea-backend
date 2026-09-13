@@ -47,6 +47,23 @@ export async function countDataRows(buffer: Buffer, kind: Kind): Promise<number 
   }
 }
 
+// الإجمالي الفعلي للعمالة في المصنّف كام صافي — بيتقرأ بعد أي شطب سطور، عشان نخزّنه في Submission.approvedTotal
+// وقت الدفع لجوجل. عمود القيمة ده بالنسبة للمعدات بيحمل ساعات مش فلوس، فالدالة دي للعمالة بس.
+export async function workbookLaborTotal(buffer: Buffer): Promise<number | null> {
+  const L = LAYOUT.labor;
+  let wb: ExcelJS.Workbook;
+  try {
+    wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(buffer as unknown as ArrayBuffer);
+  } catch {
+    return null;
+  }
+  if (!wb.worksheets.length) return null;
+  let sum = 0;
+  for (const ws of wb.worksheets) sum += Number(ws.getCell(L.totalRow, L.valueCol).value) || 0;
+  return Math.round(sum * 100) / 100;
+}
+
 // نمطان (قرار صاحب المشروع 7 سبتمبر 2026):
 //   'strike' — جوّه التطبيق أثناء المراجعة: السطر أحمر بخط في النص + السبب في خانة الملاحظات (المعتمدين اللي بعده يشوفوا إيه اللي اتشال وليه)
 //   'clear'  — النسخة اللي بتتختم وتروح جوجل شيت/الـ DC: السطر يبقى **يوم فاضي** (التاريخ واليوم بس، وتوقيع المهندس على السطر بيتشال)،

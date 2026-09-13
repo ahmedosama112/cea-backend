@@ -251,3 +251,80 @@ describe('تحليلات الأماكن', () => {
     expect(res.body.data.totals.dailyQty).toBeGreaterThanOrEqual(5);
   });
 });
+
+describe('تحليلات "الإجمالي الفعلي"', () => {
+  let admin: TestUser, eng: TestUser;
+
+  async function seedFile(userId: string) {
+    return prisma.file.create({
+      data: { userId: BigInt(userId), fileName: 'k.xlsx', filePath: 'x/k.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', fileSize: 10 },
+    });
+  }
+  async function seedSubmission(userId: string, body: Record<string, unknown>) {
+    const file = await seedFile(userId);
+    return prisma.submission.create({
+      data: {
+        userId: BigInt(userId), fileId: file.id, contractorName: 'مقاول', placeName: 'موقع',
+        weekEnd: new Date('2026-08-07'), recordsCount: 1, kind: 'labor', reviewState: 'SENT',
+        ...body,
+      },
+    });
+  }
+
+  beforeAll(async () => {
+    await resetDb();
+    admin = await createAdmin();
+    eng = await createEngineer(admin.token, 'eng@test.com');
+    await setModules(admin.token, eng.id, ['records', 'analytics']);
+
+    // معتمد (SENT)، approvedTotal موجود — بيفضّل على total
+    await seedSubmission(eng.id, { weekStart: new Date('2026-08-01'), total: 100, approvedTotal: 90 });
+    // معتمد (SENT)، approvedTotal فاضي (كشف قديم) — بيتحسب بـ total، وبيتعد ضمن estimated
+    await seedSubmission(eng.id, { weekStart: new Date('2026-08-08'), total: 200, approvedTotal: null });
+    // سركي معدات — مايتحسبش هنا (الإجمالي ساعات مش فلوس)
+    await seedSubmission(eng.id, { weekStart: new Date('2026-09-01'), total: 50, approvedTotal: null, kind: 'equipment' });
+    // لسه في سلسلة الاعتماد (مش SENT) — مايتحسبش
+    await seedSubmission(eng.id, { weekStart: new Date('2026-08-15'), total: 10, approvedTotal: null, reviewState: 'IN_REVIEW' });
+  });
+  afterAll(async () => { await prisma.$disconnect(); });
+
+  it('بس الكشوف SENT بتتحسب', async () => {
+    const res = await request(app).get('/api/analytics/approved-totals').set(auth(admin.token));
+    expect(res.status).toBe(200);
+    expect(res.body.data.totals.submissions).toBe(2); // مش الـ IN_REVIEW ومش المعدات
+  });
+
+  it('سركي المعدات مش داخل الحساب', async () => {
+    const res = await request(app).get('/api/analytics/approved-totals?from=2026-09-01&to=2026-09-30').set(auth(admin.token));
+    expect(res.status).toBe(200);
+    expect(res.body.data.totals.submissions).toBe(0);
+    expect(res.body.data.totals.total).toBe(0);
+  });
+
+  it('approvedTotal بيفضّل على total، وtotal بيتستخدم لو approvedTotal فاضي', async () => {
+    const res = await request(app).get('/api/analytics/approved-totals?bucket=week').set(auth(admin.token));
+    expect(res.status).toBe(200);
+    const rows: Array<{ key: string; total: number }> = res.body.data.rows;
+    const r1 = rows.find((r) => r.key === '2026-08-01')!;
+    const r2 = rows.find((r) => r.key === '2026-08-08')!;
+    expect(r1.total).toBe(90); // approvedTotal
+    expect(r2.total).toBe(200); // total (approvedTotal فاضي)
+  });
+
+  it('estimated بيعد الكشوف اللي approvedTotal فيها فاضي', async () => {
+    const res = await request(app).get('/api/analytics/approved-totals').set(auth(admin.token));
+    expect(res.status).toBe(200);
+    expect(res.body.data.totals.estimated).toBe(1);
+  });
+
+  it('التجميع الشهري بيضم كشفين في نفس الشهر في صف واحد', async () => {
+    const res = await request(app).get('/api/analytics/approved-totals?bucket=month').set(auth(admin.token));
+    expect(res.status).toBe(200);
+    expect(res.body.data.rows).toHaveLength(1);
+    const row = res.body.data.rows[0];
+    expect(row.key).toBe('2026-08');
+    expect(row.submissions).toBe(2);
+    expect(row.total).toBe(290); // 90 + 200
+    expect(row.estimated).toBe(1);
+  });
+});

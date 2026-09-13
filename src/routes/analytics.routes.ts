@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { asyncHandler } from '../utils/asyncHandler';
 import { validate } from '../middlewares/validate';
 import { ymdDate } from '../schema/entities.schema';
-import { contractorsReport, matrixReport, placesReport, resolveScope, trendSeries } from '../services/analytics.service';
+import { approvedTotalsReport, contractorsReport, matrixReport, placesReport, resolveScope, trendSeries } from '../services/analytics.service';
 
 // ═══════════ تحليلات الأماكن والمقاولين — مسارات القراءة فقط ═══════════
 // (authenticate + requireModule('analytics') مطبّقين في routes/index.ts)
@@ -87,6 +87,19 @@ analyticsRoutes.get(
     const scope = await resolveScope(req.user!, { site: q.site, userId: q.userId });
     const key = `m|${req.user!.id}|${q.from ?? ''}|${q.to ?? ''}|${q.site ?? ''}|${q.userId ?? ''}|${q.limit}`;
     const report = await cached(key, () => matrixReport(scope.ids, { from: q.from, to: q.to }, q.limit), q.fresh === '1');
+    res.json({ success: true, level: scope.level, data: report });
+  }),
+);
+
+// الإجمالي الفعلي — بعد أي شطب سطور وقت الدفع لجوجل (approvedTotal بدل total الخام)
+analyticsRoutes.get(
+  '/approved-totals',
+  validate({ query: filterQuery.extend({ bucket: z.enum(['week', 'month', 'year']).optional().default('month') }) }),
+  asyncHandler(async (req: Request, res: Response) => {
+    const q = req.query as unknown as z.infer<typeof filterQuery> & { bucket: 'week' | 'month' | 'year' };
+    const scope = await resolveScope(req.user!, { site: q.site, userId: q.userId });
+    const key = `at|${req.user!.id}|${q.from ?? ''}|${q.to ?? ''}|${q.site ?? ''}|${q.userId ?? ''}|${q.bucket}`;
+    const report = await cached(key, () => approvedTotalsReport(scope.ids, { from: q.from, to: q.to }, q.bucket), q.fresh === '1');
     res.json({ success: true, level: scope.level, data: report });
   }),
 );

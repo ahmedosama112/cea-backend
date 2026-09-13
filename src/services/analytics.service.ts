@@ -591,6 +591,96 @@ export interface MatrixReport {
   };
 }
 
+// ═══════════ الإجمالي الفعلي ═══════════
+// Submission.total بيتكتب مرة واحدة وقت الإرسال ومابيتحدّثش لو مدير شطب سطور بعدين — فبيفضل ممكن
+// يبقى أعلى من اللي فعلًا اتبعت واعتمد. approvedTotal بيتحسب وقت الدفع لجوجل (بعد أي شطب)، فهو
+// الرقم الصحيح؛ لكشوف قديمة قبل إضافة العمود ده approvedTotal فاضي فبنستخدم total كتقدير (estimated).
+export interface ApprovedTotalsRow {
+  key: string;
+  label: string;
+  submissions: number;
+  total: number;
+  estimated: number;
+}
+export interface ApprovedTotalsReport {
+  from: string | null;
+  to: string | null;
+  bucket: 'week' | 'month' | 'year';
+  totals: { submissions: number; total: number; estimated: number };
+  rows: ApprovedTotalsRow[];
+}
+
+export async function approvedTotalsReport(
+  ids: bigint[],
+  range: { from?: string; to?: string },
+  bucket: 'week' | 'month' | 'year',
+): Promise<ApprovedTotalsReport> {
+  const empty: ApprovedTotalsReport = {
+    from: range.from ?? null,
+    to: range.to ?? null,
+    bucket,
+    totals: { submissions: 0, total: 0, estimated: 0 },
+    rows: [],
+  };
+  if (!ids.length) return empty;
+
+  const dateFilter: { gte?: Date; lte?: Date } = {};
+  if (range.from) dateFilter.gte = new Date(range.from + 'T00:00:00Z');
+  if (range.to) dateFilter.lte = new Date(range.to + 'T00:00:00Z');
+  const hasRange = Boolean(range.from || range.to);
+
+  const subs = await prisma.submission.findMany({
+    where: {
+      userId: { in: ids },
+      reviewState: 'SENT', // اعتماد مدير المشروع مش لازم يوصل الـ DC — ده تعريف صاحب المشروع للاعتماد هنا
+      kind: 'labor', // إجمالي المعدات ساعات مش فلوس — مزجه هنا مايبقاش له معنى
+      ...(hasRange ? { weekStart: dateFilter } : {}),
+    },
+    select: { weekStart: true, total: true, approvedTotal: true },
+  });
+
+  const keyOf = (d: Date): string => {
+    if (bucket === 'week') return ymd(d);
+    if (bucket === 'month') return ymd(d).slice(0, 7);
+    return ymd(d).slice(0, 4);
+  };
+
+  const acc = new Map<string, ApprovedTotalsRow>();
+  for (const s of subs) {
+    const key = keyOf(s.weekStart);
+    let r = acc.get(key);
+    if (!r) {
+      r = { key, label: key, submissions: 0, total: 0, estimated: 0 };
+      acc.set(key, r);
+    }
+    r.submissions += 1;
+    r.total += num(s.approvedTotal ?? s.total);
+    if (s.approvedTotal == null) r.estimated += 1;
+  }
+
+  const rows = [...acc.values()]
+    .map((r) => ({ ...r, total: Math.round(r.total * 100) / 100 }))
+    .sort((a, b) => b.key.localeCompare(a.key));
+
+  const t = rows.reduce(
+    (a, r) => {
+      a.submissions += r.submissions;
+      a.total += r.total;
+      a.estimated += r.estimated;
+      return a;
+    },
+    { submissions: 0, total: 0, estimated: 0 },
+  );
+
+  return {
+    from: range.from ?? null,
+    to: range.to ?? null,
+    bucket,
+    totals: { submissions: t.submissions, total: Math.round(t.total * 100) / 100, estimated: t.estimated },
+    rows,
+  };
+}
+
 export async function matrixReport(
   ids: bigint[],
   range: { from?: string; to?: string },
