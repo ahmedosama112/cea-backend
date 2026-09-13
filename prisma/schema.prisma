@@ -538,6 +538,11 @@ model Submission {
   // مزامنة Google (المرحلة 2): id الملف في Drive + رقم الصف في الـ Sheet
   gdriveFileId   String?          @map("gdrive_file_id") @db.VarChar(120)
   gsheetRow      Int?             @map("gsheet_row")
+  // آخر ملاحظة من الـDC اتقروت من الشيت (عمود E) + إمتى اتغيّرت + إمتى المهندس شافها.
+  // بنخزّنها عشان نعرف إنها اتغيّرت أصلًا — من غير كده مفيش لحظة نلاحظ فيها إن الـDC كتب
+  dcNote         String?          @map("dc_note") @db.Text
+  dcNoteAt       DateTime?        @map("dc_note_at")
+  dcNoteSeenAt   DateTime?        @map("dc_note_seen_at")
   // الموقع الذي أُرسل له التسليم وقت الإنشاء — gsheetRow رقم صف داخل شيت هذا الموقع تحديدًا،
   // فبنثبّته هنا عشان لو الأدمن نقل المهندس لموقع تاني، متابعة حالة التسليمات القديمة تفضل صح
   site           Int              @default(1)

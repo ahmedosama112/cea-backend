@@ -3,6 +3,7 @@ import { app } from './app';
 import { env } from './config/env';
 import { prisma } from './config/prisma';
 import { scheduleDailyBackup } from './services/backup';
+import { scheduleSheetWatch } from './services/sheetWatch';
 import { scheduleTokenCleanup } from './services/auth.service';
 import { scheduleActivityCleanup } from './services/activityLog';
 import { loadApprovalMatrix } from './services/approvalChain';
@@ -15,6 +16,8 @@ const server = app.listen(env.port, () => {
 
 // نسخة احتياطية يومية لقاعدة البيانات → Google Drive (لو الربط مفعّل)
 if (env.nodeEnv === 'production') scheduleDailyBackup();
+// مراقبة ملاحظة الـDC في الشيت (عمود E) — بتخزّنها كـ"لسه ما اتشافتش" حتى لو المهندس ما فتحش تسليماتي
+if (env.nodeEnv !== 'test') scheduleSheetWatch();
 // (L5) تنظيف يومي للتوكنات المنتهية/الملغية — بدونه جداول التوكنات تنمو للأبد
 if (env.nodeEnv !== 'test') scheduleTokenCleanup();
 if (env.nodeEnv !== 'test') scheduleActivityCleanup();

@@ -118,6 +118,18 @@ describe('تسليمات الكشوف المعتمدة', () => {
     expect(disabled.status).toBe(400);
   });
 
+  it('dc-note-seen: صاحب الكشف يعلّم الملاحظة كمشوفة، حد تاني وكشف مش موجود → 404', async () => {
+    await prisma.submission.update({ where: { id: BigInt(subId) }, data: { dcNote: 'راجع الكمية في يوم الثلاثاء', dcNoteAt: new Date() } });
+    const own = await request(app).post(`/api/submissions/${subId}/dc-note-seen`).set(auth(eng.token));
+    expect(own.status).toBe(200);
+    expect(own.body.data.dcNoteSeenAt).toBeTruthy();
+    const other = await createEngineer(admin.token, 'dcnote-other@test.com');
+    const stranger = await request(app).post(`/api/submissions/${subId}/dc-note-seen`).set(auth(other.token));
+    expect(stranger.status).toBe(404);
+    const missing = await request(app).post('/api/submissions/999999/dc-note-seen').set(auth(admin.token));
+    expect(missing.status).toBe(404);
+  });
+
   it('حذف تسليم: للأدمن فقط — المهندس ممنوع في أي حالة، والأدمن يقدر يفلتر كشوف حساب معيّن', async () => {
     const del = await request(app).delete(`/api/submissions/${subId}`).set(auth(eng.token));
     expect(del.status).toBe(403);
