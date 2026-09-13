@@ -397,6 +397,7 @@ export interface ContractorRow {
   places: number;
   engineers: number;
   days: number;
+  dailyQty: number;
   lastDate: string | null;
   equipHours: number;
   equipRecords: number;
@@ -412,7 +413,7 @@ interface CAcc extends ContractorRow {
 function cBlank(key: string): CAcc {
   return {
     key, name: '', variants: [], inList: false, spec: null, rate: null, rateType: null, avgPrice: null,
-    records: 0, gross: 0, discount: 0, total: 0, places: 0, engineers: 0, days: 0, lastDate: null,
+    records: 0, gross: 0, discount: 0, total: 0, places: 0, engineers: 0, days: 0, dailyQty: 0, lastDate: null,
     equipHours: 0, equipRecords: 0,
     _spell: new Map(), _places: new Set(), _engineers: new Set(), _days: new Set(),
   };
@@ -440,12 +441,13 @@ export interface ContractorsReport {
     total: number;
     discountPct: number;
     equipHours: number;
+    dailyQty: number;
   };
   rows: ContractorRow[];
 }
 
 export async function contractorsReport(ids: bigint[], range: { from?: string; to?: string }): Promise<ContractorsReport> {
-  const emptyTotals = { contractors: 0, unknown: 0, records: 0, gross: 0, discount: 0, total: 0, discountPct: 0, equipHours: 0 };
+  const emptyTotals = { contractors: 0, unknown: 0, records: 0, gross: 0, discount: 0, total: 0, discountPct: 0, equipHours: 0, dailyQty: 0 };
   if (!ids.length) return { from: range.from ?? null, to: range.to ?? null, engineers: 0, totals: emptyTotals, rows: [] };
 
   const dateFilter: { gte?: Date; lte?: Date } = {};
@@ -454,7 +456,7 @@ export async function contractorsReport(ids: bigint[], range: { from?: string; t
   const hasRange = Boolean(range.from || range.to);
   const whereBase = { userId: { in: ids }, ...(hasRange ? { date: dateFilter } : {}) };
 
-  const [dict, sums, byPlace, byEngineer, byDay, eqRows] = await Promise.all([
+  const [dict, sums, byPlace, byEngineer, byDay, eqRows, dailyRows] = await Promise.all([
     contractorDict(),
     prisma.record.groupBy({
       by: ['contractorName'],
@@ -468,6 +470,7 @@ export async function contractorsReport(ids: bigint[], range: { from?: string; t
     prisma.record.groupBy({ by: ['contractorName', 'userId'], where: whereBase, _count: { _all: true } }),
     prisma.record.groupBy({ by: ['contractorName', 'date'], where: whereBase, _count: { _all: true } }),
     prisma.equipmentRecord.groupBy({ by: ['contractor'], where: whereBase, _sum: { minutes: true }, _count: { _all: true } }),
+    prisma.record.groupBy({ by: ['contractorName'], where: { ...whereBase, qtyType: 'DAILY' }, _sum: { qty: true } }),
   ]);
 
   const map = new Map<string, CAcc>();
@@ -483,6 +486,9 @@ export async function contractorsReport(ids: bigint[], range: { from?: string; t
   for (const r of byPlace) cBucket(map, r.contractorName)._places.add(r.placeName);
   for (const r of byEngineer) cBucket(map, r.contractorName)._engineers.add(r.userId.toString());
   for (const r of byDay) cBucket(map, r.contractorName)._days.add(ymd(r.date));
+  // dailyQty = مجموع الكمية لسجلات "يومية" فقط، وده غير days (عدد التواريخ المختلفة)
+  // ممكن المقاول ياخد 3 يوميات في نفس التاريخ فيبقى الرقمين مختلفين قصدًا
+  for (const r of dailyRows) cBucket(map, r.contractorName).dailyQty += num(r._sum.qty);
   for (const r of eqRows) {
     const b = cBucket(map, r.contractor);
     b.equipHours += num(r._sum.minutes) / 60;
@@ -510,6 +516,7 @@ export async function contractorsReport(ids: bigint[], range: { from?: string; t
       places: _places.size,
       engineers: _engineers.size,
       days: _days.size,
+      dailyQty: Math.round(b.dailyQty * 100) / 100,
       equipHours: Math.round(b.equipHours * 10) / 10,
     };
   });
@@ -518,10 +525,10 @@ export async function contractorsReport(ids: bigint[], range: { from?: string; t
   const t = rows.reduce(
     (a, r) => {
       a.records += r.records; a.gross += r.gross; a.discount += r.discount;
-      a.total += r.total; a.equipHours += r.equipHours;
+      a.total += r.total; a.equipHours += r.equipHours; a.dailyQty += r.dailyQty;
       return a;
     },
-    { records: 0, gross: 0, discount: 0, total: 0, equipHours: 0 },
+    { records: 0, gross: 0, discount: 0, total: 0, equipHours: 0, dailyQty: 0 },
   );
 
   return {
@@ -537,6 +544,7 @@ export async function contractorsReport(ids: bigint[], range: { from?: string; t
       total: Math.round(t.total * 100) / 100,
       discountPct: t.gross > 0 ? Math.round((t.discount / t.gross) * 1000) / 10 : 0,
       equipHours: Math.round(t.equipHours * 10) / 10,
+      dailyQty: Math.round(t.dailyQty * 100) / 100,
     },
     rows,
   };

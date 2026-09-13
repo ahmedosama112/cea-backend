@@ -226,4 +226,28 @@ describe('تحليلات الأماكن', () => {
     const emails = res.body.data.engineers.map((e: { email: string }) => e.email).sort();
     expect(emails).toEqual(['eng1@test.com', 'eng2@test.com', 'tl@test.com']);
   });
+
+  it('جدول المقاولين: اليوميات بتجمع الكمية للسجلات "يومية" بس', async () => {
+    await request(app).post('/api/records').set(auth(eng1.token)).send({
+      day: 'الاثنين', date: '2026-09-05', contractor: 'م4', place: 'السطح',
+      qty: 2, qtyType: 'يومية', price: 100, discount: 0,
+    });
+    await request(app).post('/api/records').set(auth(eng1.token)).send({
+      day: 'الاثنين', date: '2026-09-06', contractor: 'م4', place: 'السطح',
+      qty: 3, qtyType: 'يومية', price: 100, discount: 0,
+    });
+    await request(app).post('/api/records').set(auth(eng1.token)).send({
+      day: 'الاثنين', date: '2026-09-07', contractor: 'م4', place: 'السطح',
+      qty: 8, qtyType: 'ساعة', price: 100, discount: 0,
+    });
+
+    const res = await request(app).get('/api/analytics/contractors?fresh=1').set(auth(admin.token));
+    expect(res.status).toBe(200);
+    const by = (n: string) => res.body.data.rows.find((r: { key: string }) => r.key === normName(n));
+
+    const m4 = by('م4')!;
+    expect(m4.dailyQty).toBe(5); // 2 + 3 — سجل الساعة (8) مش داخل في الحساب
+
+    expect(res.body.data.totals.dailyQty).toBeGreaterThanOrEqual(5);
+  });
 });
