@@ -108,6 +108,16 @@ describe('تسليمات الكشوف المعتمدة', () => {
     expect(engTry.status).toBe(403);
   });
 
+  it('gsync: تسليم حد تاني أو غير موجود → 404، وبدون تفعيل ربط جوجل → 400', async () => {
+    const other = await createEngineer(admin.token, 'gsync-other@test.com');
+    const stranger = await request(app).post(`/api/submissions/${subId}/gsync`).set(auth(other.token));
+    expect(stranger.status).toBe(404);
+    const missing = await request(app).post('/api/submissions/999999/gsync').set(auth(admin.token));
+    expect(missing.status).toBe(404);
+    const disabled = await request(app).post(`/api/submissions/${subId}/gsync`).set(auth(eng.token));
+    expect(disabled.status).toBe(400);
+  });
+
   it('حذف تسليم: للأدمن فقط — المهندس ممنوع في أي حالة، والأدمن يقدر يفلتر كشوف حساب معيّن', async () => {
     const del = await request(app).delete(`/api/submissions/${subId}`).set(auth(eng.token));
     expect(del.status).toBe(403);
