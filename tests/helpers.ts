@@ -23,10 +23,14 @@ export async function resetDb() {
     'submission_row_rejections', 'submission_reviews', 'submissions', 'app_config',
     'notification_reads', 'notification_targets', 'notifications',
     'rent_request_reviews', 'rent_requests',
+    'user_projects', 'projects',
     'account_settings', 'files', 'refresh_tokens', 'password_reset_tokens', 'users',
   ];
   for (const t of tables) await prisma.$executeRawUnsafe(`DELETE FROM \`${t}\``);
   await prisma.$executeRawUnsafe('SET FOREIGN_KEY_CHECKS = 1');
+  // المشروعين 1 و2 بيتزرعوا بالـmigration في الإنتاج — قاعدة الاختبار بتتبني بـ db push فلازم نزرعهم هنا
+  // (المشروع 1 هو الافتراضي لأي مكان/كشف من غير مشروع)
+  await prisma.project.createMany({ data: [{ id: 1, name: 'كومباوند جريني' }, { id: 2, name: 'أزاليا' }] });
 }
 
 export interface TestUser {

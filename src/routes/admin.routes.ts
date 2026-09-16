@@ -139,10 +139,13 @@ adminRoutes.put(
       ...(req.body.approverCmId !== undefined ? { approverCmId: req.body.approverCmId } : {}),
       ...(req.body.approverPmId !== undefined ? { approverPmId: req.body.approverPmId } : {}),
     };
+    // أول تحميل للمشروع على الحساب: المعتمدين بيبدأوا بمعتمدي الحساب الحاليين (مش فاضيين) —
+    // تحميل مشروع (خصوصًا جريني الافتراضي) مايشيلش المعتمدين الحاليين، والأدمن بيغيّر المختلف بس
+    const current = await prisma.user.findUnique({ where: { id: userId }, select: { approverTlId: true, approverCmId: true, approverPmId: true } });
     const up = await prisma.userProject.upsert({
       where: { userId_projectId: { userId, projectId } },
       update: data,
-      create: { userId, projectId, ...data },
+      create: { userId, projectId, approverTlId: current?.approverTlId ?? null, approverCmId: current?.approverCmId ?? null, approverPmId: current?.approverPmId ?? null, ...data },
     });
     const name = await prisma.project.findUnique({ where: { id: projectId }, select: { name: true } });
     res.json({ success: true, data: userProjectSerialize(up, name?.name ?? 'مشروع ' + projectId) });
@@ -224,8 +227,8 @@ adminRoutes.post(
   validate({ params: userIdParam, body: placeCreateSchema }),
   asyncHandler(async (req: Request, res: Response) => {
     await assertUserExists(BigInt(req.params.userId));
-    await checkAndSyncPlaceSite(req.body.name, req.body.site ?? null);
-    const place = await prisma.place.create({ data: { userId: BigInt(req.params.userId), name: req.body.name, note: req.body.note?.trim() || null, site: req.body.site ?? null } });
+    await checkAndSyncPlaceSite(req.body.name, req.body.site ?? 1);
+    const place = await prisma.place.create({ data: { userId: BigInt(req.params.userId), name: req.body.name, note: req.body.note?.trim() || null, site: req.body.site ?? 1 } });
     res.status(201).json({ success: true, data: place });
   }),
 );
@@ -239,13 +242,14 @@ adminRoutes.put(
     });
     if (!existing) throw AppError.notFound('المكان غير موجود');
     // الاسم ممكن يتغير من غير ما المشروع يتبعت — checkAndSyncPlaceSite بيتحقق بالمشروع الفعلي بعد التعديل
-    await checkAndSyncPlaceSite(req.body.name, req.body.site, existing);
+    const siteVal = req.body.site === null ? 1 : req.body.site;
+    await checkAndSyncPlaceSite(req.body.name, siteVal, existing);
     const place = await prisma.place.update({
       where: { id: existing.id },
       data: {
         name: req.body.name,
         ...(req.body.note !== undefined ? { note: req.body.note?.trim() || null } : {}),
-        ...(req.body.site !== undefined ? { site: req.body.site } : {}),
+        ...(siteVal !== undefined ? { site: siteVal } : {}),
       },
     });
     res.json({ success: true, data: place });
@@ -339,9 +343,9 @@ adminRoutes.post(
     const theirs = await prisma.place.findMany({ where: { userId }, select: { name: true } });
     const have = new Set(theirs.map((p) => p.name));
     const toCreate = mine.filter((p) => !have.has(p.name));
-    for (const p of toCreate) await checkAndSyncPlaceSite(p.name, p.site);
+    for (const p of toCreate) await checkAndSyncPlaceSite(p.name, p.site ?? 1);
     if (toCreate.length) {
-      await prisma.place.createMany({ data: toCreate.map((p) => ({ userId, name: p.name, note: p.note, site: p.site })) });
+      await prisma.place.createMany({ data: toCreate.map((p) => ({ userId, name: p.name, note: p.note, site: p.site ?? 1 })) });
     }
     res.json({ success: true, data: { added: toCreate.length, skipped: mine.length - toCreate.length } });
   }),

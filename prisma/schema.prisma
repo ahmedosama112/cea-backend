@@ -211,8 +211,8 @@ model Place {
   // ملاحظة اختيارية عن المكان — تظهر للمهندس كأيقونة ❕ جنب اختيار المكان في تسجيل السركي
   note      String?  @db.VarChar(500)
   // المشروع (الموقع 1 أو 2 — نفس أسماء المواقع في إعدادات الأدمن) اللي المكان تابع له. بيتكتب في راس كشف السركي.
-  // نفس اسم المكان مينفعش يبقى في مشروعين مختلفين (عبر كل الحسابات) — assertPlaceSiteUnique. null = غير محدد
-  site      Int?
+  // نفس اسم المكان مينفعش يبقى في مشروعين مختلفين (عبر كل الحسابات) — assertPlaceSiteUnique. null/غير محدد = المشروع الافتراضي 1
+  site      Int?     @default(1)
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 

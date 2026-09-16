@@ -41,6 +41,11 @@ export const placesRouter = crudRouter({
   orderBy: { name: 'asc' },
   writeRoles: ['ADMIN'],
   beforeWrite: async (body, ctx) => {
+    if (ctx.id === undefined) {
+      if (body.site === null || body.site === undefined) body.site = 1;
+    } else if (body.site === null) {
+      body.site = 1;
+    }
     const existing = ctx.id !== undefined ? await prisma.place.findUnique({ where: { id: ctx.id }, select: { id: true, name: true, site: true } }) : null;
     await checkAndSyncPlaceSite(body.name as string, body.site as number | null | undefined, existing ?? undefined);
   },
