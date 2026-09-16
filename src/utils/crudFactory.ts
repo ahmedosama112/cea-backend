@@ -30,6 +30,9 @@ interface CrudOptions {
   serialize?: <T>(rows: T) => T;
   // لو محدد: عمليات الكتابة (POST/PUT/DELETE) مقصورة على هذه الأدوار — القراءة متاحة للجميع
   writeRoles?: Array<'ADMIN' | 'ENGINEER'>;
+  // خطاف اختياري يتنفّذ قبل create/update (بعد التحقق من الـ schema) — للتحقق من قواعد عمل إضافية
+  // (مثلاً تفرّد اسم المكان عبر المشاريع). id يبقى محدد وقت update فقط.
+  beforeWrite?: (body: Record<string, unknown>, ctx: { userId: bigint; id?: bigint }) => Promise<void>;
 }
 
 async function findOwnedOrThrow(delegate: SimpleDelegate, id: bigint, userId: bigint) {
@@ -41,7 +44,7 @@ async function findOwnedOrThrow(delegate: SimpleDelegate, id: bigint, userId: bi
 // مصنع CRUD موحد: GET /  GET /:id  POST /  PUT /:id  DELETE /:id
 // كلها خلف authenticate وكلها مقيدة ببيانات المستخدم صاحب التوكن فقط
 export function crudRouter(opts: CrudOptions): Router {
-  const { delegate, createSchema, updateSchema, orderBy, toData = (b) => b, serialize = <T,>(r: T) => r, writeRoles } = opts;
+  const { delegate, createSchema, updateSchema, orderBy, toData = (b) => b, serialize = <T,>(r: T) => r, writeRoles, beforeWrite } = opts;
   const router = Router();
   router.use(authenticate);
   const writeGuard = writeRoles ? [requireRole(...writeRoles)] : [];
@@ -71,6 +74,7 @@ export function crudRouter(opts: CrudOptions): Router {
     ...writeGuard,
     validate({ body: createSchema }),
     asyncHandler(async (req: Request, res: Response) => {
+      if (beforeWrite) await beforeWrite(req.body, { userId: req.user!.id });
       const row = await delegate.create({ data: { ...toData(req.body), userId: req.user!.id } });
       res.status(201).json({ success: true, data: serialize(row) });
     }),
@@ -83,6 +87,7 @@ export function crudRouter(opts: CrudOptions): Router {
     asyncHandler(async (req: Request, res: Response) => {
       const id = BigInt(req.params.id);
       await findOwnedOrThrow(delegate, id, req.user!.id);
+      if (beforeWrite) await beforeWrite(req.body, { userId: req.user!.id, id });
       const row = await delegate.update({ where: { id }, data: toData(req.body) });
       res.json({ success: true, data: serialize(row) });
     }),

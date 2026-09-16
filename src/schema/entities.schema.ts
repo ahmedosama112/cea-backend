@@ -25,6 +25,11 @@ export const placeCreateSchema = z.object({
   name: z.string().trim().min(1, 'أدخل إسم المكان').max(190),
   // ملاحظة اختيارية — بتظهر للمهندس جنب اختيار المكان في تسجيل السركي
   note: z.string().trim().max(500).optional().nullable(),
+  // المشروع (موقع 1 أو 2) اللي المكان تابع له — 0/''/null كلها تعني "غير محدد"
+  site: z.preprocess(
+    (v) => (v === 0 || v === '' || v === null || v === undefined ? null : v),
+    z.coerce.number().int().min(1).max(2).nullable(),
+  ).optional().nullable(),
 });
 export const placeUpdateSchema = placeCreateSchema;
 

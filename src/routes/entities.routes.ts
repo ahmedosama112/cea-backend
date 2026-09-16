@@ -1,6 +1,7 @@
 import { prisma } from '../config/prisma';
 import { crudRouter } from '../utils/crudFactory';
 import { arabizeRateTypes, toEnum, RateTypeAr } from '../utils/rateType';
+import { assertPlaceSiteUnique } from '../services/placeSite';
 import {
   contractorCreateSchema,
   contractorUpdateSchema,
@@ -39,6 +40,7 @@ export const placesRouter = crudRouter({
   updateSchema: placeUpdateSchema,
   orderBy: { name: 'asc' },
   writeRoles: ['ADMIN'],
+  beforeWrite: (body, ctx) => assertPlaceSiteUnique(body.name as string, body.site as number | null | undefined, ctx.id),
 });
 
 export const inspectorsRouter = crudRouter({

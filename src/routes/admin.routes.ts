@@ -11,6 +11,8 @@ import { accountSettingsSchema, upsertSettings, serializeSettings } from '../con
 import { ALL_MODULES, DEFAULT_MODULES, MODULE_LABELS, ALL_FEATURES, DEFAULT_FEATURES } from '../utils/modules';
 import { authService } from '../services/auth.service';
 import { placeCreateSchema, contractorCreateSchema, contractorUpdateSchema } from '../schema/entities.schema';
+import { assertPlaceSiteUnique, readSiteNames, SITE_NAME_DEFAULTS } from '../services/placeSite';
+export { readSiteNames };
 import { arabizeRateTypes, toEnum, RateTypeAr } from '../utils/rateType';
 import { storage } from '../services/storage';
 import { runBackupToDrive } from '../services/backup';
@@ -30,17 +32,6 @@ async function assertUserExists(userId: bigint) {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) throw AppError.notFound('المستخدم غير موجود');
   return user;
-}
-
-// ── إعدادات عامة: أسماء المواقع/المشاريع (يعدّلها الأدمن وتظهر في كل دروب داون "الموقع") ──
-const SITE_NAME_DEFAULTS: Record<string, string> = { site1Name: 'كومباوند جريني', site2Name: 'أزاليا' };
-
-// تُستخدم هنا وفي GET /api/config العام (لكل المستخدمين — الأسماء مش بيانات حساسة)
-export async function readSiteNames(): Promise<Record<string, string>> {
-  const rows = await prisma.appConfig.findMany({ where: { key: { in: Object.keys(SITE_NAME_DEFAULTS) } } });
-  const data = { ...SITE_NAME_DEFAULTS };
-  for (const r of rows) data[r.key] = r.value;
-  return data;
 }
 
 adminRoutes.get(
@@ -126,7 +117,8 @@ adminRoutes.post(
   validate({ params: userIdParam, body: placeCreateSchema }),
   asyncHandler(async (req: Request, res: Response) => {
     await assertUserExists(BigInt(req.params.userId));
-    const place = await prisma.place.create({ data: { userId: BigInt(req.params.userId), name: req.body.name, note: req.body.note?.trim() || null } });
+    await assertPlaceSiteUnique(req.body.name, req.body.site);
+    const place = await prisma.place.create({ data: { userId: BigInt(req.params.userId), name: req.body.name, note: req.body.note?.trim() || null, site: req.body.site ?? null } });
     res.status(201).json({ success: true, data: place });
   }),
 );
@@ -139,7 +131,16 @@ adminRoutes.put(
       where: { id: BigInt(req.params.id), userId: BigInt(req.params.userId) },
     });
     if (!existing) throw AppError.notFound('المكان غير موجود');
-    const place = await prisma.place.update({ where: { id: existing.id }, data: { name: req.body.name, ...(req.body.note !== undefined ? { note: req.body.note?.trim() || null } : {}) } });
+    // الاسم ممكن يتغير من غير ما المشروع يتبعت — نتحقق بالمشروع الفعلي بعد التعديل
+    await assertPlaceSiteUnique(req.body.name, req.body.site !== undefined ? req.body.site : existing.site, existing.id);
+    const place = await prisma.place.update({
+      where: { id: existing.id },
+      data: {
+        name: req.body.name,
+        ...(req.body.note !== undefined ? { note: req.body.note?.trim() || null } : {}),
+        ...(req.body.site !== undefined ? { site: req.body.site } : {}),
+      },
+    });
     res.json({ success: true, data: place });
   }),
 );
@@ -231,8 +232,9 @@ adminRoutes.post(
     const theirs = await prisma.place.findMany({ where: { userId }, select: { name: true } });
     const have = new Set(theirs.map((p) => p.name));
     const toCreate = mine.filter((p) => !have.has(p.name));
+    for (const p of toCreate) await assertPlaceSiteUnique(p.name, p.site);
     if (toCreate.length) {
-      await prisma.place.createMany({ data: toCreate.map((p) => ({ userId, name: p.name, note: p.note })) });
+      await prisma.place.createMany({ data: toCreate.map((p) => ({ userId, name: p.name, note: p.note, site: p.site })) });
     }
     res.json({ success: true, data: { added: toCreate.length, skipped: mine.length - toCreate.length } });
   }),
