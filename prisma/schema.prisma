@@ -16,6 +16,37 @@ enum Role {
   ENGINEER
 }
 
+// المشاريع — 1 و2 هما الموقعين القديمين؛ Place.site وSubmission.projectId بيشاوروا على id هنا
+model Project {
+  id           Int           @id @default(autoincrement())
+  name         String        @unique @db.VarChar(120)
+  createdAt    DateTime      @default(now()) @map("created_at")
+  userProjects UserProject[]
+
+  @@map("projects")
+}
+
+// مشروع محمّل على حساب مهندس — معتمدو المشروع ده على الحساب (بديل approver_tl_id/... العام لو الحساب عنده المشروع ده)
+model UserProject {
+  id           BigInt    @id @default(autoincrement())
+  userId       BigInt    @map("user_id")
+  projectId    Int       @map("project_id")
+  approverTlId BigInt?   @map("approver_tl_id")
+  approverCmId BigInt?   @map("approver_cm_id")
+  approverPmId BigInt?   @map("approver_pm_id")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  user       User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project    Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  approverTl User?   @relation("UserProjectApproverTl", fields: [approverTlId], references: [id], onDelete: SetNull)
+  approverCm User?   @relation("UserProjectApproverCm", fields: [approverCmId], references: [id], onDelete: SetNull)
+  approverPm User?   @relation("UserProjectApproverPm", fields: [approverPmId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, projectId])
+  @@map("user_projects")
+}
+
 // نفس النصوص العربية المستخدمة حرفيًا في app.js (qtyType/rateType) — القيم الفعلية في العمود
 // عبر @map حتى لا تتغير القيم المُرسلة/المستقبلة من الواجهة الأمامية بأي شكل
 enum RateType {
@@ -94,6 +125,12 @@ model User {
   approvesTlFor       User[] @relation("ApproverTl")
   approvesCmFor       User[] @relation("ApproverCm")
   approvesPmFor       User[] @relation("ApproverPm")
+
+  // المشاريع المحمّلة على الحساب — معتمدون مختلفون لكل مشروع (بديل approverTl/Cm/PmId العام لو المشروع محمّل)
+  userProjects            UserProject[]
+  userProjectApproverTlOf UserProject[] @relation("UserProjectApproverTl")
+  userProjectApproverCmOf UserProject[] @relation("UserProjectApproverCm")
+  userProjectApproverPmOf UserProject[] @relation("UserProjectApproverPm")
 
   @@map("users")
 }
@@ -552,6 +589,8 @@ model Submission {
   // الموقع الذي أُرسل له التسليم وقت الإنشاء — gsheetRow رقم صف داخل شيت هذا الموقع تحديدًا،
   // فبنثبّته هنا عشان لو الأدمن نقل المهندس لموقع تاني، متابعة حالة التسليمات القديمة تفضل صح
   site           Int              @default(1)
+  // مشروع أماكن الكشف — بيحدد معتمدي المشروع ده على حساب المهندس. null = المعتمدين الافتراضيين
+  projectId      Int?             @map("project_id")
   // نوع الكشف: labor = سركي العمالة الأسبوعي (الافتراضي) · equipment = سركي إيجار معدات شهري (20→19)
   // لكشف المعدات: contractorName = المقاول، placeName = اسم المعدة، total = إجمالي الساعات، recordsCount = أيام التشغيل
   kind           String           @default("labor") @db.VarChar(20)

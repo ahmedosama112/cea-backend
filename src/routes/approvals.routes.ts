@@ -6,9 +6,10 @@ import { asyncHandler } from '../utils/asyncHandler';
 import { validate } from '../middlewares/validate';
 import { requireWindow } from '../middlewares/windowGuard';
 import { idParamSchema } from '../utils/crudFactory';
-import { getApprovalLevels, APPROVING_GRADES, buildChain, nextLevel, resolveChainForUser, soleProjectManagerId, pushSubmissionToSheet, signedFileBuffer } from '../services/approvalChain';
+import { getApprovalLevels, APPROVING_GRADES, buildChain, nextLevel, resolveChainForUser, soleProjectManagerId, pushSubmissionToSheet, signedFileBuffer, ChainUser } from '../services/approvalChain';
 import { countDataRows } from '../services/rowReject';
 import { storage } from '../services/storage';
+import { listProjects } from '../services/placeSite';
 
 // ═══════════ اعتمادات المديرين — تبويب المراجعة والاعتماد ═══════════
 // (authenticate + requireModule('approvals') مطبّقين في routes/index.ts)
@@ -19,7 +20,12 @@ const SUB_INCLUDE = {
   file: { select: { id: true, fileName: true, fileSize: true } },
   user: { select: { id: true, email: true, displayName: true, title: true, grade: true, approverTlId: true, approverCmId: true, approverPmId: true,
     // أسماء المعتمدين المسندين — بتتعرض في الجدول تحت "دورك/منتظر" (مين المفروض يعتمد المستوى ده)
-    approverTl: { select: { email: true, displayName: true, title: true } }, approverCm: { select: { email: true, displayName: true, title: true } }, approverPm: { select: { email: true, displayName: true, title: true } } } },
+    approverTl: { select: { email: true, displayName: true, title: true } }, approverCm: { select: { email: true, displayName: true, title: true } }, approverPm: { select: { email: true, displayName: true, title: true } },
+    // المشاريع المحمّلة على الحساب بمعتمديها الخاصين — لكشف مربوط بمشروع، السلسلة بتاخد المعتمد من هنا بدل الأعمدة فوق
+    userProjects: { select: {
+      projectId: true, approverTlId: true, approverCmId: true, approverPmId: true,
+      approverTl: { select: { email: true, displayName: true, title: true } }, approverCm: { select: { email: true, displayName: true, title: true } }, approverPm: { select: { email: true, displayName: true, title: true } },
+    } } } },
   reviews: { orderBy: { createdAt: 'asc' as const }, include: { byUser: { select: { email: true, displayName: true, title: true } } } },
   rowRejections: { orderBy: { createdAt: 'asc' as const }, include: { byUser: { select: { email: true, displayName: true, title: true } } } },
 } as const;
@@ -73,6 +79,10 @@ approvalsRoutes.get(
     const solePmId = await soleProjectManagerId();
     const solePm = solePmId ? await prisma.user.findUnique({ where: { id: solePmId }, select: { email: true, displayName: true, title: true } }) : null;
     const nameOf = (u: { email: string; displayName?: string | null; title: string | null } | null | undefined) => (u ? (u.displayName || u.title || u.email.split('@')[0]) : null);
+    const projects = await listProjects();
+    const projectNameOf = (id: number | null) => (id == null ? null : (projects.find((p) => p.id === id)?.name ?? 'مشروع ' + id));
+    type P = { email: string; displayName?: string | null; title: string | null } | null;
+    type UP = { projectId: number; approverTlId: bigint | null; approverCmId: bigint | null; approverPmId: bigint | null; approverTl: P; approverCm: P; approverPm: P };
     res.json({
       success: true,
       myLevel,
@@ -82,17 +92,23 @@ approvalsRoutes.get(
       // المستويات المعتمِدة بالترتيب (أعمدة الجدول)
       activeLevels: [...APPROVING_GRADES],
       data: rows.map((r) => {
-        const chain = buildChain(r.user as never, solePmId);
+        const u = r.user as unknown as { id: bigint; grade: string; approverTlId: bigint | null; approverCmId: bigint | null; approverPmId: bigint | null; approverTl: P; approverCm: P; approverPm: P; userProjects: UP[] };
+        // الكشف مربوط بمشروع، وعند صاحبه المشروع ده محمّل → السلسلة والأسماء من معتمدي المشروع بدل الأعمدة الافتراضية
+        const up = r.projectId != null ? u.userProjects.find((x) => x.projectId === r.projectId) : undefined;
+        const chainUser: ChainUser = up
+          ? { id: u.id, grade: u.grade, approverTlId: up.approverTlId, approverCmId: up.approverCmId, approverPmId: up.approverPmId }
+          : { id: u.id, grade: u.grade, approverTlId: u.approverTlId, approverCmId: u.approverCmId, approverPmId: u.approverPmId };
+        const namesSrc = up ?? u;
+        const chain = buildChain(chainUser, solePmId);
         const inChain = chain.some((c) => c.level === r.currentLevel);
         return {
           ...shape(r as never),
+          projectName: projectNameOf(r.projectId as number | null),
           // سلسلة الكشف ده تحديدًا (مستويات صاحبه) — الواجهة بتستخدمها للأعمدة الفاضية والمتخطاة
           chain: chain.map((c) => c.level),
           // مين المسند لكل مستوى في سلسلة الكشف ده (بالاسم) — الواجهة بتعرضه تحت حالة المستوى
           approverNames: Object.fromEntries(chain.map((c) => {
-            type P = { email: string; displayName?: string | null; title: string | null } | null;
-            const u = r.user as unknown as { approverTl?: P; approverCm?: P; approverPm?: P };
-            const who = c.level === 'team leader' ? u.approverTl : c.level === 'construction manager' ? u.approverCm : (u.approverPm ?? solePm);
+            const who = c.level === 'team leader' ? namesSrc.approverTl : c.level === 'construction manager' ? namesSrc.approverCm : (namesSrc.approverPm ?? solePm);
             return [c.level, nameOf(who)];
           })),
           // آخر مستوى في سلسلته → رسالة "بعد اعتمادك الكشف هيتبعت للتوقيع"
@@ -231,7 +247,7 @@ approvalsRoutes.post(
     }
 
     // نحدد نتيجة القرار الأول (قبل ما نسجّل أي حاجة) — عشان الكشف الواقف عند مستوى اتشال من سلسلته ما يتبعتش قبل أوانه
-    const chain = await resolveChainForUser(sub.userId);
+    const chain = await resolveChainForUser(sub.userId, sub.projectId);
     let step = nextLevel(chain, sub.currentLevel);
     if (decision !== 'REJECTED' && step.kind === 'stuck') {
       if (!isAdmin) {

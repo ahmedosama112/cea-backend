@@ -63,7 +63,13 @@ export async function resolveScope(
   const where = isAdmin
     ? {}
     : isApprover
-      ? { OR: [{ approverTlId: me.id }, { approverCmId: me.id }, { approverPmId: me.id }, { id: me.id }] }
+      ? {
+          OR: [
+            { approverTlId: me.id }, { approverCmId: me.id }, { approverPmId: me.id },
+            { userProjects: { some: { OR: [{ approverTlId: me.id }, { approverCmId: me.id }, { approverPmId: me.id }] } } },
+            { id: me.id },
+          ],
+        }
       : { id: me.id };
 
   const rows = await prisma.user.findMany({

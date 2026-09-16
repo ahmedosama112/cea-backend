@@ -116,13 +116,24 @@ export function buildChain(u: ChainUser, solePmId: bigint | null): ChainSlot[] {
   return slots;
 }
 
-// سلسلة كشوف مهندس معيّن: المستويات المطلوبة لدرجته، وبس اللي ليها معتمد مسند فعلًا
-export async function resolveChainForUser(userId: bigint): Promise<ChainSlot[]> {
+// سلسلة كشوف مهندس معيّن: المستويات المطلوبة لدرجته، وبس اللي ليها معتمد مسند فعلًا.
+// projectId: لو محدد وموجود مشروع محمّل على الحساب بالـid ده، السلسلة بتاخد معتمدي المشروع ده
+// (approver_tl/cm/pm_id بتاعة UserProject) بدل المعتمدين الافتراضيين على الحساب.
+export async function resolveChainForUser(userId: bigint, projectId?: number | null): Promise<ChainSlot[]> {
   const u = await prisma.user.findUnique({
     where: { id: userId },
     select: { id: true, grade: true, approverTlId: true, approverCmId: true, approverPmId: true },
   });
   if (!u) return [];
+  if (projectId != null) {
+    const up = await prisma.userProject.findUnique({ where: { userId_projectId: { userId, projectId } } });
+    if (up) {
+      return buildChain(
+        { id: u.id, grade: u.grade, approverTlId: up.approverTlId, approverCmId: up.approverCmId, approverPmId: up.approverPmId },
+        await soleProjectManagerId(),
+      );
+    }
+  }
   return buildChain(u, await soleProjectManagerId());
 }
 
@@ -277,9 +288,9 @@ export function approvalSummary(reviews: ReviewRow[], revision: number, rowRejec
 // بدء السلسلة لكشف جديد (أو إعادة إرسال): أول معتمد مسند لصاحب الكشف.
 // لو مفيش أي معتمد مسند (أو درجته مش محتاجة اعتماد) → السلوك القديم: يتبعت لجوجل فورًا.
 export async function startChain(submissionId: bigint): Promise<{ sentToSheet: boolean; firstLevel: string | null }> {
-  const sub = await prisma.submission.findUnique({ where: { id: submissionId }, select: { userId: true } });
+  const sub = await prisma.submission.findUnique({ where: { id: submissionId }, select: { userId: true, projectId: true } });
   if (!sub) return { sentToSheet: false, firstLevel: null };
-  const chain = await resolveChainForUser(sub.userId);
+  const chain = await resolveChainForUser(sub.userId, sub.projectId);
   const first = chain[0];
   if (!first) {
     await prisma.submission.update({ where: { id: submissionId }, data: { reviewState: 'SENT', currentLevel: null, currentApproverId: null } });

@@ -23,6 +23,9 @@ const BACKUP_TABLES: Array<{ key: string; model: string; rows: () => Promise<unk
   { key: 'users', model: 'User', rows: () => prisma.user.findMany() },
   { key: 'files', model: 'File', rows: () => prisma.file.findMany() },
   { key: 'accountSettings', model: 'AccountSettings', rows: () => prisma.accountSettings.findMany() },
+  // (16 سبتمبر 2026) المشاريع + المشاريع المحمّلة على الحسابات بمعتمديها — بعد users عشان المفاتيح الأجنبية
+  { key: 'projects', model: 'Project', rows: () => prisma.project.findMany() },
+  { key: 'userProjects', model: 'UserProject', rows: () => prisma.userProject.findMany() },
   { key: 'contractors', model: 'Contractor', rows: () => prisma.contractor.findMany() },
   { key: 'places', model: 'Place', rows: () => prisma.place.findMany() },
   { key: 'inspectors', model: 'Inspector', rows: () => prisma.inspector.findMany() },

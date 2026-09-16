@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { adminRoutes, readSiteNames } from './admin.routes';
+import { listProjects } from '../services/placeSite';
 import { asyncHandler } from '../utils/asyncHandler';
 import { authRoutes } from './auth.routes';
 import { accountRoutes } from './account.routes';
@@ -23,7 +24,7 @@ export const router = Router();
 router.use('/auth', authRoutes);
 // إعدادات عامة (أسماء المواقع) — قراءة لأي مستخدم مسجّل؛ التعديل من /admin/config فقط
 router.get('/config', authenticate, asyncHandler(async (_req: Request, res: Response) => {
-  res.json({ success: true, data: await readSiteNames() });
+  res.json({ success: true, data: { ...(await readSiteNames()), projects: await listProjects() } });
 }));
 // مواعيد الإرسال والاعتماد — قراءة لأي مستخدم مسجّل (الواجهة بتبني منها العدّاد وبتقفل الأزرار).
 // serverNow مقصود: ساعة جهاز المستخدم ممكن تكون غلط، فالواجهة بتحسب فرقها مرة واحدة وتعوّضه في العدّاد.

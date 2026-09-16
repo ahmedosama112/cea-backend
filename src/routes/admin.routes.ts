@@ -11,7 +11,7 @@ import { accountSettingsSchema, upsertSettings, serializeSettings } from '../con
 import { ALL_MODULES, DEFAULT_MODULES, MODULE_LABELS, ALL_FEATURES, DEFAULT_FEATURES } from '../utils/modules';
 import { authService } from '../services/auth.service';
 import { placeCreateSchema, contractorCreateSchema, contractorUpdateSchema } from '../schema/entities.schema';
-import { assertPlaceSiteUnique, readSiteNames, SITE_NAME_DEFAULTS } from '../services/placeSite';
+import { checkAndSyncPlaceSite, assertProjectExists, readSiteNames, listProjects, SITE_NAME_DEFAULTS } from '../services/placeSite';
 export { readSiteNames };
 import { arabizeRateTypes, toEnum, RateTypeAr } from '../utils/rateType';
 import { storage } from '../services/storage';
@@ -37,19 +37,126 @@ async function assertUserExists(userId: bigint) {
 adminRoutes.get(
   '/config',
   asyncHandler(async (_req: Request, res: Response) => {
-    res.json({ success: true, data: await readSiteNames() });
+    res.json({ success: true, data: { ...(await readSiteNames()), projects: await listProjects() } });
   }),
 );
 
+// site1Name/site2Name (توافقي) بيعدّلوا اسمي المشروعين 1 و2 في جدول projects نفسه
 adminRoutes.patch(
   '/config',
   validate({ body: z.object({ site1Name: z.string().trim().min(1).max(60).optional(), site2Name: z.string().trim().min(1).max(60).optional() }) }),
   asyncHandler(async (req: Request, res: Response) => {
     const entries = Object.entries(req.body as Record<string, string>).filter(([k]) => k in SITE_NAME_DEFAULTS);
     for (const [key, value] of entries) {
-      await prisma.appConfig.upsert({ where: { key }, update: { value }, create: { key, value } });
+      const id = key === 'site1Name' ? 1 : 2;
+      await prisma.project.upsert({ where: { id }, update: { name: value }, create: { id, name: value } });
     }
-    res.json({ success: true, data: await readSiteNames() });
+    res.json({ success: true, data: { ...(await readSiteNames()), projects: await listProjects() } });
+  }),
+);
+
+// ── المشاريع (إضافة/إعادة تسمية — 1 و2 بيحتفظوا بالـid والاسم القديم لحد ما الأدمن يغيّره) ──
+adminRoutes.get(
+  '/projects',
+  asyncHandler(async (_req: Request, res: Response) => {
+    res.json({ success: true, data: await listProjects() });
+  }),
+);
+
+const projectNameSchema = z.object({ name: z.string().trim().min(1, 'اكتب اسم المشروع').max(120) });
+
+adminRoutes.post(
+  '/projects',
+  validate({ body: projectNameSchema }),
+  asyncHandler(async (req: Request, res: Response) => {
+    const existing = await prisma.project.findUnique({ where: { name: req.body.name } });
+    if (existing) throw AppError.conflict('فيه مشروع بنفس الاسم بالفعل');
+    const project = await prisma.project.create({ data: { name: req.body.name } });
+    res.status(201).json({ success: true, data: project });
+  }),
+);
+
+adminRoutes.patch(
+  '/projects/:id',
+  validate({ params: z.object({ id: z.coerce.number().int() }), body: projectNameSchema }),
+  asyncHandler(async (req: Request, res: Response) => {
+    const id = Number(req.params.id);
+    await assertProjectExists(id);
+    const existing = await prisma.project.findFirst({ where: { name: req.body.name, id: { not: id } } });
+    if (existing) throw AppError.conflict('فيه مشروع بنفس الاسم بالفعل');
+    const project = await prisma.project.update({ where: { id }, data: { name: req.body.name } });
+    res.json({ success: true, data: project });
+  }),
+);
+
+// ── المشاريع المحمّلة على حساب مهندس (بمعتمديها الخاصين) ──
+const userProjectSerialize = (up: { id: bigint; projectId: number; approverTlId: bigint | null; approverCmId: bigint | null; approverPmId: bigint | null }, name: string) => ({
+  projectId: up.projectId,
+  name,
+  approverTlId: up.approverTlId?.toString() ?? null,
+  approverCmId: up.approverCmId?.toString() ?? null,
+  approverPmId: up.approverPmId?.toString() ?? null,
+});
+
+adminRoutes.get(
+  '/users/:userId/projects',
+  validate({ params: userIdParam }),
+  asyncHandler(async (req: Request, res: Response) => {
+    const userId = BigInt(req.params.userId);
+    await assertUserExists(userId);
+    const rows = await prisma.userProject.findMany({ where: { userId }, orderBy: { projectId: 'asc' } });
+    const projects = await listProjects();
+    const nameOf = (id: number) => projects.find((p) => p.id === id)?.name ?? 'مشروع ' + id;
+    res.json({ success: true, data: rows.map((r) => userProjectSerialize(r, nameOf(r.projectId))) });
+  }),
+);
+
+const userProjectBodySchema = z.object({
+  approverTlId: z.coerce.bigint().nullable().optional(),
+  approverCmId: z.coerce.bigint().nullable().optional(),
+  approverPmId: z.coerce.bigint().nullable().optional(),
+});
+
+adminRoutes.put(
+  '/users/:userId/projects/:projectId',
+  validate({ params: z.object({ userId: z.coerce.bigint(), projectId: z.coerce.number().int() }), body: userProjectBodySchema }),
+  asyncHandler(async (req: Request, res: Response) => {
+    const userId = BigInt(req.params.userId);
+    const projectId = Number(req.params.projectId);
+    await assertUserExists(userId);
+    await assertProjectExists(projectId);
+    // المعتمد المسند لازم يكون درجته هي نفس المستوى (وميكونش الحساب نفسه) — نفس التحقق زي PATCH /users/:userId
+    for (const [field, level] of [['approverTlId', 'team leader'], ['approverCmId', 'construction manager'], ['approverPmId', 'project manager']] as const) {
+      const val = req.body[field] as bigint | null | undefined;
+      if (val === undefined || val === null) continue;
+      if (val === userId) throw AppError.validation('الحساب لا يقدر يعتمد لنفسه');
+      const a = await prisma.user.findUnique({ where: { id: val }, select: { grade: true } });
+      if (!a) throw AppError.validation('المعتمد المختار غير موجود');
+      if (a.grade !== level) throw AppError.validation(`المعتمد المختار مش درجته "${level}"`);
+    }
+    const data = {
+      ...(req.body.approverTlId !== undefined ? { approverTlId: req.body.approverTlId } : {}),
+      ...(req.body.approverCmId !== undefined ? { approverCmId: req.body.approverCmId } : {}),
+      ...(req.body.approverPmId !== undefined ? { approverPmId: req.body.approverPmId } : {}),
+    };
+    const up = await prisma.userProject.upsert({
+      where: { userId_projectId: { userId, projectId } },
+      update: data,
+      create: { userId, projectId, ...data },
+    });
+    const name = await prisma.project.findUnique({ where: { id: projectId }, select: { name: true } });
+    res.json({ success: true, data: userProjectSerialize(up, name?.name ?? 'مشروع ' + projectId) });
+  }),
+);
+
+adminRoutes.delete(
+  '/users/:userId/projects/:projectId',
+  validate({ params: z.object({ userId: z.coerce.bigint(), projectId: z.coerce.number().int() }) }),
+  asyncHandler(async (req: Request, res: Response) => {
+    const userId = BigInt(req.params.userId);
+    const projectId = Number(req.params.projectId);
+    await prisma.userProject.deleteMany({ where: { userId, projectId } });
+    res.json({ success: true, data: null });
   }),
 );
 
@@ -117,7 +224,7 @@ adminRoutes.post(
   validate({ params: userIdParam, body: placeCreateSchema }),
   asyncHandler(async (req: Request, res: Response) => {
     await assertUserExists(BigInt(req.params.userId));
-    await assertPlaceSiteUnique(req.body.name, req.body.site);
+    await checkAndSyncPlaceSite(req.body.name, req.body.site ?? null);
     const place = await prisma.place.create({ data: { userId: BigInt(req.params.userId), name: req.body.name, note: req.body.note?.trim() || null, site: req.body.site ?? null } });
     res.status(201).json({ success: true, data: place });
   }),
@@ -131,8 +238,8 @@ adminRoutes.put(
       where: { id: BigInt(req.params.id), userId: BigInt(req.params.userId) },
     });
     if (!existing) throw AppError.notFound('المكان غير موجود');
-    // الاسم ممكن يتغير من غير ما المشروع يتبعت — نتحقق بالمشروع الفعلي بعد التعديل
-    await assertPlaceSiteUnique(req.body.name, req.body.site !== undefined ? req.body.site : existing.site, existing.id);
+    // الاسم ممكن يتغير من غير ما المشروع يتبعت — checkAndSyncPlaceSite بيتحقق بالمشروع الفعلي بعد التعديل
+    await checkAndSyncPlaceSite(req.body.name, req.body.site, existing);
     const place = await prisma.place.update({
       where: { id: existing.id },
       data: {
@@ -232,7 +339,7 @@ adminRoutes.post(
     const theirs = await prisma.place.findMany({ where: { userId }, select: { name: true } });
     const have = new Set(theirs.map((p) => p.name));
     const toCreate = mine.filter((p) => !have.has(p.name));
-    for (const p of toCreate) await assertPlaceSiteUnique(p.name, p.site);
+    for (const p of toCreate) await checkAndSyncPlaceSite(p.name, p.site);
     if (toCreate.length) {
       await prisma.place.createMany({ data: toCreate.map((p) => ({ userId, name: p.name, note: p.note, site: p.site })) });
     }

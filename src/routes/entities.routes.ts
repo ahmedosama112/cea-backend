@@ -1,7 +1,7 @@
 import { prisma } from '../config/prisma';
 import { crudRouter } from '../utils/crudFactory';
 import { arabizeRateTypes, toEnum, RateTypeAr } from '../utils/rateType';
-import { assertPlaceSiteUnique } from '../services/placeSite';
+import { checkAndSyncPlaceSite } from '../services/placeSite';
 import {
   contractorCreateSchema,
   contractorUpdateSchema,
@@ -40,7 +40,10 @@ export const placesRouter = crudRouter({
   updateSchema: placeUpdateSchema,
   orderBy: { name: 'asc' },
   writeRoles: ['ADMIN'],
-  beforeWrite: (body, ctx) => assertPlaceSiteUnique(body.name as string, body.site as number | null | undefined, ctx.id),
+  beforeWrite: async (body, ctx) => {
+    const existing = ctx.id !== undefined ? await prisma.place.findUnique({ where: { id: ctx.id }, select: { id: true, name: true, site: true } }) : null;
+    await checkAndSyncPlaceSite(body.name as string, body.site as number | null | undefined, existing ?? undefined);
+  },
 });
 
 export const inspectorsRouter = crudRouter({
