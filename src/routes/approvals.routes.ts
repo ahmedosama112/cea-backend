@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
+import ExcelJS from 'exceljs';
 import { prisma } from '../config/prisma';
 import { AppError } from '../utils/AppError';
 import { asyncHandler } from '../utils/asyncHandler';
@@ -7,7 +8,7 @@ import { validate } from '../middlewares/validate';
 import { requireWindow } from '../middlewares/windowGuard';
 import { idParamSchema } from '../utils/crudFactory';
 import { getApprovalLevels, APPROVING_GRADES, buildChain, nextLevel, resolveChainForUser, soleProjectManagerId, pushSubmissionToSheet, signedFileBuffer, ChainUser } from '../services/approvalChain';
-import { countDataRows } from '../services/rowReject';
+import { countDataRows, readLaborRow } from '../services/rowReject';
 import { storage } from '../services/storage';
 import { listProjects } from '../services/placeSite';
 
@@ -28,6 +29,7 @@ const SUB_INCLUDE = {
     } } } },
   reviews: { orderBy: { createdAt: 'asc' as const }, include: { byUser: { select: { email: true, displayName: true, title: true } } } },
   rowRejections: { orderBy: { createdAt: 'asc' as const }, include: { byUser: { select: { email: true, displayName: true, title: true } } } },
+  rowEdits: { orderBy: { createdAt: 'asc' as const }, include: { byUser: { select: { email: true, displayName: true, title: true } } } },
 } as const;
 
 function shape(s: Record<string, unknown> & { weekStart: Date; weekEnd: Date; createdAt: Date }) {
@@ -101,6 +103,10 @@ approvalsRoutes.get(
         const namesSrc = up ?? u;
         const chain = buildChain(chainUser, solePmId);
         const inChain = chain.some((c) => c.level === r.currentLevel);
+        const canAct = myLevel !== 'viewer' && r.reviewState === 'IN_REVIEW'
+          && (isAdmin
+            || r.currentApproverId === myId
+            || (r.currentApproverId === null && isApprover && r.currentLevel === myLevel));
         return {
           ...shape(r as never),
           projectName: projectNameOf(r.projectId as number | null),
@@ -117,10 +123,9 @@ approvalsRoutes.get(
           isStuck: r.reviewState === 'IN_REVIEW' && !inChain,
           // دور المعتمد ده دلوقتي: الكشف مسند له، أو كشف قديم واقف عند مستوى درجته
           // درجة 'viewer' ممنوعة من أي إجراء دايمًا (myLevel !== 'viewer') حتى لو كان مسند فعليًا بالغلط
-          canAct: myLevel !== 'viewer' && r.reviewState === 'IN_REVIEW'
-            && (isAdmin
-              || r.currentApproverId === myId
-              || (r.currentApproverId === null && isApprover && r.currentLevel === myLevel)),
+          canAct,
+          // تعديل سطر: لمدير المشروع بس، وقت دوره، وكشوف العمالة بس (المعدات مالهاش تخطيط أعمدة العدد/السعر ده)
+          canEdit: canAct && myLevel === 'project manager' && r.kind !== 'equipment',
         };
       }),
     });
@@ -215,6 +220,94 @@ approvalsRoutes.post(
       await prisma.submission.update({ where: { id }, data: { reviewState: 'RETURNED', currentLevel: null, currentApproverId: null } });
     }
     res.status(201).json({ success: true, data: { ...rejection, id: rejection.id.toString(), submissionId: rejection.submissionId.toString(), byUserId: rejection.byUserId?.toString() ?? null }, fullyRejected, struck, total });
+  }),
+);
+
+function round2(n: number): number { return Math.round(n * 100) / 100; }
+
+// ── تعديل سطر: لمدير المشروع بس، بدل شطبه — العدد/السعر/البيان/الخصم على، بسبب إلزامي ──
+// الكشف يكمّل السلسلة عادي (مفيش رجوع للمهندس). كشوف العمالة بس (المعدات مالهاش نفس التخطيط).
+approvalsRoutes.post(
+  '/:id/rows/edit',
+  requireWindow('approve'),
+  validate({ params: idParamSchema, body: z.object({
+    sheetIndex: z.coerce.number().int().min(0).max(200),
+    row: z.coerce.number().int().min(8).max(14),
+    label: z.string().trim().min(1).max(190),
+    note: z.string().trim().min(1, 'اكتب سبب التعديل').max(500),
+    qty: z.coerce.number().positive().max(100000).optional(),
+    price: z.coerce.number().min(0).max(10000000).optional(),
+    notes: z.string().trim().max(1000).optional(),
+    deduct: z.string().trim().max(1000).optional(),
+  }) }),
+  asyncHandler(async (req: Request, res: Response) => {
+    const id = BigInt(req.params.id);
+    const { sheetIndex, row, label, note, qty, price, notes, deduct } = req.body as {
+      sheetIndex: number; row: number; label: string; note: string;
+      qty?: number; price?: number; notes?: string; deduct?: string;
+    };
+    if (qty === undefined && price === undefined && notes === undefined && deduct === undefined) {
+      throw AppError.validation('مفيش تعديل');
+    }
+    const sub = await prisma.submission.findUnique({ where: { id }, include: { file: true, rowRejections: true, rowEdits: true } });
+    if (!sub) throw AppError.notFound('الكشف غير موجود');
+    if (sub.reviewState !== 'IN_REVIEW') throw AppError.validation('الكشف مش في مرحلة مراجعة');
+    if (sub.kind !== 'labor') throw AppError.validation('تعديل السطور متاح لكشوف العمالة بس');
+    const me = await prisma.user.findUnique({ where: { id: req.user!.id }, select: { grade: true } });
+    if (me?.grade !== 'project manager') throw AppError.forbidden('تعديل السطور لمدير المشروع بس');
+    // الأدمن ما بيتخطاش الشرط ده هنا (عكس باقي إجراءات الاعتماد) — لازم يكون دور مدير المشروع فعلًا على الكشف ده
+    const isApprover = (APPROVING_GRADES as readonly string[]).includes(me.grade);
+    const mine = sub.currentApproverId === req.user!.id || (sub.currentApproverId === null && isApprover && me.grade === sub.currentLevel);
+    if (!mine) throw AppError.forbidden('مش دورك في الاعتماد على الكشف ده دلوقتي');
+    if (sub.rowRejections.some((r) => r.revision === sub.revision && r.sheetIndex === sheetIndex && r.row === row)) throw AppError.validation('السطر ده مشطوب');
+
+    const original = await storage.read(sub.file.filePath).catch(() => null);
+    if (!original) throw AppError.validation('ملف الكشف الأصلي مش موجود على السيرفر');
+    let wb: ExcelJS.Workbook;
+    try {
+      wb = new ExcelJS.Workbook();
+      await wb.xlsx.load(original as unknown as ArrayBuffer);
+    } catch {
+      throw AppError.validation('تعذّرت قراءة ملف الكشف');
+    }
+    const ws = wb.worksheets[sheetIndex];
+    if (!ws) throw AppError.validation('الورقة غير موجودة');
+    const dateVal = ws.getCell(row, 13).value;
+    const totalVal = ws.getCell(row, 8).value;
+    if (!dateVal || totalVal == null || totalVal === '') throw AppError.validation('السطر ده مفيهوش بيانات');
+    const orig = readLaborRow(ws, row);
+    if (orig.multi && (qty !== undefined || price !== undefined)) {
+      throw AppError.validation('السطر فيه أكتر من سجل في نفس اليوم — تقدر تعدّل البيان أو الخصم بس، أو تشطبه');
+    }
+
+    const existing = sub.rowEdits.find((e) => e.revision === sub.revision && e.sheetIndex === sheetIndex && e.row === row);
+    const qtyTo = qty !== undefined ? String(qty) : (existing?.qtyTo ?? null);
+    const qtyFrom = qty !== undefined ? (existing?.qtyFrom ?? (orig.qty != null ? String(orig.qty) : null)) : (existing?.qtyFrom ?? null);
+    const priceTo = price !== undefined ? String(price) : (existing?.priceTo ?? null);
+    const priceFrom = price !== undefined ? (existing?.priceFrom ?? (orig.price != null ? String(orig.price) : null)) : (existing?.priceFrom ?? null);
+    const notesTo = notes !== undefined ? notes : (existing?.notesTo ?? null);
+    const notesFrom = notes !== undefined ? (existing?.notesFrom ?? orig.notes) : (existing?.notesFrom ?? null);
+    const deductTo = deduct !== undefined ? deduct : (existing?.deductTo ?? null);
+    const deductFrom = deduct !== undefined ? (existing?.deductFrom ?? orig.deduct) : (existing?.deductFrom ?? null);
+    let totalTo: string | null = existing?.totalTo ?? null;
+    let totalFrom: string | null = existing?.totalFrom ?? null;
+    if (qtyTo != null || priceTo != null) {
+      const finalQty = qtyTo != null ? Number(qtyTo) : (orig.qty ?? 0);
+      const finalPrice = priceTo != null ? Number(priceTo) : (orig.price ?? 0);
+      totalTo = String(round2(finalQty * finalPrice));
+      totalFrom = existing?.totalFrom ?? String(orig.total);
+    }
+
+    const data = {
+      label, level: me.grade, note, byUserId: req.user!.id,
+      qtyFrom, qtyTo, priceFrom, priceTo, notesFrom, notesTo, deductFrom, deductTo, totalFrom, totalTo,
+    };
+    const edit = await prisma.submissionRowEdit.upsert({
+      where: { submissionId_revision_sheetIndex_row: { submissionId: id, revision: sub.revision, sheetIndex, row } },
+      create: { submissionId: id, revision: sub.revision, sheetIndex, row, ...data },
+      update: data,
+    });
+    res.status(201).json({ success: true, data: { ...edit, id: edit.id.toString(), submissionId: edit.submissionId.toString(), byUserId: edit.byUserId?.toString() ?? null } });
   }),
 );
 

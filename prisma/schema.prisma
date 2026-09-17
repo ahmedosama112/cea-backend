@@ -110,6 +110,7 @@ model User {
   PurchaseRequest     PurchaseRequest[]
   submissionReviews   SubmissionReview[]
   rowRejections       SubmissionRowRejection[]
+  rowEdits            SubmissionRowEdit[]
   activityLogs        ActivityLog[]
   equipmentRecords    EquipmentRecord[]
   notifications       Notification[]       @relation("NotificationAuthor")
@@ -613,6 +614,7 @@ model Submission {
   file    File               @relation(fields: [fileId], references: [id], onDelete: Cascade)
   reviews SubmissionReview[]
   rowRejections SubmissionRowRejection[]
+  rowEdits      SubmissionRowEdit[]
 
   @@index([userId, createdAt])
   @@index([status])
@@ -640,6 +642,40 @@ model SubmissionRowRejection {
 
   @@unique([submissionId, revision, sheetIndex, row], map: "srr_sub_rev_sheet_row_key") // اسم قصير: MySQL بيرفض أسماء الفهارس > 64 حرف
   @@map("submission_row_rejections")
+}
+
+// تعديل سطر (يوم) في الكشف — لمدير المشروع بس، بدل شطبه: العدد/السعر/البيان/الخصم على، بسبب إلزامي.
+// الكشف يكمّل السلسلة عادي (مفيش رجوع للمهندس). القيم الأصلية (from) بتتاخد من ملف المهندس الأصلي وقت أول تعديل
+// على الخانة، وبتفضل ثابتة حتى لو المدير عدّل تاني — عشان "قبل/بعد" يفضل مقارنة بالأصل مش بآخر تعديل.
+model SubmissionRowEdit {
+  id           BigInt   @id @default(autoincrement())
+  submissionId BigInt   @map("submission_id")
+  revision     Int      @default(0)
+  sheetIndex   Int      @map("sheet_index")
+  row          Int
+  label        String   @db.VarChar(190)
+  level        String   @db.VarChar(60)
+  note         String   @db.VarChar(500) // سبب التعديل (إلزامي)
+  // القيم قبل/بعد — null = الخانة ما اتعدّلتش. from = القيمة في ملف المهندس الأصلي
+  qtyFrom    String? @map("qty_from") @db.VarChar(60)
+  qtyTo      String? @map("qty_to") @db.VarChar(60)
+  priceFrom  String? @map("price_from") @db.VarChar(60)
+  priceTo    String? @map("price_to") @db.VarChar(60)
+  notesFrom  String? @map("notes_from") @db.Text
+  notesTo    String? @map("notes_to") @db.Text
+  deductFrom String? @map("deduct_from") @db.Text
+  deductTo   String? @map("deduct_to") @db.Text
+  totalFrom  String? @map("total_from") @db.VarChar(60)
+  totalTo    String? @map("total_to") @db.VarChar(60)
+  byUserId   BigInt?  @map("by_user_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  submission Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  byUser     User?      @relation(fields: [byUserId], references: [id], onDelete: SetNull)
+
+  @@unique([submissionId, revision, sheetIndex, row], map: "sre_sub_rev_sheet_row_key")
+  @@map("submission_row_edits")
 }
 
 // قرار اعتماد واحد على كشف من مستوى معيّن — سجل تدقيق كامل (مين/امتى/القرار/الملاحظة/النسخة)

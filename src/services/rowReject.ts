@@ -10,6 +10,9 @@ import ExcelJS from 'exceljs';
 export type Kind = 'labor' | 'equipment';
 export type RowRejection = { sheetIndex: number; row: number; level: string; note: string | null };
 
+// تعديل سطر (لمدير المشروع بس، عمالة فقط) — كل خانة بقيمة جديدة أو null (ما اتعدّلتش)
+export type RowEdit = { sheetIndex: number; row: number; level: string; note: string; qtyTo?: string | null; priceTo?: string | null; notesTo?: string | null; deductTo?: string | null };
+
 const LAYOUT = {
   labor: { firstRow: 8, lastRow: 14, dateCol: 13, valueCol: 8, noteCol: 3, totalRow: 15 },
   equipment: { firstRow: 8, lastRow: 12, dateCol: 13, valueCol: 7, noteCol: 1, totalRow: 13 },
@@ -25,6 +28,24 @@ function minutesOf(v: ExcelJS.CellValue): number {
   return m ? Number(m[1]) * 60 + Number(m[2]) : 0;
 }
 function fmtMinutes(m: number): string { return '‏' + Math.floor(m / 60) + ':' + String(m % 60).padStart(2, '0'); }
+function round2(n: number): number { return Math.round(n * 100) / 100; }
+
+// قراءة سطر يوم عمالة (عمود 11 العدد، 9 السعر، 8 الإجمالي، 3 البيان، 2 الخصم على). "multi" = اليوم فيه أكتر من
+// سجل مدموجين في نفس الخلية (سطور بـ '\n') — العدد/السعر ساعتها نص مش رقم واحد، فمش قابلين للتعديل.
+export function readLaborRow(ws: ExcelJS.Worksheet, row: number): { qtyText: string; qty: number | null; qtyType: string; price: number | null; total: number; notes: string; deduct: string; multi: boolean } {
+  const qtyText = text(ws.getCell(row, 11).value);
+  const multi = qtyText.includes('\n');
+  const firstLine = (multi ? qtyText.split('\n')[0] : qtyText).replace(/‏/g, '').trim();
+  const m = firstLine.match(/^([\d.]+)\s*(.*)$/);
+  const qty = m ? Number(m[1]) : null;
+  const qtyType = (m && m[2].trim()) || 'يومية';
+  const priceVal = ws.getCell(row, 9).value;
+  const price = typeof priceVal === 'number' ? priceVal : null;
+  const total = Number(ws.getCell(row, 8).value) || 0;
+  const notes = text(ws.getCell(row, 3).value);
+  const deduct = text(ws.getCell(row, 2).value);
+  return { qtyText, qty, qtyType, price, total, notes, deduct, multi };
+}
 
 // صفوف الأيام اللي فيها بيانات فعلًا في ورقة (تاريخ + قيمة) — الأساس لحساب "كل السطور اتشطبت"
 export function dataRowsOf(ws: ExcelJS.Worksheet, kind: Kind): number[] {
@@ -151,6 +172,66 @@ export async function applyRowRejections(buffer: Buffer, rejections: RowRejectio
       for (const ws of list) for (let r = L.firstRow; r <= L.lastRow; r++) { const m = minutesOf(ws.getCell(r, L.valueCol).value); if (m > 0) { mins += m; days++; } }
       for (const ws of list) ws.getCell(L.totalRow, 6).value = `إجمالي الشهر: ${fmtMinutes(mins).replace(/‏/g, '')} ساعة (${days} يوم تشغيل)`;
     }
+  }
+  return Buffer.from(await wb.xlsx.writeBuffer());
+}
+
+// ═══════════ تعديل سطر (لمدير المشروع بس) — عمالة فقط ═══════════
+// بديل الشطب: العدد/السعر/البيان/الخصم على بتتغيّر مباشرة (مش السطر كله بيتلغي)، والكشف يكمّل السلسلة عادي.
+// mode 'strike' (المعاينة جوه التطبيق): تلوين كهرماني خفيف + سطر إضافي في خانة الملاحظات يوضّح التعديل.
+// mode 'clear' (النسخة اللي بتتختم وتروح جوجل/الـ DC): القيم الجديدة بس، من غير أي أثر تعديل.
+export async function applyRowEdits(buffer: Buffer, edits: RowEdit[], mode: RejectMode = 'strike'): Promise<Buffer> {
+  if (!edits.length) return buffer;
+  const L = LAYOUT.labor;
+  let wb: ExcelJS.Workbook;
+  try {
+    wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(buffer as unknown as ArrayBuffer);
+  } catch {
+    return buffer;
+  }
+  const touched = new Set<number>();
+  for (const ed of edits) {
+    const ws = wb.worksheets[ed.sheetIndex];
+    if (!ws || ed.row < L.firstRow || ed.row > L.lastRow) continue;
+    touched.add(ed.sheetIndex);
+    const cur = readLaborRow(ws, ed.row);
+    let qtyChanged = false;
+    let priceChanged = false;
+    if (ed.qtyTo != null) {
+      ws.getCell(ed.row, 11).value = '‏' + ed.qtyTo + ' ' + cur.qtyType;
+      qtyChanged = true;
+    }
+    if (ed.priceTo != null) {
+      ws.getCell(ed.row, 9).value = Number(ed.priceTo);
+      priceChanged = true;
+    }
+    if ((qtyChanged || priceChanged) && !cur.multi) {
+      const q = ed.qtyTo != null ? Number(ed.qtyTo) : cur.qty;
+      const p = ed.priceTo != null ? Number(ed.priceTo) : cur.price;
+      if (q != null && p != null) ws.getCell(ed.row, L.valueCol).value = round2(q * p);
+    }
+    if (ed.notesTo != null) ws.getCell(ed.row, 3).value = ed.notesTo;
+    if (ed.deductTo != null) ws.getCell(ed.row, 2).value = ed.deductTo;
+    if (mode === 'strike') {
+      // ⚠ زي applyRowRejections بالظبط: لازم ننسخ الـstyle للخلية دي بس، وإلا التلوين بيسري على الشيت كله
+      for (let c = 1; c <= 13; c++) {
+        const cell = ws.getCell(ed.row, c);
+        cell.style = { ...cell.style, fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF4D6' } } };
+      }
+      const noteCell = ws.getCell(ed.row, L.noteCol);
+      const prev = text(noteCell.value);
+      noteCell.value = (prev ? prev + '\n' : '') + `✏️ معدّل (${ed.level}): ${ed.note}`;
+      noteCell.style = { ...noteCell.style, alignment: { ...(noteCell.style.alignment || {}), wrapText: true } };
+      ws.getRow(ed.row).height = Math.max(Number(ws.getRow(ed.row).height) || 30, 44);
+    }
+  }
+  for (const idx of touched) {
+    const ws = wb.worksheets[idx];
+    if (!ws) continue;
+    let sum = 0;
+    for (let r = L.firstRow; r <= L.lastRow; r++) sum += Number(ws.getCell(r, L.valueCol).value) || 0;
+    ws.getCell(L.totalRow, L.valueCol).value = sum;
   }
   return Buffer.from(await wb.xlsx.writeBuffer());
 }

@@ -2,7 +2,7 @@ import { prisma } from '../config/prisma';
 import { storage } from './storage';
 import { pushSubmissionToGoogle } from './googleSheet';
 import { stampSignatures, hasSignatureBox, LevelSignature } from './signStamp';
-import { applyRowRejections, workbookLaborTotal, Kind, RejectMode } from './rowReject';
+import { applyRowRejections, applyRowEdits, workbookLaborTotal, Kind, RejectMode, RowEdit } from './rowReject';
 
 // ═══════════ سلسلة اعتمادات المديرين (داخل التطبيق قبل جوجل شيت) ═══════════
 // الكشف بيعدّي على المعتمدين المسندين لصاحبه بالترتيب؛ وبس بعد ما يخلص كلهم بيتبعت لجوجل شيت.
@@ -164,6 +164,7 @@ export async function pushSubmissionToSheet(submissionId: bigint): Promise<void>
         include: { byUser: { select: { email: true, displayName: true, title: true, accountSettings: { select: { signatureFile: true } } } } },
       },
       rowRejections: { orderBy: { createdAt: 'asc' } },
+      rowEdits: { orderBy: { createdAt: 'asc' } },
     },
   });
   if (!sub) return;
@@ -180,7 +181,7 @@ export async function pushSubmissionToSheet(submissionId: bigint): Promise<void>
     }
   }
   // اسم المهندس في الشيت: الاسم بالعربي لو محدد، وإلا أول الإيميل (زي زمان)
-  await pushSubmissionToGoogle(sub.id, toSend, sub.file.fileName, sub.user.displayName || sub.user.email.split('@')[0], sub.user.project ?? null, sub.site, approvalSummary(sub.reviews, sub.revision, sub.rowRejections));
+  await pushSubmissionToGoogle(sub.id, toSend, sub.file.fileName, sub.user.displayName || sub.user.email.split('@')[0], sub.user.project ?? null, sub.site, approvalSummary(sub.reviews, sub.revision, sub.rowRejections, sub.rowEdits));
 }
 
 // ملف الكشف **موقّعًا** بتوقيعات معتمدي النسخة الحالية — نفس النسخة اللي بتتبعت لجوجل.
@@ -198,6 +199,7 @@ export async function signedFileBuffer(submissionId: bigint, mode: RejectMode = 
         include: { byUser: { select: { email: true, displayName: true, title: true, accountSettings: { select: { signatureFile: true } } } } },
       },
       rowRejections: true,
+      rowEdits: true,
     },
   });
   if (!sub) return null;
@@ -205,7 +207,7 @@ export async function signedFileBuffer(submissionId: bigint, mode: RejectMode = 
   if (!original) return null;
   // السطور المشطوبة (النسخة الحالية) بتتطبق على الملف قبل الختم — نفس اللي بيشوفه المعتمدين وبيوصل جوجل
   // النسخة النهائية (تتختم وتروح جوجل/الـ DC): السطور المشطوبة بتبقى أيام فاضية — نضيفة بلا أثر أحمر (السبب في خانة سلسلة الاعتماد بالشيت)
-  const buffer = await rejectedFileBuffer(original, sub.rowRejections, sub.revision, sub.kind as Kind, mode);
+  const buffer = await rejectedFileBuffer(original, sub.rowRejections, sub.revision, sub.kind as Kind, mode, sub.rowEdits);
   try {
     const sigs = await collectSignatures(sub.reviews, sub.revision);
     if (!sigs.length) return buffer;
@@ -218,17 +220,29 @@ export async function signedFileBuffer(submissionId: bigint, mode: RejectMode = 
   }
 }
 
-// الملف بعد تطبيق شطب السطور (النسخة الحالية فقط) — بيُستخدم أثناء المراجعة (للمعتمدين اللي بعده) وقبل الختم
+// الملف بعد تطبيق تعديل/شطب السطور (النسخة الحالية فقط) — بيُستخدم أثناء المراجعة (للمعتمدين اللي بعده) وقبل الختم
+// التعديلات (مدير المشروع) بتتطبق الأول ثم الشطب — سطر اتعدّل ثم اتشطب (حالة نادرة) يفضل شطب في النهاية.
 type RowRejectionRow = { revision: number; sheetIndex: number; row: number; level: string; note: string | null };
-export async function rejectedFileBuffer(original: Buffer, rejections: RowRejectionRow[], revision: number, kind: Kind, mode: RejectMode = 'strike'): Promise<Buffer> {
-  const cur = rejections.filter((r) => r.revision === revision);
-  if (!cur.length) return original;
+type RowEditRow = { revision: number; sheetIndex: number; row: number; level: string; note: string; qtyTo: string | null; priceTo: string | null; notesTo: string | null; deductTo: string | null };
+export async function rejectedFileBuffer(original: Buffer, rejections: RowRejectionRow[], revision: number, kind: Kind, mode: RejectMode = 'strike', edits: RowEditRow[] = []): Promise<Buffer> {
+  const curRej = rejections.filter((r) => r.revision === revision);
+  const curEdits = edits.filter((e) => e.revision === revision);
+  if (!curRej.length && !curEdits.length) return original;
+  let buffer = original;
   try {
-    return await applyRowRejections(original, cur, kind === 'equipment' ? 'equipment' : 'labor', mode);
+    if (curEdits.length && kind !== 'equipment') {
+      const asEdits: RowEdit[] = curEdits.map((e) => ({ sheetIndex: e.sheetIndex, row: e.row, level: e.level, note: e.note, qtyTo: e.qtyTo, priceTo: e.priceTo, notesTo: e.notesTo, deductTo: e.deductTo }));
+      buffer = await applyRowEdits(buffer, asEdits, mode);
+    }
+  } catch (e) {
+    console.error('[approval] فشل تطبيق تعديل السطور — استُخدم الأصل', (e as Error).message);
+  }
+  try {
+    if (curRej.length) buffer = await applyRowRejections(buffer, curRej, kind === 'equipment' ? 'equipment' : 'labor', mode);
   } catch (e) {
     console.error('[approval] فشل تطبيق شطب السطور — استُخدم الأصل', (e as Error).message);
-    return original;
   }
+  return buffer;
 }
 
 // توقيعات المستوى الواحد بتيجي من حساب المعتمد نفسه (نفس التوقيع اللي بيرفعه من شاشة "توقيع المهندس").
@@ -266,7 +280,8 @@ export async function collectSignatures(reviews: SignatureReview[], revision: nu
 // مثال: "team leader: ✅ معتمد (ahmed) 03/09 22:10 | project manager: 📝 بملاحظات: راجع الإجمالي (mostafa) 03/09 22:40"
 type ReviewRow = { level: string; decision: string; note: string | null; revision: number; createdAt: Date; byUser: { email: string; displayName?: string | null; title: string | null } | null };
 type RejectionRow = { revision: number; label: string; level: string; note: string | null };
-export function approvalSummary(reviews: ReviewRow[], revision: number, rowRejections: RejectionRow[] = []): string {
+type EditRow = { revision: number; label: string; level: string; note: string; qtyFrom: string | null; qtyTo: string | null; priceFrom: string | null; priceTo: string | null; totalFrom: string | null; totalTo: string | null; notesTo: string | null; deductTo: string | null };
+export function approvalSummary(reviews: ReviewRow[], revision: number, rowRejections: RejectionRow[] = [], rowEdits: EditRow[] = []): string {
   const label: Record<string, string> = { APPROVED: '✅ معتمد', APPROVED_NOTES: '📝 بملاحظات', REJECTED: '❌ مرفوض' };
   const fmt = (d: Date) => {
     const p = (n: number) => String(n).padStart(2, '0');
@@ -280,9 +295,19 @@ export function approvalSummary(reviews: ReviewRow[], revision: number, rowRejec
     });
   // السطور المشطوبة (رفض جزئي) — بتظهر في خانة سلسلة الاعتماد كمان عشان الـ DC يعرف إيه اللي اتشال
   const struck = rowRejections.filter((r) => r.revision === revision).map((r) => `❌ سطر مشطوب: ${r.label} — ${r.level}${r.note ? ': ' + r.note : ''}`);
-  if (!parts.length && !struck.length) return 'اتبعت مباشرة (مفيش معتمدين مضبوطين في التطبيق)';
+  // السطور المعدّلة (مدير المشروع) — بتظهر في خانة سلسلة الاعتماد عشان الـ DC يعرف إيه اللي اتغيّر وليه
+  const edited = rowEdits.filter((e) => e.revision === revision).map((e) => {
+    const bits: string[] = [];
+    if (e.qtyTo != null) bits.push(`العدد ${e.qtyFrom ?? '—'}→${e.qtyTo}`);
+    if (e.priceTo != null) bits.push(`السعر ${e.priceFrom ?? '—'}→${e.priceTo}`);
+    if (e.totalTo != null) bits.push(`الإجمالي ${e.totalFrom ?? '—'}→${e.totalTo}`);
+    if (e.notesTo != null) bits.push('البيان اتعدّل');
+    if (e.deductTo != null) bits.push('الخصم اتعدّل');
+    return `✏️ سطر معدّل: ${e.label} — ${bits.join(' · ')} — ${e.level}: ${e.note}`;
+  });
+  if (!parts.length && !struck.length && !edited.length) return 'اتبعت مباشرة (مفيش معتمدين مضبوطين في التطبيق)';
   // كل اعتماد في سطر (الخانة في الشيت wrap) — أوضح من الفصل بـ |
-  return (revision > 0 ? `نسخة ${revision}\n` : '') + [...parts, ...struck].join('\n');
+  return (revision > 0 ? `نسخة ${revision}\n` : '') + [...parts, ...struck, ...edited].join('\n');
 }
 
 // بدء السلسلة لكشف جديد (أو إعادة إرسال): أول معتمد مسند لصاحب الكشف.
