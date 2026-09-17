@@ -462,6 +462,72 @@ describe('اعتمادات المديرين', () => {
   });
 });
 
+describe('ريأكشن وكومنت على كشوف الاعتمادات + إحصاءات الطابور', () => {
+  let admin: TestUser, eng: TestUser, tl: TestUser;
+
+  beforeAll(async () => {
+    await resetDb();
+    admin = await createAdmin();
+    eng = await createEngineer(admin.token, 'eng-rc@test.com');
+    tl = await createEngineer(admin.token, 'tl-rc@test.com');
+    await patchUser(admin.token, tl.id, { grade: 'team leader' });
+    await patchUser(admin.token, eng.id, { approverTlId: tl.id });
+    await enableApprovals(admin.token, tl.id);
+  });
+  afterAll(async () => { await prisma.$disconnect(); });
+
+  it('ريأكشن: إضافة ثم تبديل (toggle) يشيله', async () => {
+    const res = await submit(eng.token);
+    const id = res.body.data.id;
+    const add = await request(app).post(`/api/approvals/${id}/react`).set(auth(tl.token)).send({ emoji: '👍' });
+    expect(add.status).toBe(200);
+    expect(add.body.data.filter((c: { kind: string; body: string }) => c.kind === 'reaction' && c.body === '👍')).toHaveLength(1);
+    const remove = await request(app).post(`/api/approvals/${id}/react`).set(auth(tl.token)).send({ emoji: '👍' });
+    expect(remove.status).toBe(200);
+    expect(remove.body.data.filter((c: { kind: string; body: string }) => c.kind === 'reaction')).toHaveLength(0);
+  });
+
+  it('إيموجي غير مسموح يترفض بـ400', async () => {
+    const res = await submit(eng.token);
+    const id = res.body.data.id;
+    const bad = await request(app).post(`/api/approvals/${id}/react`).set(auth(tl.token)).send({ emoji: '🍕' });
+    expect(bad.status).toBe(400);
+  });
+
+  it('كومنت: إنشاء، وحذف بواسطة غير الكاتب ممنوع، وبواسطة الكاتب مسموح', async () => {
+    const res = await submit(eng.token);
+    const id = res.body.data.id;
+    const create = await request(app).post(`/api/approvals/${id}/comments`).set(auth(tl.token)).send({ body: 'محتاج توضيح على السطر التاني' });
+    expect(create.status).toBe(201);
+    const comment = create.body.data.find((c: { kind: string }) => c.kind === 'comment');
+    expect(comment.body).toBe('محتاج توضيح على السطر التاني');
+
+    const deniedDelete = await request(app).delete(`/api/approvals/${id}/comments/${comment.id}`).set(auth(admin.token));
+    // الأدمن مسموح يحذف — نتأكد إن غير الكاتب وغير الأدمن ممنوع باستخدام حساب تالت
+    expect(deniedDelete.status).toBe(200);
+
+    const create2 = await request(app).post(`/api/approvals/${id}/comments`).set(auth(tl.token)).send({ body: 'تعليق تاني' });
+    const c2 = create2.body.data.find((c: { kind: string }) => c.kind === 'comment');
+    const other = await createEngineer(admin.token, 'other-rc@test.com');
+    const forbidden = await request(app).delete(`/api/approvals/${id}/comments/${c2.id}`).set(auth(other.token));
+    expect(forbidden.status).toBe(403);
+    const ok = await request(app).delete(`/api/approvals/${id}/comments/${c2.id}`).set(auth(tl.token));
+    expect(ok.status).toBe(200);
+    expect(ok.body.data.filter((c: { kind: string }) => c.kind === 'comment')).toHaveLength(0);
+  });
+
+  it('إحصاءات الطابور: أرقام صحيحة', async () => {
+    const stats = await request(app).get('/api/approvals/stats').set(auth(tl.token));
+    expect(stats.status).toBe(200);
+    expect(typeof stats.body.data.pending).toBe('number');
+    expect(typeof stats.body.data.myTurn).toBe('number');
+    expect(typeof stats.body.data.approvedToday).toBe('number');
+    expect(typeof stats.body.data.returnedToday).toBe('number');
+    expect(typeof stats.body.data.staleOver24h).toBe('number');
+    expect(stats.body.data.pending).toBeGreaterThan(0);
+  });
+});
+
 describe('نمط clear: الورقة اللي بتتفضّى بالكامل بعد الشطب تتشال قبل ما توصل للتوقيع والـ DC', () => {
   it('كل صفوف الورقة التانية اتشطبت → المصنّف يفضل بورقة واحدة (الأولى)', async () => {
     const raw = await twoSheetLaborXlsx();

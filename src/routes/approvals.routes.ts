@@ -30,7 +30,11 @@ const SUB_INCLUDE = {
   reviews: { orderBy: { createdAt: 'asc' as const }, include: { byUser: { select: { email: true, displayName: true, title: true } } } },
   rowRejections: { orderBy: { createdAt: 'asc' as const }, include: { byUser: { select: { email: true, displayName: true, title: true } } } },
   rowEdits: { orderBy: { createdAt: 'asc' as const }, include: { byUser: { select: { email: true, displayName: true, title: true } } } },
+  comments: { orderBy: { createdAt: 'asc' as const }, include: { user: { select: { id: true, email: true, displayName: true, title: true } } } },
 } as const;
+
+// إيموجيهات الريأكشن المسموحة — قائمة مغلقة، السيرفر بيرفض أي حاجة غيرها
+const REACTION_EMOJIS = ['👍', '❤️', '🔥', '👏', '⚠️', '😂'] as const;
 
 function shape(s: Record<string, unknown> & { weekStart: Date; weekEnd: Date; createdAt: Date }) {
   return {
@@ -46,6 +50,28 @@ approvalsRoutes.get(
   '/levels',
   asyncHandler(async (_req: Request, res: Response) => {
     res.json({ success: true, data: await getApprovalLevels() });
+  }),
+);
+
+// إحصاءات سريعة لشريط أعلى تاب الاعتمادات — أرقام بس (بدون تفاصيل) عشان تفضل خفيفة.
+// مسجّل قبل أي مسار '/:id' عشان "stats" ما تتفسّرش كـ id.
+approvalsRoutes.get(
+  '/stats',
+  asyncHandler(async (req: Request, res: Response) => {
+    const myId = req.user!.id;
+    // "النهارده" بتوقيت القاهرة — السيرفر على Railway شغال UTC فمنتصف الليل المحلي بتاعه متأخر 3 ساعات
+    const now = new Date();
+    const cairoNow = new Date(now.toLocaleString('en-US', { timeZone: 'Africa/Cairo' }));
+    const cairoMidnight = new Date(cairoNow); cairoMidnight.setHours(0, 0, 0, 0);
+    const dayStart = new Date(now.getTime() - (cairoNow.getTime() - cairoMidnight.getTime()));
+    const [pending, myTurn, approvedToday, returnedToday, staleOver24h] = await Promise.all([
+      prisma.submission.count({ where: { reviewState: 'IN_REVIEW', queueHiddenAt: null } }),
+      prisma.submission.count({ where: { reviewState: 'IN_REVIEW', queueHiddenAt: null, currentApproverId: myId } }),
+      prisma.submissionReview.findMany({ where: { decision: { in: ['APPROVED', 'APPROVED_NOTES'] }, createdAt: { gte: dayStart } }, select: { submissionId: true }, distinct: ['submissionId'] }).then((r) => r.length),
+      prisma.submissionReview.findMany({ where: { decision: 'REJECTED', createdAt: { gte: dayStart } }, select: { submissionId: true }, distinct: ['submissionId'] }).then((r) => r.length),
+      prisma.submission.count({ where: { reviewState: 'IN_REVIEW', queueHiddenAt: null, updatedAt: { lt: new Date(Date.now() - 24 * 60 * 60 * 1000) } } }),
+    ]);
+    res.json({ success: true, data: { pending, myTurn, approvedToday, returnedToday, staleOver24h } });
   }),
 );
 
@@ -371,5 +397,75 @@ approvalsRoutes.post(
     }
     const fresh = await prisma.submission.findUnique({ where: { id }, include: SUB_INCLUDE });
     res.json({ success: true, data: shape(fresh as never) });
+  }),
+);
+
+function shapeComments(list: Array<{ id: bigint; submissionId: bigint; userId: bigint; kind: string; body: string; createdAt: Date; user: { id: bigint; email: string; displayName: string | null; title: string | null } }>) {
+  return list.map((c) => ({
+    id: c.id.toString(),
+    submissionId: c.submissionId.toString(),
+    userId: c.userId.toString(),
+    kind: c.kind,
+    body: c.body,
+    createdAt: c.createdAt.toISOString(),
+    user: { id: c.user.id.toString(), email: c.user.email, displayName: c.user.displayName, title: c.user.title },
+  }));
+}
+
+async function freshComments(submissionId: bigint) {
+  const rows = await prisma.submissionComment.findMany({
+    where: { submissionId },
+    orderBy: { createdAt: 'asc' },
+    include: { user: { select: { id: true, email: true, displayName: true, title: true } } },
+  });
+  return shapeComments(rows);
+}
+
+// ريأكشن على كشف — تبديل: لو المستخدم حاط نفس الإيموجي قبل كده بيتشال، غير كده بيتضاف.
+// متاح لأي حساب عنده وحدة approvals (بما فيهم المشاهد — الرؤية والتفاعل للجميع)
+approvalsRoutes.post(
+  '/:id/react',
+  validate({ params: idParamSchema, body: z.object({ emoji: z.enum(REACTION_EMOJIS) }) }),
+  asyncHandler(async (req: Request, res: Response) => {
+    const id = BigInt(req.params.id);
+    const { emoji } = req.body as { emoji: typeof REACTION_EMOJIS[number] };
+    const sub = await prisma.submission.findUnique({ where: { id }, select: { id: true } });
+    if (!sub) throw AppError.notFound('الكشف غير موجود');
+    const existing = await prisma.submissionComment.findFirst({ where: { submissionId: id, userId: req.user!.id, kind: 'reaction', body: emoji } });
+    if (existing) {
+      await prisma.submissionComment.delete({ where: { id: existing.id } });
+    } else {
+      await prisma.submissionComment.create({ data: { submissionId: id, userId: req.user!.id, kind: 'reaction', body: emoji } });
+    }
+    res.json({ success: true, data: await freshComments(id) });
+  }),
+);
+
+// كومنت نصي على كشف
+approvalsRoutes.post(
+  '/:id/comments',
+  validate({ params: idParamSchema, body: z.object({ body: z.string().trim().min(1, 'اكتب تعليق').max(500) }) }),
+  asyncHandler(async (req: Request, res: Response) => {
+    const id = BigInt(req.params.id);
+    const sub = await prisma.submission.findUnique({ where: { id }, select: { id: true } });
+    if (!sub) throw AppError.notFound('الكشف غير موجود');
+    await prisma.submissionComment.create({ data: { submissionId: id, userId: req.user!.id, kind: 'comment', body: (req.body as { body: string }).body } });
+    res.status(201).json({ success: true, data: await freshComments(id) });
+  }),
+);
+
+// حذف كومنت — صاحبه أو الأدمن بس
+approvalsRoutes.delete(
+  '/:id/comments/:commentId',
+  validate({ params: idParamSchema.extend({ commentId: z.coerce.bigint() }) }),
+  asyncHandler(async (req: Request, res: Response) => {
+    const id = BigInt(req.params.id);
+    const commentId = BigInt(req.params.commentId);
+    const comment = await prisma.submissionComment.findUnique({ where: { id: commentId } });
+    if (!comment || comment.submissionId !== id) throw AppError.notFound('التعليق غير موجود');
+    const isAdmin = req.user!.role === 'ADMIN';
+    if (!isAdmin && comment.userId !== req.user!.id) throw AppError.forbidden('تقدر تمسح تعليقاتك إنت بس');
+    await prisma.submissionComment.delete({ where: { id: commentId } });
+    res.json({ success: true, data: await freshComments(id) });
   }),
 );

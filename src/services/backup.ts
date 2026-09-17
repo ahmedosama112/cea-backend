@@ -43,6 +43,7 @@ const BACKUP_TABLES: Array<{ key: string; model: string; rows: () => Promise<unk
   { key: 'submissionReviews', model: 'SubmissionReview', rows: () => prisma.submissionReview.findMany() },
   { key: 'submissionRowRejections', model: 'SubmissionRowRejection', rows: () => prisma.submissionRowRejection.findMany() },
   { key: 'submissionRowEdits', model: 'SubmissionRowEdit', rows: () => prisma.submissionRowEdit.findMany() },
+  { key: 'submissionComments', model: 'SubmissionComment', rows: () => prisma.submissionComment.findMany() },
   { key: 'appConfig', model: 'AppConfig', rows: () => prisma.appConfig.findMany() },
   { key: 'inventoryItems', model: 'InventoryItem', rows: () => prisma.inventoryItem.findMany() },
   { key: 'issueRequests', model: 'IssueRequest', rows: () => prisma.issueRequest.findMany() },

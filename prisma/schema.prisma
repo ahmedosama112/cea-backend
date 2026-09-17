@@ -112,6 +112,7 @@ model User {
   rowRejections       SubmissionRowRejection[]
   rowEdits            SubmissionRowEdit[]
   activityLogs        ActivityLog[]
+  submissionComments  SubmissionComment[]
   equipmentRecords    EquipmentRecord[]
   notifications       Notification[]       @relation("NotificationAuthor")
   notificationTargets NotificationTarget[]
@@ -615,6 +616,7 @@ model Submission {
   reviews SubmissionReview[]
   rowRejections SubmissionRowRejection[]
   rowEdits      SubmissionRowEdit[]
+  comments      SubmissionComment[]
 
   @@index([userId, createdAt])
   @@index([status])
@@ -695,6 +697,23 @@ model SubmissionReview {
 
   @@index([submissionId])
   @@map("submission_reviews")
+}
+
+// ريأكشن/كومنت على كشف في طابور "اعتمادات المديرين" — أي حساب عنده الوحدة (حتى المشاهد) يقدر يتفاعل.
+// kind='reaction': body = الإيموجي (من قائمة مغلقة) · kind='comment': body = نص الكومنت
+model SubmissionComment {
+  id           BigInt   @id @default(autoincrement())
+  submissionId BigInt   @map("submission_id")
+  userId       BigInt   @map("user_id")
+  kind         String   @db.VarChar(20)
+  body         String   @db.VarChar(500)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  submission Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([submissionId])
+  @@map("submission_comments")
 }
 
 // سجل نشاط الحسابات — الأدمن بيشوفه في كارت الحساب عشان يعرف سبب مشكلة دخول/مزامنة
