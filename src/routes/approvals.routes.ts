@@ -125,7 +125,7 @@ approvalsRoutes.get(
           // درجة 'viewer' ممنوعة من أي إجراء دايمًا (myLevel !== 'viewer') حتى لو كان مسند فعليًا بالغلط
           canAct,
           // تعديل سطر: لمدير المشروع بس، وقت دوره، وكشوف العمالة بس (المعدات مالهاش تخطيط أعمدة العدد/السعر ده)
-          canEdit: canAct && myLevel === 'project manager' && r.kind !== 'equipment',
+          canEdit: canAct && (isAdmin || myLevel === 'project manager') && r.kind !== 'equipment',
         };
       }),
     });
@@ -254,11 +254,15 @@ approvalsRoutes.post(
     if (sub.reviewState !== 'IN_REVIEW') throw AppError.validation('الكشف مش في مرحلة مراجعة');
     if (sub.kind !== 'labor') throw AppError.validation('تعديل السطور متاح لكشوف العمالة بس');
     const me = await prisma.user.findUnique({ where: { id: req.user!.id }, select: { grade: true } });
-    if (me?.grade !== 'project manager') throw AppError.forbidden('تعديل السطور لمدير المشروع بس');
-    // الأدمن ما بيتخطاش الشرط ده هنا (عكس باقي إجراءات الاعتماد) — لازم يكون دور مدير المشروع فعلًا على الكشف ده
-    const isApprover = (APPROVING_GRADES as readonly string[]).includes(me.grade);
-    const mine = sub.currentApproverId === req.user!.id || (sub.currentApproverId === null && isApprover && me.grade === sub.currentLevel);
-    if (!mine) throw AppError.forbidden('مش دورك في الاعتماد على الكشف ده دلوقتي');
+    // (17 سبتمبر 2026 — قرار صاحب المشروع) مدير النظام (أدمن) بيعدّل أي كشف في المراجعة من غير شرط الدرجة أو الدور؛
+    // غيره: مدير المشروع بس، ووقت دوره على الكشف
+    const isAdmin = req.user!.role === 'ADMIN';
+    if (!isAdmin) {
+      if (me?.grade !== 'project manager') throw AppError.forbidden('تعديل السطور لمدير المشروع أو مدير النظام بس');
+      const isApprover = (APPROVING_GRADES as readonly string[]).includes(me.grade);
+      const mine = sub.currentApproverId === req.user!.id || (sub.currentApproverId === null && isApprover && me.grade === sub.currentLevel);
+      if (!mine) throw AppError.forbidden('مش دورك في الاعتماد على الكشف ده دلوقتي');
+    }
     if (sub.rowRejections.some((r) => r.revision === sub.revision && r.sheetIndex === sheetIndex && r.row === row)) throw AppError.validation('السطر ده مشطوب');
 
     const original = await storage.read(sub.file.filePath).catch(() => null);
@@ -299,7 +303,7 @@ approvalsRoutes.post(
     }
 
     const data = {
-      label, level: me.grade, note, byUserId: req.user!.id,
+      label, level: isAdmin ? 'admin' : 'project manager', note, byUserId: req.user!.id,
       qtyFrom, qtyTo, priceFrom, priceTo, notesFrom, notesTo, deductFrom, deductTo, totalFrom, totalTo,
     };
     const edit = await prisma.submissionRowEdit.upsert({
