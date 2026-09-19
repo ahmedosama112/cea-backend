@@ -728,6 +728,8 @@ model SubmissionLaborDays {
   submissionId   BigInt   @map("submission_id")
   contractorName String   @map("contractor_name") @db.VarChar(190)
   days           Decimal  @db.Decimal(10, 2)
+  // يوميات المقاول موزّعة على تواريخها {"YYYY-MM-DD": qty} — لاكتشاف نفس اليوم لو اتحسب في أكتر من كشف
+  dates          String?  @db.Text
   createdAt      DateTime @default(now()) @map("created_at")
 
   submission Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)

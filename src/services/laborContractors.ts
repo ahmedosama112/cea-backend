@@ -34,11 +34,18 @@ export async function checkLaborMix(contractorName: string, placeName: string): 
 // تخزين أيام العمالة المعتمدة فعليًا لكشف معيّن (بديل الصفوف القديمة كاملة) — بيتصفّى على مقاولي
 // العمالة بس (باقي الأسماء، لو موجودة، مالهاش لازمة هنا لأن checkLaborMix بيمنعها أصلًا في كشف عمالة).
 // بتُستخدم من pushSubmissionToSheet (كل دفعة) ومن سكربت backfill-labor-days (استرجاع كشوف قديمة).
-export async function saveLaborDays(submissionId: bigint, daysByContractor: Map<string, number>): Promise<void> {
+export async function saveLaborDays(
+  submissionId: bigint,
+  daysByContractor: Map<string, number | { days: number; dates?: Record<string, number> }>,
+): Promise<void> {
   const labor = await laborNameSet();
   const rows = [...daysByContractor.entries()]
     .filter(([name]) => labor.has(normName(name)))
-    .map(([name, days]) => ({ submissionId, contractorName: name, days }));
+    .map(([name, v]) => {
+      const days = typeof v === 'number' ? v : v.days;
+      const dates = typeof v === 'number' ? null : v.dates && Object.keys(v.dates).length ? JSON.stringify(v.dates) : null;
+      return { submissionId, contractorName: name, days, dates };
+    });
   await prisma.$transaction([
     prisma.submissionLaborDays.deleteMany({ where: { submissionId } }),
     ...(rows.length ? [prisma.submissionLaborDays.createMany({ data: rows })] : []),

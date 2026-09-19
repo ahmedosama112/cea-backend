@@ -7,7 +7,7 @@
 //   npx ts-node --transpile-only scripts/backfill-labor-days.ts
 import { PrismaClient } from '@prisma/client';
 import { signedFileBuffer } from '../src/services/approvalChain';
-import { workbookLaborDaysByContractor } from '../src/services/rowReject';
+import { workbookLaborDaysDetail } from '../src/services/rowReject';
 import { saveLaborDays } from '../src/services/laborContractors';
 
 const prisma = new PrismaClient();
@@ -29,7 +29,7 @@ async function main(): Promise<void> {
     try {
       const buffer = await signedFileBuffer(s.id, 'clear');
       if (!buffer) { noFile++; continue; }
-      const days = await workbookLaborDaysByContractor(buffer);
+      const days = await workbookLaborDaysDetail(buffer);
       if (!days) { failed++; continue; }
       if (!days.size) { noDays++; continue; }
       await saveLaborDays(s.id, days);

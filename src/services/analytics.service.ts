@@ -36,6 +36,7 @@ export interface ScopeUser {
   id: string;
   email: string;
   title: string | null;
+  displayName: string | null;
   grade: string;
   site: number;
 }
@@ -74,7 +75,7 @@ export async function resolveScope(
 
   const rows = await prisma.user.findMany({
     where,
-    select: { id: true, email: true, title: true, grade: true, site: true },
+    select: { id: true, email: true, title: true, displayName: true, grade: true, site: true },
     orderBy: { email: 'asc' },
   });
 
@@ -82,6 +83,7 @@ export async function resolveScope(
     id: u.id.toString(),
     email: u.email,
     title: u.title,
+    displayName: u.displayName,
     grade: u.grade,
     site: u.site,
   }));
@@ -99,7 +101,7 @@ export async function resolveScope(
 // المهندسين بغض النظر عن الدرجة أو الإسناد (الأدمن هو اللي بيمنح الوحدة دي أصلًا، فمفيش تسريب).
 export async function resolveAllScope(opts: { site?: number; userId?: bigint } = {}): Promise<AnalyticsScope> {
   const rows = await prisma.user.findMany({
-    select: { id: true, email: true, title: true, grade: true, site: true },
+    select: { id: true, email: true, title: true, displayName: true, grade: true, site: true },
     orderBy: { email: 'asc' },
   });
 
@@ -107,6 +109,7 @@ export async function resolveAllScope(opts: { site?: number; userId?: bigint } =
     id: u.id.toString(),
     email: u.email,
     title: u.title,
+    displayName: u.displayName,
     grade: u.grade,
     site: u.site,
   }));
@@ -727,9 +730,10 @@ export async function approvedTotalsReport(
 }
 
 // ═══════════ تقرير مقاولين العمالة ═══════════
-// قبل/بعد لكل مقاول عمالة (Contractor.isLabor): "قبل" = أيام السركي اليومية اللي لسه معلّقة
-// (done=false، لسه ما اتبعتش في كشف)، و"بعد" = أيام SubmissionLaborDays اللي فعلًا اتعتمدت ووصلت
-// جوجل شيت. الفرق بينهم بيوضّح إيه اللي لسه معلّق مقابل إيه اللي فعلًا اتحاسب عليه.
+// قبل/بعد لكل مقاول عمالة (Contractor.isLabor): "قبل" = كل سجلات "يومية" لمقاولي العمالة في الفترة،
+// سواء عليها علامة الاستبعاد (done=true، "مش هيتسجل في الإكسيل") أو لأ — العلامة دي بتتحط بعد
+// الإرسال مش قبله، فاستبعادها كان بيخلي "قبل" أصغر من الحقيقة. و"بعد" = أيام SubmissionLaborDays اللي
+// فعلًا اتعتمدت ووصلت جوجل شيت. الفرق بينهم بيوضّح إيه اللي لسه معلّق مقابل إيه اللي فعلًا اتحاسب عليه.
 export interface LaborEngineerRow {
   userId: string;
   name: string;
@@ -738,6 +742,8 @@ export interface LaborEngineerRow {
   diff: number;
   // عدد كشوف العمالة القديمة (قبل الميزة دي) اللي لسه مالهاش صفوف SubmissionLaborDays — أيامها مش محسوبة هنا
   pendingSubs: number;
+  // أيام محسوبة أكتر من مرة (نفس اليوم لنفس المقاول عند المهندس ده دخل أكتر من كشف معتمد) — جزء من dupExtra
+  dupExtra: number;
 }
 export interface LaborContractorRow {
   name: string;
@@ -745,18 +751,35 @@ export interface LaborContractorRow {
   after: number;
   diff: number;
   engineers: LaborEngineerRow[];
+  dupExtra: number;
+}
+// يوم اتحسب في أكتر من كشف معتمد لنفس المقاول ونفس المهندس — خطر صرف مزدوج
+export interface LaborDuplicateRow {
+  contractor: string;
+  userId: string;
+  engineer: string;
+  date: string;
+  submissions: string[]; // أرقام الكشوف (تصاعديًا)
+  days: number[]; // اليوميات في كل كشف، بنفس ترتيب submissions
 }
 export interface LaborReport {
   from: string | null;
   to: string | null;
   contractors: LaborContractorRow[];
-  totals: { before: number; after: number; diff: number; estimated: number };
+  duplicates: LaborDuplicateRow[];
+  totals: { before: number; after: number; diff: number; estimated: number; duplicates: number };
 }
 
 const r2 = (n: number): number => Math.round(n * 100) / 100;
 
 export async function laborReport(ids: bigint[], range: { from?: string; to?: string }): Promise<LaborReport> {
-  const empty: LaborReport = { from: range.from ?? null, to: range.to ?? null, contractors: [], totals: { before: 0, after: 0, diff: 0, estimated: 0 } };
+  const empty: LaborReport = {
+    from: range.from ?? null,
+    to: range.to ?? null,
+    contractors: [],
+    duplicates: [],
+    totals: { before: 0, after: 0, diff: 0, estimated: 0, duplicates: 0 },
+  };
   if (!ids.length) return empty;
 
   const dict = await contractorDict();
@@ -771,9 +794,9 @@ export async function laborReport(ids: bigint[], range: { from?: string; to?: st
   const hasRange = Boolean(range.from || range.to);
 
   const [recordRows, users] = await Promise.all([
-    // قبل: سجلات "يومية" لسه معلّقة (ما اتبعتش في كشف) لمقاولي العمالة بس
+    // قبل: كل سجلات "يومية" لمقاولي العمالة في الفترة، بغض النظر عن علامة الاستبعاد (done)
     prisma.record.findMany({
-      where: { userId: { in: ids }, qtyType: 'DAILY', done: false, ...(hasRange ? { date: dateFilter } : {}) },
+      where: { userId: { in: ids }, qtyType: 'DAILY', ...(hasRange ? { date: dateFilter } : {}) },
       select: { userId: true, contractorName: true, qty: true },
     }),
     prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, email: true, displayName: true } }),
@@ -790,11 +813,12 @@ export async function laborReport(ids: bigint[], range: { from?: string; to?: st
       reviews: { some: { level: PM_LEVEL, decision: { in: ['APPROVED', 'APPROVED_NOTES'] } } },
     },
     select: {
+      id: true,
       userId: true,
       revision: true,
       contractorName: true,
       reviews: { where: { level: PM_LEVEL, decision: { in: ['APPROVED', 'APPROVED_NOTES'] } }, select: { revision: true } },
-      laborDays: { select: { contractorName: true, days: true } },
+      laborDays: { select: { contractorName: true, days: true, dates: true } },
     },
   });
   const validSubs = subs.filter((s) => s.reviews.some((rv) => rv.revision === s.revision));
@@ -852,6 +876,51 @@ export async function laborReport(ids: bigint[], range: { from?: string; to?: st
     }
   }
 
+  // ⚠ يوم اتحسب في أكتر من كشف معتمد: مجموعة بمفتاح مهندس×مقاول×تاريخ — لو فيها أكتر من كشف
+  // (submissionId مختلف) يبقى نفس اليوم دخل واتعتمد أكتر من مرة. المصدر: laborDays.dates
+  // (JSON لكل مقاول في كل كشف، بيتحسب في pushSubmissionToSheet/backfill-labor-days من workbookLaborDaysDetail).
+  type DupGroup = { userId: string; key: string; date: string; entries: Map<bigint, number> };
+  const dupGroups = new Map<string, DupGroup>();
+  for (const s of validSubs) {
+    for (const ld of s.laborDays) {
+      const key = normName(ld.contractorName);
+      if (!laborKeys.has(key) || !ld.dates) continue;
+      let datesObj: Record<string, unknown>;
+      try { datesObj = JSON.parse(ld.dates); } catch { continue; }
+      for (const [date, qtyRaw] of Object.entries(datesObj)) {
+        const qty = num(qtyRaw);
+        if (!qty) continue;
+        const gKey = `${s.userId.toString()}|${key}|${date}`;
+        let g = dupGroups.get(gKey);
+        if (!g) { g = { userId: s.userId.toString(), key, date, entries: new Map() }; dupGroups.set(gKey, g); }
+        g.entries.set(s.id, r2((g.entries.get(s.id) ?? 0) + qty));
+      }
+    }
+  }
+
+  const duplicates: LaborDuplicateRow[] = [];
+  const engineerDupExtra = new Map<string, number>(); // userId|contractorKey → أيام مكرّرة
+  const contractorDupExtra = new Map<string, number>(); // contractorKey → أيام مكرّرة
+  for (const g of dupGroups.values()) {
+    if (g.entries.size < 2) continue;
+    const subIds = [...g.entries.keys()].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+    const days = subIds.map((id) => g.entries.get(id)!);
+    const sum = days.reduce((a, b) => a + b, 0);
+    const extra = r2(sum - Math.max(...days));
+    duplicates.push({
+      contractor: laborDisplay.get(g.key) ?? g.key,
+      userId: g.userId,
+      engineer: userName.get(g.userId) ?? g.userId,
+      date: g.date,
+      submissions: subIds.map((id) => id.toString()),
+      days,
+    });
+    const eKey = `${g.userId}|${g.key}`;
+    engineerDupExtra.set(eKey, r2((engineerDupExtra.get(eKey) ?? 0) + extra));
+    contractorDupExtra.set(g.key, r2((contractorDupExtra.get(g.key) ?? 0) + extra));
+  }
+  duplicates.sort((a, b) => a.date.localeCompare(b.date) || a.contractor.localeCompare(b.contractor, 'ar'));
+
   const contractors: LaborContractorRow[] = [...acc.entries()]
     .map(([key, c]) => {
       const engineers: LaborEngineerRow[] = [...c.engineers.entries()]
@@ -862,6 +931,7 @@ export async function laborReport(ids: bigint[], range: { from?: string; to?: st
           after: r2(e.after),
           diff: r2(e.before - e.after),
           pendingSubs: e.pendingSubs,
+          dupExtra: engineerDupExtra.get(`${uid}|${key}`) ?? 0,
         }))
         .sort((a, b) => b.before - a.before);
       return {
@@ -870,6 +940,7 @@ export async function laborReport(ids: bigint[], range: { from?: string; to?: st
         after: r2(c.after),
         diff: r2(c.before - c.after),
         engineers,
+        dupExtra: contractorDupExtra.get(key) ?? 0,
       };
     })
     .sort((a, b) => a.name.localeCompare(b.name, 'ar'));
@@ -882,8 +953,9 @@ export async function laborReport(ids: bigint[], range: { from?: string; to?: st
   return {
     from: range.from ?? null,
     to: range.to ?? null,
+    duplicates,
     contractors,
-    totals: { before: r2(totals.before), after: r2(totals.after), diff: r2(totals.before - totals.after), estimated },
+    totals: { before: r2(totals.before), after: r2(totals.after), diff: r2(totals.before - totals.after), estimated, duplicates: duplicates.length },
   };
 }
 

@@ -90,6 +90,17 @@ export async function workbookLaborTotal(buffer: Buffer): Promise<number | null>
 // اسم المقاول = J3 (الاسم الكامل في راس الورقة)، وإلا اسم الورقة قبل " - " (نفس تسمية buildApprovedSheet).
 // نفس المقاول ممكن يبقى له أكتر من ورقة (أماكن مختلفة) فبنجمع كل ورقاته مع بعض.
 export async function workbookLaborDaysByContractor(buffer: Buffer): Promise<Map<string, number> | null> {
+  const detail = await workbookLaborDaysDetail(buffer);
+  if (!detail) return null;
+  const out = new Map<string, number>();
+  for (const [name, d] of detail) out.set(name, d.days);
+  return out;
+}
+
+// زي workbookLaborDaysByContractor بالظبط، بس بيرجّع كمان توزيع اليوميات على تواريخها لكل مقاول —
+// عشان تقرير "مقاولين العمالة" يقدر يكتشف نفس اليوم لو اتحسب في أكتر من كشف (بند "duplicates").
+// تاريخ الصف = عمود 12 (أول 10 حروف، لازم يبقى شكله YYYY-MM-DD وإلا مابيتحسبش في dates بس لسه محسوب في days).
+export async function workbookLaborDaysDetail(buffer: Buffer): Promise<Map<string, { days: number; dates: Record<string, number> }> | null> {
   let wb: ExcelJS.Workbook;
   try {
     wb = new ExcelJS.Workbook();
@@ -97,22 +108,33 @@ export async function workbookLaborDaysByContractor(buffer: Buffer): Promise<Map
   } catch {
     return null;
   }
-  const out = new Map<string, number>();
+  const out = new Map<string, { days: number; dates: Record<string, number> }>();
   for (const ws of wb.worksheets) {
     const headerName = text(ws.getCell(3, 10).value).trim();
     const name = headerName || ws.name.split(' - ')[0].trim();
     if (!name) continue;
     let sum = 0;
+    const dates: Record<string, number> = {};
     for (const row of dataRowsOf(ws, 'labor')) {
+      const dateRaw = text(ws.getCell(row, 12).value).trim().slice(0, 10);
+      const validDate = /^\d{4}-\d{2}-\d{2}$/.test(dateRaw) ? dateRaw : null;
       // اليوم ممكن يبقى فيه أكتر من سجل (سطر لكل سجل في نفس الخانة) — readLaborRow بيقرا أول سطر بس، فبنجمع السطور كلها هنا
       for (const line of readLaborRow(ws, row).qtyText.split('\n')) {
         const m = line.replace(/‏/g, '').trim().match(/^([\d.]+)\s*(.*)$/);
         if (!m) continue;
         const type = m[2].trim() || 'يومية';
-        if (type === 'يومية') sum += Number(m[1]) || 0;
+        if (type !== 'يومية') continue;
+        const q = Number(m[1]) || 0;
+        sum += q;
+        if (validDate) dates[validDate] = round2((dates[validDate] ?? 0) + q);
       }
     }
-    if (sum > 0) out.set(name, round2((out.get(name) ?? 0) + sum));
+    if (sum > 0) {
+      const prev = out.get(name);
+      const merged: Record<string, number> = { ...(prev?.dates ?? {}) };
+      for (const [d, q] of Object.entries(dates)) merged[d] = round2((merged[d] ?? 0) + q);
+      out.set(name, { days: round2((prev?.days ?? 0) + sum), dates: merged });
+    }
   }
   return out;
 }
