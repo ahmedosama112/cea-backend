@@ -101,6 +101,8 @@ export async function resolveScope(
 // المهندسين بغض النظر عن الدرجة أو الإسناد (الأدمن هو اللي بيمنح الوحدة دي أصلًا، فمفيش تسريب).
 export async function resolveAllScope(opts: { site?: number; userId?: bigint } = {}): Promise<AnalyticsScope> {
   const rows = await prisma.user.findMany({
+    // الأدمن برّه تقرير العمالة (laborReport) — فمالوش لازمة في قايمة المهندسين هنا كمان
+    where: { role: { not: 'ADMIN' } },
     select: { id: true, email: true, title: true, displayName: true, grade: true, site: true },
     orderBy: { email: 'asc' },
   });
@@ -772,7 +774,12 @@ export interface LaborReport {
 
 const r2 = (n: number): number => Math.round(n * 100) / 100;
 
-export async function laborReport(ids: bigint[], range: { from?: string; to?: string }): Promise<LaborReport> {
+export async function laborReport(allIds: bigint[], range: { from?: string; to?: string }): Promise<LaborReport> {
+  // (2026-09-19 — قرار صاحب المشروع) حسابات الأدمن برّه تقرير العمالة خالص: كشوف تجربة سلسلة الاعتمادات
+  // (أوائل سبتمبر) اتبعتت منها واتعتمدت، فكانت بتنفخ "بعد الاعتماد" وتملى كارت التكرار بتكرارات وهمية
+  const ids = allIds.length
+    ? (await prisma.user.findMany({ where: { id: { in: allIds }, role: { not: 'ADMIN' } }, select: { id: true } })).map((u) => u.id)
+    : [];
   const empty: LaborReport = {
     from: range.from ?? null,
     to: range.to ?? null,

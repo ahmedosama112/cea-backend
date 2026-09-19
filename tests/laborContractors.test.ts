@@ -216,6 +216,17 @@ describe('تحليل العمالة (labor_analytics) — وحدة مستقلة�
     expect(res.body.data.engineers.some((u: { email: string }) => u.email === 'labor-a@test.com')).toBe(true);
   });
 
+  it('سجلات حساب الأدمن برّه التقرير، والأدمن مش في قايمة المهندسين', async () => {
+    await request(app).post('/api/records').set(auth(admin.token)).send({
+      day: 'الاثنين', date: '2026-09-13', contractor: 'صبحي للعمالة', place: 'برج 1', qty: 50, qtyType: 'يومية', price: 100, discount: 0,
+    });
+    const res = await request(app).get('/api/labor-analytics?fresh=1').set(auth(engB.token));
+    const c = res.body.data.contractors.find((x: { name: string }) => x.name === 'صبحي للعمالة');
+    expect(c.before).toBe(4); // الـ50 بتوع الأدمن مش محسوبين
+    const sc = await request(app).get('/api/labor-analytics/scope').set(auth(engB.token));
+    expect(sc.body.data.engineers.some((u: { email: string }) => u.email === 'admin@test.com')).toBe(false);
+  });
+
   it('حساب من غير وحدة labor_analytics مرفوض 403', async () => {
     const res = await request(app).get('/api/labor-analytics').set(auth(engA.token)); // engA معاه analytics بس مش labor_analytics
     expect(res.status).toBe(403);
