@@ -87,7 +87,9 @@ approvalsRoutes.get(
     const isApprover = myLevel != null && (APPROVING_GRADES as readonly string[]).includes(myLevel);
     const isAdmin = req.user!.role === 'ADMIN';
     // بنعرض كل اللي في المراجعة + اللي اتبعت/اترفض خلال آخر 7 أيام بس (للسياق) — عشان الطابور مايتمليش بالتاريخ
-    const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    // (19 سبتمبر 2026) ?weeks=N من زرار "📜 عرض الأقدم" — كل ضغطة بترجّع أسبوع كمان (حد أقصى سنة)
+    const weeks = Math.min(52, Math.max(1, parseInt(String(req.query.weeks ?? '1'), 10) || 1));
+    const since = new Date(Date.now() - weeks * 7 * 24 * 60 * 60 * 1000);
     const stateFilter = {
       queueHiddenAt: null,
       OR: [{ reviewState: 'IN_REVIEW' }, { reviewState: { in: ['RETURNED', 'SENT'] }, createdAt: { gte: since } }],
@@ -102,7 +104,7 @@ approvalsRoutes.get(
       where: stateFilter,
       include: SUB_INCLUDE,
       orderBy: { createdAt: 'desc' },
-      take: 200,
+      take: Math.min(200 * weeks, 2000),
     });
     const solePmId = await soleProjectManagerId();
     const solePm = solePmId ? await prisma.user.findUnique({ where: { id: solePmId }, select: { email: true, displayName: true, title: true } }) : null;
@@ -114,6 +116,8 @@ approvalsRoutes.get(
     res.json({
       success: true,
       myLevel,
+      weeks,
+      since: since.toISOString(),
       // مشاهد = بيشوف الكل بلا إجراء — الواجهة بتخفي التحميل وبتعرض "مشاهدة" على كشوفه هو بس (myId للمقارنة)
       viewer: isViewer,
       myId: myId.toString(),
