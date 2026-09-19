@@ -95,6 +95,31 @@ export async function resolveScope(
   return { ids, visible, level };
 }
 
+// نطاق "تحليل العمالة": مش زي resolveScope — أي حساب معاه وحدة labor_analytics بيشوف كل
+// المهندسين بغض النظر عن الدرجة أو الإسناد (الأدمن هو اللي بيمنح الوحدة دي أصلًا، فمفيش تسريب).
+export async function resolveAllScope(opts: { site?: number; userId?: bigint } = {}): Promise<AnalyticsScope> {
+  const rows = await prisma.user.findMany({
+    select: { id: true, email: true, title: true, grade: true, site: true },
+    orderBy: { email: 'asc' },
+  });
+
+  const visible: ScopeUser[] = rows.map((u) => ({
+    id: u.id.toString(),
+    email: u.email,
+    title: u.title,
+    grade: u.grade,
+    site: u.site,
+  }));
+
+  let ids = rows.map((u) => u.id);
+  if (opts.site) ids = rows.filter((u) => u.site === opts.site).map((u) => u.id);
+  if (opts.userId != null) {
+    const wanted = opts.userId;
+    ids = ids.filter((id) => id === wanted);
+  }
+  return { ids, visible, level: 'all' };
+}
+
 // ── نتيجة صف المكان ──
 export interface PlaceRow {
   key: string;

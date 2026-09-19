@@ -13,6 +13,7 @@ import { contractorsRouter, equipmentRouter, inspectorsRouter, irRouter, placesR
 import { inventoryRoutes } from './inventory.routes';
 import { approvalsRoutes } from './approvals.routes';
 import { analyticsRoutes } from './analytics.routes';
+import { laborAnalyticsRoutes } from './laborAnalytics.routes';
 import { notificationsRoutes } from './notifications.routes';
 import { rentRequestsRoutes } from './rentRequests.routes';
 import { authenticate } from '../middlewares/auth';
@@ -52,4 +53,5 @@ router.use('/inventory', authenticate, requireModule('inventory'), inventoryRout
 router.use('/approvals', authenticate, requireModule('approvals'), approvalsRoutes);
 router.use('/equipment-records', authenticate, requireModule('equipment'), equipmentRouter);
 router.use('/analytics', authenticate, requireModule('analytics'), analyticsRoutes);
+router.use('/labor-analytics', authenticate, requireModule('labor_analytics'), laborAnalyticsRoutes);
 router.use('/rent-requests', authenticate, requireModule('rent_requests'), rentRequestsRoutes);

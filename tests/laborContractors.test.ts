@@ -116,3 +116,49 @@ describe('قواعد إرسال كشف العمالة + تقرير العمال�
     expect(d.totals.after).toBe(6);
   });
 });
+
+describe('تحليل العمالة (labor_analytics) — وحدة مستقلة، كل المهندسين', () => {
+  let admin: TestUser, engA: TestUser, engB: TestUser;
+
+  beforeAll(async () => {
+    await resetDb();
+    admin = await createAdmin();
+    engA = await createEngineer(admin.token, 'labor-a@test.com');
+    // engB حساب مهندس عادي، درجة افتراضية، مش معتمد لحد — بس هيدّيله الأدمن وحدة labor_analytics بس
+    engB = await createEngineer(admin.token, 'labor-b@test.com');
+    await request(app).put(`/api/admin/users/${engA.id}/settings`).set(auth(admin.token)).send({ enabledModules: ['records', 'submissions', 'analytics'] });
+    await request(app).put(`/api/admin/users/${engB.id}/settings`).set(auth(admin.token)).send({ enabledModules: ['labor_analytics'] });
+    await request(app).post('/api/contractors').set(auth(admin.token)).send({ name: 'صبحي للعمالة', isLabor: true });
+
+    // engA بيسجّل سركي عمالة لسه معلّق (قبل الاعتماد) — ده اللي المفروض engB يشوفه رغم إنه مش مسند له
+    await request(app).post('/api/records').set(auth(engA.token)).send({
+      day: 'الاثنين', date: '2026-09-13', contractor: 'صبحي للعمالة', place: 'برج 1', qty: 4, qtyType: 'يومية', price: 100, discount: 0,
+    });
+  });
+  afterAll(async () => { await prisma.$disconnect(); });
+
+  it('engB (مالوش وحدة analytics ولا إسناد) بيشوف يوميات engA في /api/labor-analytics', async () => {
+    const res = await request(app).get('/api/labor-analytics?fresh=1').set(auth(engB.token));
+    expect(res.status).toBe(200);
+    const c = res.body.data.contractors.find((x: { name: string }) => x.name === 'صبحي للعمالة');
+    expect(c).toBeTruthy();
+    expect(c.before).toBe(4);
+  });
+
+  it('engB مرفوض على /api/analytics/labor (الوحدة دي مش عنده)', async () => {
+    const res = await request(app).get('/api/analytics/labor').set(auth(engB.token));
+    expect(res.status).toBe(403);
+  });
+
+  it('engB بيشوف engA في /api/labor-analytics/scope', async () => {
+    const res = await request(app).get('/api/labor-analytics/scope').set(auth(engB.token));
+    expect(res.status).toBe(200);
+    expect(res.body.data.level).toBe('all');
+    expect(res.body.data.engineers.some((u: { email: string }) => u.email === 'labor-a@test.com')).toBe(true);
+  });
+
+  it('حساب من غير وحدة labor_analytics مرفوض 403', async () => {
+    const res = await request(app).get('/api/labor-analytics').set(auth(engA.token)); // engA معاه analytics بس مش labor_analytics
+    expect(res.status).toBe(403);
+  });
+});
