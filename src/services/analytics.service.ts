@@ -362,13 +362,14 @@ export interface ContractorDictEntry {
   spec: string | null;
   rate: number | null;
   rateType: string | null;
+  isLabor: boolean;
 }
 
 // معجم المقاولين = قائمة حسابات الأدمن (هي المصدر الوحيد — الكتابة محصورة على ADMIN)
 async function contractorDict(): Promise<Map<string, ContractorDictEntry & { name: string }>> {
   const rows = await prisma.contractor.findMany({
     where: { user: { role: 'ADMIN' } },
-    select: { name: true, spec: true, rate: true, rateType: true },
+    select: { name: true, spec: true, rate: true, rateType: true, isLabor: true },
     orderBy: { name: 'asc' },
   });
   const dict = new Map<string, ContractorDictEntry & { name: string }>();
@@ -381,6 +382,7 @@ async function contractorDict(): Promise<Map<string, ContractorDictEntry & { nam
       spec: r.spec,
       rate: r.rate == null ? null : Number(r.rate),
       rateType: r.rateType ? (ENUM_TO_AR[r.rateType] ?? r.rateType) : null,
+      isLabor: r.isLabor,
     });
   }
   return dict;
@@ -395,6 +397,7 @@ export interface ContractorRow {
   spec: string | null;
   rate: number | null;
   rateType: string | null;
+  isLabor: boolean;
   avgPrice: number | null; // متوسط السعر الفعلي في السجلات — للمقارنة بـ rate
   records: number;
   gross: number;
@@ -418,7 +421,7 @@ interface CAcc extends ContractorRow {
 
 function cBlank(key: string): CAcc {
   return {
-    key, name: '', variants: [], inList: false, spec: null, rate: null, rateType: null, avgPrice: null,
+    key, name: '', variants: [], inList: false, spec: null, rate: null, rateType: null, isLabor: false, avgPrice: null,
     records: 0, gross: 0, discount: 0, total: 0, places: 0, engineers: 0, days: 0, dailyQty: 0, lastDate: null,
     equipHours: 0, equipRecords: 0,
     _spell: new Map(), _places: new Set(), _engineers: new Set(), _days: new Set(),
@@ -515,6 +518,7 @@ export async function contractorsReport(ids: bigint[], range: { from?: string; t
       spec: d?.spec ?? null,
       rate: d?.rate ?? null,
       rateType: d?.rateType ?? null,
+      isLabor: d?.isLabor ?? false,
       avgPrice: b.avgPrice == null ? null : Math.round(b.avgPrice * 100) / 100,
       gross: Math.round((b.total + b.discount) * 100) / 100,
       total: Math.round(b.total * 100) / 100,
@@ -694,6 +698,167 @@ export async function approvedTotalsReport(
     bucket,
     totals: { submissions: t.submissions, total: Math.round(t.total * 100) / 100, estimated: t.estimated },
     rows,
+  };
+}
+
+// ═══════════ تقرير مقاولين العمالة ═══════════
+// قبل/بعد لكل مقاول عمالة (Contractor.isLabor): "قبل" = أيام السركي اليومية اللي لسه معلّقة
+// (done=false، لسه ما اتبعتش في كشف)، و"بعد" = أيام SubmissionLaborDays اللي فعلًا اتعتمدت ووصلت
+// جوجل شيت. الفرق بينهم بيوضّح إيه اللي لسه معلّق مقابل إيه اللي فعلًا اتحاسب عليه.
+export interface LaborEngineerRow {
+  userId: string;
+  name: string;
+  before: number;
+  after: number;
+  diff: number;
+  // عدد كشوف العمالة القديمة (قبل الميزة دي) اللي لسه مالهاش صفوف SubmissionLaborDays — أيامها مش محسوبة هنا
+  pendingSubs: number;
+}
+export interface LaborContractorRow {
+  name: string;
+  before: number;
+  after: number;
+  diff: number;
+  engineers: LaborEngineerRow[];
+}
+export interface LaborReport {
+  from: string | null;
+  to: string | null;
+  contractors: LaborContractorRow[];
+  totals: { before: number; after: number; diff: number; estimated: number };
+}
+
+const r2 = (n: number): number => Math.round(n * 100) / 100;
+
+export async function laborReport(ids: bigint[], range: { from?: string; to?: string }): Promise<LaborReport> {
+  const empty: LaborReport = { from: range.from ?? null, to: range.to ?? null, contractors: [], totals: { before: 0, after: 0, diff: 0, estimated: 0 } };
+  if (!ids.length) return empty;
+
+  const dict = await contractorDict();
+  const laborEntries = [...dict.values()].filter((d) => d.isLabor);
+  if (!laborEntries.length) return empty;
+  const laborKeys = new Set(laborEntries.map((d) => normName(d.name)));
+  const laborDisplay = new Map(laborEntries.map((d) => [normName(d.name), d.name]));
+
+  const dateFilter: { gte?: Date; lte?: Date } = {};
+  if (range.from) dateFilter.gte = new Date(range.from + 'T00:00:00Z');
+  if (range.to) dateFilter.lte = new Date(range.to + 'T00:00:00Z');
+  const hasRange = Boolean(range.from || range.to);
+
+  const [recordRows, users] = await Promise.all([
+    // قبل: سجلات "يومية" لسه معلّقة (ما اتبعتش في كشف) لمقاولي العمالة بس
+    prisma.record.findMany({
+      where: { userId: { in: ids }, qtyType: 'DAILY', done: false, ...(hasRange ? { date: dateFilter } : {}) },
+      select: { userId: true, contractorName: true, qty: true },
+    }),
+    prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, email: true, displayName: true } }),
+  ]);
+
+  // ⚠ نفس شرط approvedTotalsReport بالظبط: reviewState='SENT' وحدها مش كافية (كشوف قديمة بلا سلسلة
+  // اعتماد بتتبعت SENT من غير اعتماد فعلي) — الاعتماد الحقيقي هو قرار مسجّل من مدير المشروع للنسخة الحالية
+  const PM_LEVEL = 'project manager';
+  const subs = await prisma.submission.findMany({
+    where: {
+      userId: { in: ids },
+      kind: 'labor',
+      ...(hasRange ? { weekStart: dateFilter } : {}),
+      reviews: { some: { level: PM_LEVEL, decision: { in: ['APPROVED', 'APPROVED_NOTES'] } } },
+    },
+    select: {
+      userId: true,
+      revision: true,
+      contractorName: true,
+      reviews: { where: { level: PM_LEVEL, decision: { in: ['APPROVED', 'APPROVED_NOTES'] } }, select: { revision: true } },
+      laborDays: { select: { contractorName: true, days: true } },
+    },
+  });
+  const validSubs = subs.filter((s) => s.reviews.some((rv) => rv.revision === s.revision));
+
+  const userName = new Map(users.map((u) => [u.id.toString(), u.displayName || u.email.split('@')[0]]));
+
+  type EAcc = { before: number; after: number; pendingSubs: number };
+  type CAcc = { before: number; after: number; engineers: Map<string, EAcc> };
+  const acc = new Map<string, CAcc>();
+  const cGet = (key: string): CAcc => {
+    let a = acc.get(key);
+    if (!a) { a = { before: 0, after: 0, engineers: new Map() }; acc.set(key, a); }
+    return a;
+  };
+  const eGet = (c: CAcc, uid: string): EAcc => {
+    let e = c.engineers.get(uid);
+    if (!e) { e = { before: 0, after: 0, pendingSubs: 0 }; c.engineers.set(uid, e); }
+    return e;
+  };
+
+  for (const r of recordRows) {
+    const key = normName(r.contractorName);
+    if (!laborKeys.has(key)) continue;
+    const c = cGet(key);
+    const e = eGet(c, r.userId.toString());
+    const q = num(r.qty);
+    c.before += q;
+    e.before += q;
+  }
+
+  let estimated = 0;
+  for (const s of validSubs) {
+    // أسماء المقاولين المجمّعة في الكشف (كشوف قديمة قبل قاعدة "العمالة لوحدها" ممكن يبقى فيها أكتر من اسم)
+    const names = s.contractorName.split(/،\s*/).map((n) => normName(n.trim())).filter(Boolean);
+    const laborNamesInSub = names.filter((n) => laborKeys.has(n));
+    if (!laborNamesInSub.length) continue;
+    if (!s.laborDays.length) {
+      // كشف قديم لسه ما اترجعش (backfill-labor-days.ts) — أيامه مش محسوبة في "بعد"، بنعدّه بس
+      estimated++;
+      for (const key of laborNamesInSub) {
+        const c = cGet(key);
+        const e = eGet(c, s.userId.toString());
+        e.pendingSubs += 1;
+      }
+      continue;
+    }
+    for (const ld of s.laborDays) {
+      const key = normName(ld.contractorName);
+      if (!laborKeys.has(key)) continue;
+      const c = cGet(key);
+      const e = eGet(c, s.userId.toString());
+      const d = num(ld.days);
+      c.after += d;
+      e.after += d;
+    }
+  }
+
+  const contractors: LaborContractorRow[] = [...acc.entries()]
+    .map(([key, c]) => {
+      const engineers: LaborEngineerRow[] = [...c.engineers.entries()]
+        .map(([uid, e]) => ({
+          userId: uid,
+          name: userName.get(uid) ?? uid,
+          before: r2(e.before),
+          after: r2(e.after),
+          diff: r2(e.before - e.after),
+          pendingSubs: e.pendingSubs,
+        }))
+        .sort((a, b) => b.before - a.before);
+      return {
+        name: laborDisplay.get(key) ?? key,
+        before: r2(c.before),
+        after: r2(c.after),
+        diff: r2(c.before - c.after),
+        engineers,
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name, 'ar'));
+
+  const totals = contractors.reduce(
+    (a, c) => { a.before += c.before; a.after += c.after; return a; },
+    { before: 0, after: 0 },
+  );
+
+  return {
+    from: range.from ?? null,
+    to: range.to ?? null,
+    contractors,
+    totals: { before: r2(totals.before), after: r2(totals.after), diff: r2(totals.before - totals.after), estimated },
   };
 }
 

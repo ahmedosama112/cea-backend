@@ -30,6 +30,14 @@ export const contractorsRouter = crudRouter({
   toData: (b) => ({ ...b, ...(b.rateType ? { rateType: toEnum(b.rateType as RateTypeAr) } : {}) }),
   serialize: arabizeRateTypes,
   writeRoles: ['ADMIN'],
+  // (2026-09-19) علامة "مقاول عمالة" بتتنسخ لنفس الاسم في كل الحسابات — نسخ المهندسين اتعملت بالاسم (copy-mine)
+  // ومابتتحدثش لوحدها، فمن غير ده قوايم المهندس ماكانتش هتتقسم ولا "الكل" هيستبعد المقاول لو اتعلّم بعدين
+  beforeWrite: async (body, ctx) => {
+    if (typeof body.isLabor !== 'boolean') return;
+    const existing = ctx.id !== undefined ? await prisma.contractor.findUnique({ where: { id: ctx.id }, select: { name: true } }) : null;
+    const names = [...new Set([existing?.name, body.name as string | undefined].filter((n): n is string => !!n))];
+    if (names.length) await prisma.contractor.updateMany({ where: { name: { in: names } }, data: { isLabor: body.isLabor } });
+  },
 });
 
 // الأماكن: المهندس يقرأها فقط — الإضافة/التعديل/الحذف للأدمن (بديل حماية الـ PIN بس على مستوى السيرفر)

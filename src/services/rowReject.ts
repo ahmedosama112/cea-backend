@@ -85,6 +85,38 @@ export async function workbookLaborTotal(buffer: Buffer): Promise<number | null>
   return Math.round(sum * 100) / 100;
 }
 
+// أيام العمالة المعتمدة فعليًا لكل مقاول عمالة في المصنّف كام صافي — بيتقرأ بعد أي شطب/تعديل سطور، زي
+// workbookLaborTotal بالظبط بس مجزّأ بالمقاول ("يومية" بس — الساعة/المقطوعية/العدد مالهاش معنى "يوم").
+// اسم المقاول = J3 (الاسم الكامل في راس الورقة)، وإلا اسم الورقة قبل " - " (نفس تسمية buildApprovedSheet).
+// نفس المقاول ممكن يبقى له أكتر من ورقة (أماكن مختلفة) فبنجمع كل ورقاته مع بعض.
+export async function workbookLaborDaysByContractor(buffer: Buffer): Promise<Map<string, number> | null> {
+  let wb: ExcelJS.Workbook;
+  try {
+    wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(buffer as unknown as ArrayBuffer);
+  } catch {
+    return null;
+  }
+  const out = new Map<string, number>();
+  for (const ws of wb.worksheets) {
+    const headerName = text(ws.getCell(3, 10).value).trim();
+    const name = headerName || ws.name.split(' - ')[0].trim();
+    if (!name) continue;
+    let sum = 0;
+    for (const row of dataRowsOf(ws, 'labor')) {
+      // اليوم ممكن يبقى فيه أكتر من سجل (سطر لكل سجل في نفس الخانة) — readLaborRow بيقرا أول سطر بس، فبنجمع السطور كلها هنا
+      for (const line of readLaborRow(ws, row).qtyText.split('\n')) {
+        const m = line.replace(/‏/g, '').trim().match(/^([\d.]+)\s*(.*)$/);
+        if (!m) continue;
+        const type = m[2].trim() || 'يومية';
+        if (type === 'يومية') sum += Number(m[1]) || 0;
+      }
+    }
+    if (sum > 0) out.set(name, round2((out.get(name) ?? 0) + sum));
+  }
+  return out;
+}
+
 // نمطان (قرار صاحب المشروع 7 سبتمبر 2026):
 //   'strike' — جوّه التطبيق أثناء المراجعة: السطر أحمر بخط في النص + السبب في خانة الملاحظات (المعتمدين اللي بعده يشوفوا إيه اللي اتشال وليه)
 //   'clear'  — النسخة اللي بتتختم وتروح جوجل شيت/الـ DC: السطر يبقى **يوم فاضي** (التاريخ واليوم بس، وتوقيع المهندس على السطر بيتشال)،

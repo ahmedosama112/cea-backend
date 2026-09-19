@@ -326,7 +326,7 @@ adminRoutes.post(
     const have = new Set(theirs.map((c) => c.name));
     const toCreate = mine.filter((c) => !have.has(c.name));
     if (toCreate.length) {
-      await prisma.contractor.createMany({ data: toCreate.map((c) => ({ userId, name: c.name, spec: c.spec, rate: c.rate, rateType: c.rateType })) });
+      await prisma.contractor.createMany({ data: toCreate.map((c) => ({ userId, name: c.name, spec: c.spec, rate: c.rate, rateType: c.rateType, isLabor: c.isLabor })) });
     }
     res.json({ success: true, data: { added: toCreate.length, skipped: mine.length - toCreate.length } });
   }),

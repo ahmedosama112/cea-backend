@@ -16,7 +16,7 @@ export async function resetDb() {
   }
   await prisma.$executeRawUnsafe('SET FOREIGN_KEY_CHECKS = 0');
   const tables = [
-    'submission_comments', 'record_deductions', 'records', 'ir_records', 'todos',
+    'submission_comments', 'submission_labor_days', 'record_deductions', 'records', 'ir_records', 'todos',
     'exec_record_stages', 'exec_records', 'item_stages', 'items',
     'daily_records', 'equipment_records', 'contractors', 'places', 'inspectors',
     'purchase_requests', 'stock_moves', 'issue_request_lines', 'issue_requests', 'inventory_items',

@@ -2,7 +2,8 @@ import { prisma } from '../config/prisma';
 import { storage } from './storage';
 import { pushSubmissionToGoogle } from './googleSheet';
 import { stampSignatures, hasSignatureBox, LevelSignature } from './signStamp';
-import { applyRowRejections, applyRowEdits, workbookLaborTotal, Kind, RejectMode, RowEdit } from './rowReject';
+import { applyRowRejections, applyRowEdits, workbookLaborTotal, workbookLaborDaysByContractor, Kind, RejectMode, RowEdit } from './rowReject';
+import { saveLaborDays } from './laborContractors';
 
 // ═══════════ سلسلة اعتمادات المديرين (داخل التطبيق قبل جوجل شيت) ═══════════
 // الكشف بيعدّي على المعتمدين المسندين لصاحبه بالترتيب؛ وبس بعد ما يخلص كلهم بيتبعت لجوجل شيت.
@@ -178,6 +179,13 @@ export async function pushSubmissionToSheet(submissionId: bigint): Promise<void>
       if (real != null) await prisma.submission.update({ where: { id: submissionId }, data: { approvedTotal: real } });
     } catch (e) {
       console.error('[approval] فشل حساب الإجمالي الفعلي', submissionId.toString(), (e as Error).message);
+    }
+    // أيام العمالة المعتمدة فعليًا لكل مقاول عمالة — لتقرير "مقاولين العمالة" (قبل/بعد الاعتماد). فشل هنا مايوقفش الدفع.
+    try {
+      const days = await workbookLaborDaysByContractor(toSend);
+      if (days) await saveLaborDays(submissionId, days);
+    } catch (e) {
+      console.error('[approval] فشل حساب أيام العمالة المعتمدة', submissionId.toString(), (e as Error).message);
     }
   }
   // اسم المهندس في الشيت: الاسم بالعربي لو محدد، وإلا أول الإيميل (زي زمان)

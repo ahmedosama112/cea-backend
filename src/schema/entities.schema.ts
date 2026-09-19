@@ -17,6 +17,8 @@ export const contractorCreateSchema = z.object({
   spec: z.string().trim().max(190).optional().default('—'),
   rate: z.coerce.number().min(0).optional().nullable(),
   rateType: rateTypeArSchema.optional().default('يومية'),
+  // (2026-09-19) مقاول عمالة (بالمياومة) — كشوفه لازم تتبعت لوحده بلا أي مقاول تاني
+  isLabor: z.boolean().optional().default(false),
 });
 export const contractorUpdateSchema = contractorCreateSchema.partial();
 
