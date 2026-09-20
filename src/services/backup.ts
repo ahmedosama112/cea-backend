@@ -29,6 +29,9 @@ const BACKUP_TABLES: Array<{ key: string; model: string; rows: () => Promise<unk
   { key: 'contractors', model: 'Contractor', rows: () => prisma.contractor.findMany() },
   { key: 'places', model: 'Place', rows: () => prisma.place.findMany() },
   { key: 'inspectors', model: 'Inspector', rows: () => prisma.inspector.findMany() },
+  // طلبات الإيجار قبل records — Record.rentRequestId بتشاور عليها
+  { key: 'rentRequests', model: 'RentRequest', rows: () => prisma.rentRequest.findMany() },
+  { key: 'rentRequestReviews', model: 'RentRequestReview', rows: () => prisma.rentRequestReview.findMany() },
   { key: 'items', model: 'Item', rows: () => prisma.item.findMany() },
   { key: 'itemStages', model: 'ItemStage', rows: () => prisma.itemStage.findMany() },
   { key: 'records', model: 'Record', rows: () => prisma.record.findMany() },
@@ -54,8 +57,6 @@ const BACKUP_TABLES: Array<{ key: string; model: string; rows: () => Promise<unk
   { key: 'notifications', model: 'Notification', rows: () => prisma.notification.findMany() },
   { key: 'notificationTargets', model: 'NotificationTarget', rows: () => prisma.notificationTarget.findMany() },
   { key: 'notificationReads', model: 'NotificationRead', rows: () => prisma.notificationRead.findMany() },
-  { key: 'rentRequests', model: 'RentRequest', rows: () => prisma.rentRequest.findMany() },
-  { key: 'rentRequestReviews', model: 'RentRequestReview', rows: () => prisma.rentRequestReview.findMany() },
 ];
 
 // أسماء الجداول بترتيب الإدراج — يستوردها سكربت الاستعادة عشان القايمتين ما يفترقوش تاني
