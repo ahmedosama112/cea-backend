@@ -169,10 +169,23 @@ inventoryRoutes.post(
     const item = await prisma.$transaction(async (tx) => {
       const cur = await tx.inventoryItem.findUnique({ where: { id } });
       if (!cur) throw AppError.notFound('الصنف غير موجود');
-      const newQty = type === 'IN' ? Number(cur.qty) + qty : qty; // ADJUST = العدد الفعلي الجديد
       const moveQty = type === 'IN' ? qty : qty - Number(cur.qty); // التسوية بتتسجل بالفرق (+/-)
+
+      // الوارد لازم يبقى increment ذري؛ الحساب في الذاكرة كان ممكن يضيّع إحدى حركتين متزامنتين.
+      // التسوية absolute، لذلك بنستخدم compare-and-set حتى يفضل دفتر الحركة مطابقًا للرصيد.
+      if (type === 'IN') {
+        const updated = await tx.inventoryItem.update({ where: { id }, data: { qty: { increment: qty } } });
+        await tx.stockMove.create({ data: { itemId: id, type, qty: moveQty, byUserId: req.user!.id, note: note || null } });
+        return updated;
+      }
+
+      const updated = await tx.inventoryItem.updateMany({
+        where: { id, qty: cur.qty },
+        data: { qty }, // ADJUST = العدد الفعلي الجديد
+      });
+      if (updated.count === 0) throw AppError.conflict('رصيد الصنف اتغيّر أثناء تسوية الجرد — أعد المحاولة');
       await tx.stockMove.create({ data: { itemId: id, type, qty: moveQty, byUserId: req.user!.id, note: note || null } });
-      return tx.inventoryItem.update({ where: { id }, data: { qty: newQty } });
+      return tx.inventoryItem.findUniqueOrThrow({ where: { id } });
     });
     res.json({ success: true, data: item });
   }),
@@ -247,16 +260,17 @@ inventoryRoutes.patch(
     const cur = await prisma.issueRequest.findUnique({ where: { id } });
     if (!cur) throw AppError.notFound('الطلب غير موجود');
     if (cur.status === 'FULFILLED') throw AppError.validation('الطلب اتصرف بالفعل — مينفعش تعديل حالته');
-    const row = await prisma.issueRequest.update({
-      where: { id },
+    const changed = await prisma.issueRequest.updateMany({
+      where: { id, status: cur.status },
       data: {
         status: req.body.status,
         reviewNote: req.body.reviewNote ?? null,
         reviewedById: req.body.status === 'SUBMITTED' ? null : req.user!.id,
         reviewedAt: req.body.status === 'SUBMITTED' ? null : new Date(),
       },
-      include: ISSUE_INCLUDE,
     });
+    if (changed.count === 0) throw AppError.conflict('حالة الطلب اتغيّرت أثناء المراجعة — أعد المحاولة');
+    const row = await prisma.issueRequest.findUnique({ where: { id }, include: ISSUE_INCLUDE });
     res.json({ success: true, data: row });
   }),
 );
@@ -272,6 +286,14 @@ inventoryRoutes.post(
     if (!request) throw AppError.notFound('الطلب غير موجود');
     if (request.status !== 'APPROVED') throw AppError.validation('لازم الطلب يكون معتمدًا الأول قبل الصرف');
     await prisma.$transaction(async (tx) => {
+      // حجز الطلب نفسه أولًا يمنع تنفيذ طلب APPROVED واحد مرتين بالتوازي.
+      // أي فشل لاحق في الكمية يرجّع الحجز تلقائيًا مع الـ transaction.
+      const claimed = await tx.issueRequest.updateMany({
+        where: { id, status: 'APPROVED' },
+        data: { status: 'FULFILLED', fulfilledAt: new Date() },
+      });
+      if (claimed.count === 0) throw AppError.validation('الطلب اتصرف بالفعل أو حالته اتغيّرت');
+
       for (const line of request.lines) {
         // الشرط qty >= المطلوب على مستوى القاعدة نفسها — طلبان متزامنان على آخر كمية: واحد بس هينجح
         const updated = await tx.inventoryItem.updateMany({
@@ -281,7 +303,6 @@ inventoryRoutes.post(
         if (updated.count === 0) throw AppError.validation(`الكمية غير كافية من "${line.item.name}" — المتاح دلوقتي ${Number(line.item.qty)} ${line.item.unit}`);
         await tx.stockMove.create({ data: { itemId: line.itemId, type: 'OUT', qty: Number(line.qty), byUserId: req.user!.id, issueRequestId: id, note: 'صرف طلب #' + id.toString() } });
       }
-      await tx.issueRequest.update({ where: { id }, data: { status: 'FULFILLED', fulfilledAt: new Date() } });
     });
     const fresh = await prisma.issueRequest.findUnique({ where: { id }, include: ISSUE_INCLUDE });
     res.json({ success: true, data: fresh });

@@ -191,6 +191,20 @@ describe('طلبات الإيجار', () => {
     expect(second.status).toBe(400);
   });
 
+  it('قراران متزامنان على طلب إيجار يسجّلان مراجعة واحدة فقط', async () => {
+    const created = await request(app).post('/api/rent-requests').set(auth(eng.token))
+      .send({ contractorId, placeId, resourceType: 'EQUIPMENT', ...baseLine, statementOfWork: 'قرار متزامن' });
+    const id = created.body.data.id;
+    const attempts = await Promise.all([
+      request(app).post(`/api/rent-requests/${id}/decide`).set(auth(pm.token)).send({ decision: 'APPROVED' }),
+      request(app).post(`/api/rent-requests/${id}/decide`).set(auth(pm.token)).send({ decision: 'REJECTED', note: 'قرار متزامن' }),
+    ]);
+    expect(attempts.map((r) => r.status).sort()).toEqual([200, 400]);
+
+    const details = await request(app).get(`/api/rent-requests/${id}`).set(auth(pm.token));
+    expect(details.body.data.reviews).toHaveLength(1);
+  });
+
   it('المهندس غير الأدمن يشوف طلباته هو بس', async () => {
     await request(app).post('/api/rent-requests').set(auth(otherEng.token))
       .send({ contractorId: otherContractorId, placeId: await seedPlace(admin.token, otherEng.id, 'مكان تاني'), resourceType: 'LABOR', ...baseLine, statementOfWork: 'عمالة تانية' });

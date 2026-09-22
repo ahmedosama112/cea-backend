@@ -69,6 +69,24 @@ describe('المخازن', () => {
     expect(Number(adj.body.data.qty)).toBe(140);
   });
 
+  it('حركتا وارد متزامنتان لا يضيّع أي منهما رصيد الأخرى', async () => {
+    const created = await request(app).post('/api/inventory/items').set(auth(admin.token))
+      .send({ code: 'RACE-IN-1', name: 'اختبار وارد متزامن', unit: 'عدد' });
+    expect(created.status).toBe(201);
+    const id = created.body.data.id;
+
+    const results = await Promise.all([
+      request(app).post(`/api/inventory/items/${id}/move`).set(auth(admin.token)).send({ type: 'IN', qty: 7 }),
+      request(app).post(`/api/inventory/items/${id}/move`).set(auth(admin.token)).send({ type: 'IN', qty: 11 }),
+    ]);
+    expect(results.map((r) => r.status).sort()).toEqual([200, 200]);
+
+    const items = await request(app).get('/api/inventory/items').set(auth(admin.token));
+    expect(Number(items.body.data.find((i: { id: string }) => i.id === id).qty)).toBe(18);
+    const moves = await request(app).get(`/api/inventory/items/${id}/moves`).set(auth(admin.token));
+    expect(moves.body.data.filter((m: { type: string }) => m.type === 'IN')).toHaveLength(2);
+  });
+
   it('طلب صرف بكمية أكبر من المتاح يُرفض فورًا برسالة توجيه', async () => {
     const res = await request(app).post('/api/inventory/issue-requests').set(auth(eng.token))
       .send({ lines: [{ itemId: cementId, qty: 999 }] });
@@ -91,15 +109,19 @@ describe('المخازن', () => {
       .send({ status: 'APPROVED' });
     expect(approved.body.data.status).toBe('APPROVED');
 
-    const done = await request(app).post(`/api/inventory/issue-requests/${reqId}/fulfill`).set(auth(admin.token));
-    expect(done.status).toBe(200);
-    expect(done.body.data.status).toBe('FULFILLED');
+    const attempts = await Promise.all([
+      request(app).post(`/api/inventory/issue-requests/${reqId}/fulfill`).set(auth(admin.token)),
+      request(app).post(`/api/inventory/issue-requests/${reqId}/fulfill`).set(auth(admin.token)),
+    ]);
+    expect(attempts.map((r) => r.status).sort()).toEqual([200, 400]);
+    expect(attempts.find((r) => r.status === 200)?.body.data.status).toBe('FULFILLED');
 
     const items = await request(app).get('/api/inventory/items').set(auth(eng.token));
     const cement = items.body.data.find((i: { id: string }) => i.id === cementId);
     expect(Number(cement.qty)).toBe(100); // 140 - 40
     const moves = await request(app).get(`/api/inventory/items/${cementId}/moves`).set(auth(admin.token));
     expect(moves.body.data[0].type).toBe('OUT');
+    expect(moves.body.data.filter((m: { issueRequestId: string | null }) => String(m.issueRequestId) === String(reqId))).toHaveLength(1);
   });
 
   it('الصرف يفشل ذريًا لو الكمية نقصت بعد الاعتماد — بدون أي خصم جزئي', async () => {

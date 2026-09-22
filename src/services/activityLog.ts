@@ -21,8 +21,8 @@ function deviceOf(req: Request): string | null {
 }
 
 function ipOf(req: Request): string | null {
-  const fwd = req.get('x-forwarded-for');
-  return (fwd ? fwd.split(',')[0].trim() : req.ip || '').slice(0, 45) || null;
+  // Express يحسب req.ip حسب trust proxy؛ قراءة أول X-Forwarded-For مباشرة تسمح بتزوير سجل التدقيق.
+  return (req.ip || '').slice(0, 45) || null;
 }
 
 export function logActivity(

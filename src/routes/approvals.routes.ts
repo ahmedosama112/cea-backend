@@ -384,22 +384,34 @@ approvalsRoutes.post(
       step = chain[0] ? { kind: 'next', ...chain[0] } : { kind: 'done' };
     }
 
-    // سجل القرار (تدقيق)
-    await prisma.submissionReview.create({
-      data: { submissionId: id, level: sub.currentLevel ?? '', decision, note: note.trim() || null, revision: sub.revision, byUserId: req.user!.id },
-    });
+    const stateData = decision === 'REJECTED'
+      ? { reviewState: 'RETURNED', currentLevel: null, currentApproverId: null }
+      : step.kind === 'next'
+        // معتمد (بملاحظات أو بدون) → المستوى اللي بعده والشخص المسند له
+        ? { currentLevel: step.level, currentApproverId: step.approverId }
+        // السلسلة خلصت → يتبعت لجوجل
+        : { reviewState: 'SENT', currentLevel: null, currentApproverId: null };
 
-    if (decision === 'REJECTED') {
-      await prisma.submission.update({ where: { id }, data: { reviewState: 'RETURNED', currentLevel: null, currentApproverId: null } });
-    } else if (step.kind === 'next') {
-      // معتمد (بملاحظات أو بدون) → المستوى اللي بعده والشخص المسند له
-      await prisma.submission.update({ where: { id }, data: { currentLevel: step.level, currentApproverId: step.approverId } });
-    } else {
-      // السلسلة خلصت → يتبعت لجوجل
-      await prisma.submission.update({ where: { id }, data: { reviewState: 'SENT', currentLevel: null, currentApproverId: null } });
-      void pushSubmissionToSheet(id); // ☁️ لأول مرة يوصل جوجل شيت
-    }
-    const fresh = await prisma.submission.findUnique({ where: { id }, include: SUB_INCLUDE });
+    const fresh = await prisma.$transaction(async (tx) => {
+      // compare-and-set على حالة المستوى يمنع قرارين متزامنين من إنشاء مراجعتين أو تخطي مستوى.
+      const advanced = await tx.submission.updateMany({
+        where: {
+          id,
+          reviewState: 'IN_REVIEW',
+          revision: sub.revision,
+          currentLevel: sub.currentLevel,
+          currentApproverId: sub.currentApproverId,
+        },
+        data: stateData,
+      });
+      if (advanced.count === 0) throw AppError.validation('حالة الكشف اتغيّرت أو اتاخد قرار فيه بالفعل');
+
+      await tx.submissionReview.create({
+        data: { submissionId: id, level: sub.currentLevel ?? '', decision, note: note.trim() || null, revision: sub.revision, byUserId: req.user!.id },
+      });
+      return tx.submission.findUnique({ where: { id }, include: SUB_INCLUDE });
+    });
+    if (decision !== 'REJECTED' && step.kind === 'done') void pushSubmissionToSheet(id); // ☁️ مرة واحدة بعد نجاح الانتقال
     res.json({ success: true, data: shape(fresh as never) });
   }),
 );

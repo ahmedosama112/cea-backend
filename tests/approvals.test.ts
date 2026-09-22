@@ -140,6 +140,24 @@ describe('اعتمادات المديرين', () => {
     expect(p.body.data.reviews.length).toBe(2); // tl + pm
   });
 
+  it('قراران متزامنان على نفس المستوى يسجّلان مراجعة واحدة فقط', async () => {
+    const created = await submit(eng.token);
+    const id = created.body.data.id;
+    const attempts = await Promise.all([
+      request(app).post(`/api/approvals/${id}/decide`).set(auth(tl.token)).send({ decision: 'APPROVED' }),
+      request(app).post(`/api/approvals/${id}/decide`).set(auth(tl.token)).send({ decision: 'APPROVED' }),
+    ]);
+    expect(attempts.map((r) => r.status).sort()).toEqual([200, 400]);
+
+    const after = await prisma.submission.findUnique({ where: { id: BigInt(id) }, include: { reviews: true } });
+    expect(after?.currentLevel).toBe('project manager');
+    expect(after?.reviews).toHaveLength(1);
+
+    // نقفل الكشف حتى ما يفضلش في طابور الاختبارات التالية.
+    const finish = await request(app).post(`/api/approvals/${id}/decide`).set(auth(pm.token)).send({ decision: 'APPROVED' });
+    expect(finish.status).toBe(200);
+  });
+
   it('درجة المرسِل بتحدد السلسلة: كشف team leader بيبدأ عند مدير التنفيذ (مفيش مدير فريق فوقه)', async () => {
     await patchUser(admin.token, tl.id, { approverCmId: cm.id });
     const res = await submit(tl.token);

@@ -25,6 +25,16 @@ describe('سجل النشاط', () => {
     expect(byEmail.some((r: { event: string }) => r.event === 'LOGIN_FAIL')).toBe(true);
   });
 
+  it('عنوان سجل التدقيق يتبع trust proxy ولا يقبل أول X-Forwarded-For مزوّر', async () => {
+    await request(app).post('/api/auth/login')
+      .set('X-Forwarded-For', '198.51.100.7, 203.0.113.9')
+      .send({ email: 'act@test.com', password: 'password123' });
+    await wait();
+    const rows = (await request(app).get('/api/admin/activity?email=act@test.com&limit=1').set(auth(admin.token))).body.data;
+    expect(rows[0].event).toBe('LOGIN_OK');
+    expect(rows[0].ip).toBe('203.0.113.9');
+  });
+
   it('بيسجّل المزامنة وأي خطأ رجع للجهاز (مع الحالة والمسار)', async () => {
     await request(app).post('/api/account/sync-stats').set(auth(eng.token)).send({ localRecords: 7, unsynced: 2 });
     // حساب معتمد بس (زي مدير المشروع): وحدة السراكي مش مفعّلة → 403 — ده بالظبط اللي كان بيحصل

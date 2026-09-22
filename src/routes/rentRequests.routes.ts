@@ -209,12 +209,13 @@ rentRequestsRoutes.post(
       const cur = await tx.rentRequest.findUnique({ where: { id } });
       if (!cur) throw AppError.notFound('طلب الإيجار غير موجود');
       if (cur.status !== 'PENDING') throw AppError.validation('الطلب سبق واتقرر فيه — مينفعش يتقرر فيه تاني');
-      await tx.rentRequestReview.create({ data: { rentRequestId: id, decision, note: note.trim() || null, byUserId: req.user!.id } });
-      return tx.rentRequest.update({
-        where: { id },
+      const claimed = await tx.rentRequest.updateMany({
+        where: { id, status: 'PENDING' },
         data: { status: decision, decidedAt: new Date(), decidedById: req.user!.id },
-        include: REVIEW_INCLUDE,
       });
+      if (claimed.count === 0) throw AppError.validation('الطلب سبق واتقرر فيه — مينفعش يتقرر فيه تاني');
+      await tx.rentRequestReview.create({ data: { rentRequestId: id, decision, note: note.trim() || null, byUserId: req.user!.id } });
+      return tx.rentRequest.findUnique({ where: { id }, include: REVIEW_INCLUDE });
     });
     res.json({ success: true, data: shape(fresh as never) });
   }),
