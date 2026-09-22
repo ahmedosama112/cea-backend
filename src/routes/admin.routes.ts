@@ -379,7 +379,15 @@ adminRoutes.get(
   '/backup-status',
   asyncHandler(async (_req: Request, res: Response) => {
     const row = await prisma.appConfig.findUnique({ where: { key: 'lastBackupStatus' } });
-    res.json({ success: true, data: row?.value ? JSON.parse(row.value) : null });
+    let data: unknown = null;
+    if (row?.value) {
+      try {
+        data = JSON.parse(row.value);
+      } catch {
+        data = { at: null, ok: false, detail: 'حالة نسخة احتياطية قديمة غير مكتملة' };
+      }
+    }
+    res.json({ success: true, data });
   }),
 );
 
