@@ -14,7 +14,7 @@ export const analyticsRoutes = Router();
 const filterQuery = z.object({
   from: ymdDate.optional(),
   to: ymdDate.optional(),
-  site: z.coerce.number().int().min(1).max(2).optional(),
+  site: z.coerce.number().int().min(1).max(999).optional(),
   userId: z.coerce.bigint().optional(),
   // زرار "🔄 تحديث" في الواجهة — يتخطى الكاش عشان ما يبقاش زرار مالوش لازمة لمدة دقيقة
   fresh: z.literal('1').optional(),

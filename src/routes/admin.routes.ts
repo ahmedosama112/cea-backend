@@ -572,7 +572,7 @@ adminRoutes.get(
 // ── إنشاء حساب مهندس (بديل register بتوكن الأدمن — نفس المنطق، مسار أوضح للواجهة) ──
 adminRoutes.post(
   '/users',
-  validate({ body: z.object({ email: z.string().email().max(190), password: z.string().min(8).max(128), enabledModules: z.array(z.enum(ALL_MODULES)).optional(), enabledFeatures: z.array(z.string()).optional(), role: z.enum(['ADMIN','ENGINEER']).optional(), title: z.string().trim().max(100).optional(), project: z.enum(['سكني', 'تجاري']).optional(), site: z.coerce.number().int().min(1).max(2).optional() }) }),
+  validate({ body: z.object({ email: z.string().email().max(190), password: z.string().min(8).max(128), enabledModules: z.array(z.enum(ALL_MODULES)).optional(), enabledFeatures: z.array(z.string()).optional(), role: z.enum(['ADMIN','ENGINEER']).optional(), title: z.string().trim().max(100).optional(), project: z.enum(['سكني', 'تجاري']).optional(), site: z.coerce.number().int().min(1).max(999).optional() }) }),
   asyncHandler(async (req: Request, res: Response) => {
     const result = await authService.register(req.body.email, req.body.password, req.user, req.body.role, req.body.title);
     const userId = BigInt(result.user.id);
@@ -591,7 +591,7 @@ adminRoutes.post(
 // ── تعديل بيانات حساب: المسمى الوظيفي و/أو الصلاحية و/أو المشروع/الموقع ──
 adminRoutes.patch(
   '/users/:userId',
-  validate({ params: userIdParam, body: z.object({ displayName: z.string().trim().max(120).nullable().optional(), title: z.string().trim().max(100).nullable().optional(), role: z.enum(['ADMIN', 'ENGINEER']).optional(), project: z.enum(['سكني', 'تجاري']).nullable().optional(), site: z.coerce.number().int().min(1).max(2).optional(), grade: z.string().trim().max(60).optional(), approverTlId: z.coerce.bigint().nullable().optional(), approverCmId: z.coerce.bigint().nullable().optional(), approverPmId: z.coerce.bigint().nullable().optional() }) }),
+  validate({ params: userIdParam, body: z.object({ displayName: z.string().trim().max(120).nullable().optional(), title: z.string().trim().max(100).nullable().optional(), role: z.enum(['ADMIN', 'ENGINEER']).optional(), project: z.enum(['سكني', 'تجاري']).nullable().optional(), site: z.coerce.number().int().min(1).max(999).optional(), grade: z.string().trim().max(60).optional(), approverTlId: z.coerce.bigint().nullable().optional(), approverCmId: z.coerce.bigint().nullable().optional(), approverPmId: z.coerce.bigint().nullable().optional() }) }),
   asyncHandler(async (req: Request, res: Response) => {
     const userId = BigInt(req.params.userId);
     await assertUserExists(userId);

@@ -15,7 +15,7 @@ export const laborAnalyticsRoutes = Router();
 const filterQuery = z.object({
   from: ymdDate.optional(),
   to: ymdDate.optional(),
-  site: z.coerce.number().int().min(1).max(2).optional(),
+  site: z.coerce.number().int().min(1).max(999).optional(),
   userId: z.coerce.bigint().optional(),
   fresh: z.literal('1').optional(),
 });

@@ -5,17 +5,26 @@ import { prisma } from '../config/prisma';
 // وهو بينفّذ نفس مسار الفورم القديم (حفظ في Drive → تحويل → صف في الشيت).
 // الميزة معطّلة تلقائيًا لو المتغيرات مش موجودة (GOOGLE_WEBAPP_URL / GOOGLE_WEBAPP_SECRET).
 //
-// دعم مشروعين منفصلين (2026-08-26): كل موقع (site 1 أو 2) له شيت وApps Script ومديرين مختلفين.
-// الموقع 1 = المتغيرات الأصلية، الموقع 2 = GOOGLE_WEBAPP_URL_2 / GOOGLE_WEBAPP_SECRET_2.
-// لو متغيرات الموقع 2 فاضية، تسليمات مهندسيه بتتحفظ محليًا عادي من غير دفع لجوجل (fail-safe).
+// دعم مشاريع منفصلة (2026-08-26، واتوسّع لعدد مفتوح في 2026-09-22): كل مشروع له شيت
+// وApps Script ومديرين مختلفين، وكل واحد بيتحط في متغيرات مستقلة:
+//   المشروع 1 = GOOGLE_WEBAPP_URL / GOOGLE_WEBAPP_SECRET (أو _1)
+//   المشروع n = GOOGLE_WEBAPP_URL_n / GOOGLE_WEBAPP_SECRET_n
+// إضافة مشروع جديد = متغيرين جداد على السيرفر، من غير أي تعديل في الكود.
+// لو متغيرات مشروع فاضية، تسليمات مهندسيه بتتحفظ محليًا عادي من غير دفع لجوجل (fail-safe).
 
 interface SiteConfig { url: string; secret: string }
-const SITES: Record<number, SiteConfig> = {
-  1: { url: process.env.GOOGLE_WEBAPP_URL || '', secret: process.env.GOOGLE_WEBAPP_SECRET || '' },
-  2: { url: process.env.GOOGLE_WEBAPP_URL_2 || '', secret: process.env.GOOGLE_WEBAPP_SECRET_2 || '' },
-};
+// رقم المشروع زي ما بيتخزن على التسليم — أي قيمة غلط أو ناقصة بترجع للمشروع 1 (السلوك القديم)
+export function siteKey(site?: number | null): number {
+  const n = Number(site);
+  return Number.isInteger(n) && n >= 1 ? n : 1;
+}
 function siteConfig(site?: number | null): SiteConfig {
-  return SITES[site === 2 ? 2 : 1];
+  const k = siteKey(site);
+  const suffix = k === 1 ? '' : '_' + k;
+  return {
+    url: process.env['GOOGLE_WEBAPP_URL' + suffix] || (k === 1 ? process.env.GOOGLE_WEBAPP_URL_1 || '' : ''),
+    secret: process.env['GOOGLE_WEBAPP_SECRET' + suffix] || (k === 1 ? process.env.GOOGLE_WEBAPP_SECRET_1 || '' : ''),
+  };
 }
 
 export function googleSyncEnabled(site?: number | null): boolean {
@@ -38,31 +47,33 @@ async function callWebApp(site: number | null | undefined, payload: Record<strin
     if (!res.ok) return null;
     return (await res.json()) as Record<string, unknown>;
   } catch (e) {
-    console.error('Google WebApp call failed (site ' + (site === 2 ? 2 : 1) + '):', (e as Error).message);
+    console.error('Google WebApp call failed (site ' + siteKey(site) + '):', (e as Error).message);
     return null;
   } finally {
     clearTimeout(timer);
   }
 }
 
-// ── طابور إرسال لكل موقع ──
+// ── طابور إرسال لكل مشروع ──
 // الكشوف المتزامنة بتتبعت لجوجل واحد ورا التاني بدل ما تتزاحم على قفل الـ Apps Script
 // (القفل هناك بيستنى 30 ثانية بس — لو 4-5 كشوف وصلوا في نفس اللحظة كان آخرهم بيفشل ويحتاج إعادة محاولة).
 // فشل أي كشف في الطابور ما بيأثرش على اللي بعده.
-const pushChains: Record<number, Promise<void>> = { 1: Promise.resolve(), 2: Promise.resolve() };
+// الطابور مستقل لكل مشروع (بيتعمل عند أول كشف) — مشاريع مختلفة بترفع في نفس الوقت،
+// لأن كل شيت له Apps Script وقفل مستقل.
+const pushChains = new Map<number, Promise<void>>();
 function enqueuePush(site: number | null | undefined, task: () => Promise<void>): Promise<void> {
-  const key = site === 2 ? 2 : 1;
-  const run = pushChains[key].then(task, task);
-  pushChains[key] = run.catch(() => undefined);
+  const key = siteKey(site);
+  const run = (pushChains.get(key) ?? Promise.resolve()).then(task, task);
+  pushChains.set(key, run.catch(() => undefined));
   return run;
 }
 
 // إرسال كشف لجوجل (يشتغل في الخلفية بعد الرد على المهندس — التحويل هناك بياخد ثواني لدقيقة)
 // عند النجاح: بنخزّن رقم الصف وid الملف على التسليم عشان متابعة الحالة لاحقًا
 // approvalSummary: ملخص سلسلة اعتمادات المديرين داخل التطبيق — السكربت بيكتبه في خانة "سلسلة الاعتماد" (اختياري)
-// ⚠ الموقع 2: Code-site2.gs لسه النسخة القديمة — doPost بينده processNewSubmission بـ 3 باراميترات،
-//   فالـ approvalSummary بيتبعت من هنا وبيتترمي هناك (الملاحظات مش بتظهر في الشيت، التوقيعات بتنزل عادي).
-//   اتأجل بقرار صاحب المشروع (8 سبتمبر 2026) لأن الموقع 2 لسه مشتغلش — يتظبط قبل ما يشتغل.
+// ⚠ كل شيت لازم يكون عليه نسخة google-sheet/Code.gs الحالية. النسخ القديمة (زي Code-site2.gs
+//   قبل 22 سبتمبر 2026) كانت بتترمي الـ approvalSummary ومفيهاش action=findRow، يعني ملاحظات
+//   الاعتماد مش بتظهر في الشيت والكشف اللي رده ضاع مابيتلاقاش فيتعمل صف مكرر.
 export function pushSubmissionToGoogle(submissionId: bigint, fileBuffer: Buffer, fileName: string, engineerName: string, project: string | null, site: number | null | undefined, approvalSummary?: string): Promise<void> {
   return enqueuePush(site, () => doPushSubmission(submissionId, fileBuffer, fileName, engineerName, project, site, approvalSummary));
 }
@@ -107,7 +118,7 @@ export async function findSheetRow(site: number | null | undefined, engineerName
   if (!googleSyncEnabled(site)) return null;
   const result = await callWebApp(site, { action: 'findRow', engineerName, fileName, notBefore: notBefore ? notBefore.getTime() : undefined }, 30_000);
   if (result && result.ok) return Number(result.row) || null;
-  console.error('Google findRow failed (site ' + (site === 2 ? 2 : 1) + '):', result?.error ?? '(no response)');
+  console.error('Google findRow failed (site ' + siteKey(site) + '):', result?.error ?? '(no response)');
   return null;
 }
 
@@ -126,7 +137,7 @@ const STATUS_CACHE_MS = 60_000;
 
 export async function fetchSheetStatuses(rows: number[], site: number | null | undefined): Promise<Record<number, SheetRowStatus>> {
   if (!googleSyncEnabled(site) || !rows.length) return {};
-  const key = (site === 2 ? 2 : 1) + ':' + [...rows].sort((a, b) => a - b).join(',');
+  const key = siteKey(site) + ':' + [...rows].sort((a, b) => a - b).join(',');
   const cached = statusCache.get(key);
   if (cached && Date.now() - cached.at < STATUS_CACHE_MS) return cached.data;
   // (12 سبتمبر 2026) المهلة كانت 4 ث — مع 45+ كشف في الشاشة النداء كان بيتقطع دايمًا
@@ -150,7 +161,7 @@ export async function fetchStatusesBySite(subs: Array<{ gsheetRow: number | null
   const bySite = new Map<number, number[]>();
   for (const s of subs) {
     if (!s.gsheetRow) continue;
-    const k = s.site === 2 ? 2 : 1;
+    const k = siteKey(s.site);
     if (!bySite.has(k)) bySite.set(k, []);
     bySite.get(k)!.push(s.gsheetRow);
   }
