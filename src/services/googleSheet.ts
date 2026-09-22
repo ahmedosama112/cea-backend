@@ -74,11 +74,11 @@ function enqueuePush(site: number | null | undefined, task: () => Promise<void>)
 // ⚠ كل شيت لازم يكون عليه نسخة google-sheet/Code.gs الحالية. النسخ القديمة (زي Code-site2.gs
 //   قبل 22 سبتمبر 2026) كانت بتترمي الـ approvalSummary ومفيهاش action=findRow، يعني ملاحظات
 //   الاعتماد مش بتظهر في الشيت والكشف اللي رده ضاع مابيتلاقاش فيتعمل صف مكرر.
-export function pushSubmissionToGoogle(submissionId: bigint, fileBuffer: Buffer, fileName: string, engineerName: string, project: string | null, site: number | null | undefined, approvalSummary?: string): Promise<void> {
-  return enqueuePush(site, () => doPushSubmission(submissionId, fileBuffer, fileName, engineerName, project, site, approvalSummary));
+export function pushSubmissionToGoogle(submissionId: bigint, fileBuffer: Buffer, fileName: string, engineerName: string, project: string | null, site: number | null | undefined, approvalSummary?: string, kind?: string): Promise<void> {
+  return enqueuePush(site, () => doPushSubmission(submissionId, fileBuffer, fileName, engineerName, project, site, approvalSummary, kind));
 }
 
-async function doPushSubmission(submissionId: bigint, fileBuffer: Buffer, fileName: string, engineerName: string, project: string | null, site: number | null | undefined, approvalSummary?: string): Promise<void> {
+async function doPushSubmission(submissionId: bigint, fileBuffer: Buffer, fileName: string, engineerName: string, project: string | null, site: number | null | undefined, approvalSummary?: string, kind?: string): Promise<void> {
   if (!googleSyncEnabled(site)) return;
   // (7 سبتمبر 2026) حماية من التكرار: الدفع بيتنفذ من طابور — لو كشف اتبعت مرتين (اعتماد + "إعادة الإرسال للشيت" وقت ما الأول لسه شغال)
   // التاني بيلاقي الصف اتسجل خلاص فبيتخطى بدل ما يعمل صف مكرر في الشيت
@@ -92,6 +92,8 @@ async function doPushSubmission(submissionId: bigint, fileBuffer: Buffer, fileNa
       fileName,
       fileBase64: fileBuffer.toString('base64'),
       approvalSummary: approvalSummary || '',
+      // labor/equipment — السكربت بيحط "عمالة" في اسم الشيت المعتمد عشان الـDC يفرّق
+      kind: kind || '',
     },
     300_000, // (8 سبتمبر 2026) كان 120 ث: كشف بـ 12 ورقة بياخد أكتر في التحويل + PDF — لو قطعنا الاتصال بدري السكربت بيكمل ويعمل الصف بس إحنا مانعرفش رقمه (خطر تكرار عند إعادة الإرسال). حد Apps Script نفسه 6 دقايق
   );

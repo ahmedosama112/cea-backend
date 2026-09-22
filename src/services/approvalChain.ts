@@ -189,7 +189,7 @@ export async function pushSubmissionToSheet(submissionId: bigint): Promise<void>
     }
   }
   // اسم المهندس في الشيت: الاسم بالعربي لو محدد، وإلا أول الإيميل (زي زمان)
-  await pushSubmissionToGoogle(sub.id, toSend, sub.file.fileName, sub.user.displayName || sub.user.email.split('@')[0], sub.user.project ?? null, sub.site, approvalSummary(sub.reviews, sub.revision, sub.rowRejections, sub.rowEdits));
+  await pushSubmissionToGoogle(sub.id, toSend, sub.file.fileName, sub.user.displayName || sub.user.email.split('@')[0], sub.user.project ?? null, sub.site, approvalSummary(sub.reviews, sub.revision, sub.rowRejections, sub.rowEdits), sub.kind);
 }
 
 // ملف الكشف **موقّعًا** بتوقيعات معتمدي النسخة الحالية — نفس النسخة اللي بتتبعت لجوجل.
