@@ -59,7 +59,10 @@ adminRoutes.patch(
 adminRoutes.get(
   '/projects',
   asyncHandler(async (_req: Request, res: Response) => {
-    res.json({ success: true, data: await listProjects() });
+    // inReview: كشوف قيد المراجعة على كل مشروع — للتحذير قبل تشغيل "بدون اعتماد" (بتبقى معلّقة والأدمن يحرّكها)
+    const counts = await prisma.submission.groupBy({ by: ['projectId'], where: { reviewState: 'IN_REVIEW', projectId: { not: null } }, _count: { _all: true } });
+    const byProject = new Map(counts.map((c) => [c.projectId, c._count._all]));
+    res.json({ success: true, data: (await listProjects()).map((p) => ({ ...p, inReview: byProject.get(p.id) ?? 0 })) });
   }),
 );
 
@@ -78,13 +81,26 @@ adminRoutes.post(
 
 adminRoutes.patch(
   '/projects/:id',
-  validate({ params: z.object({ id: z.coerce.number().int() }), body: projectNameSchema }),
+  validate({
+    params: z.object({ id: z.coerce.number().int() }),
+    // الاسم أو "بدون اعتماد" أو الاتنين
+    body: projectNameSchema.partial().extend({ noApproval: z.boolean().optional() })
+      .refine((b) => b.name !== undefined || b.noApproval !== undefined, 'مفيش تعديل'),
+  }),
   asyncHandler(async (req: Request, res: Response) => {
     const id = Number(req.params.id);
     await assertProjectExists(id);
-    const existing = await prisma.project.findFirst({ where: { name: req.body.name, id: { not: id } } });
-    if (existing) throw AppError.conflict('فيه مشروع بنفس الاسم بالفعل');
-    const project = await prisma.project.update({ where: { id }, data: { name: req.body.name } });
+    if (req.body.name !== undefined) {
+      const existing = await prisma.project.findFirst({ where: { name: req.body.name, id: { not: id } } });
+      if (existing) throw AppError.conflict('فيه مشروع بنفس الاسم بالفعل');
+    }
+    const project = await prisma.project.update({
+      where: { id },
+      data: {
+        ...(req.body.name !== undefined ? { name: req.body.name } : {}),
+        ...(req.body.noApproval !== undefined ? { noApproval: req.body.noApproval } : {}),
+      },
+    });
     res.json({ success: true, data: project });
   }),
 );

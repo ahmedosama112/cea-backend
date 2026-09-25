@@ -20,6 +20,8 @@ enum Role {
 model Project {
   id           Int           @id @default(autoincrement())
   name         String        @unique @db.VarChar(120)
+  // مشروع بدون اعتماد: أي كشف عليه سلسلته فاضية ويروح الشيت على طول (مهما كان المعتمدين المسندين)
+  noApproval   Boolean       @default(false) @map("no_approval")
   createdAt    DateTime      @default(now()) @map("created_at")
   userProjects UserProject[]
 

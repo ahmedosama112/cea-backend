@@ -14,8 +14,8 @@ export async function readSiteNames(): Promise<Record<string, string>> {
 }
 
 // كل المشاريع (القديمة + الجديدة اللي الأدمن أضافها) — بترتيب الـid
-export async function listProjects(): Promise<{ id: number; name: string }[]> {
-  return prisma.project.findMany({ orderBy: { id: 'asc' }, select: { id: true, name: true } });
+export async function listProjects(): Promise<{ id: number; name: string; noApproval: boolean }[]> {
+  return prisma.project.findMany({ orderBy: { id: 'asc' }, select: { id: true, name: true, noApproval: true } });
 }
 
 export async function projectName(id: number | null | undefined): Promise<string> {

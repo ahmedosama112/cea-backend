@@ -120,7 +120,12 @@ export function buildChain(u: ChainUser, solePmId: bigint | null): ChainSlot[] {
 // سلسلة كشوف مهندس معيّن: المستويات المطلوبة لدرجته، وبس اللي ليها معتمد مسند فعلًا.
 // projectId: لو محدد وموجود مشروع محمّل على الحساب بالـid ده، السلسلة بتاخد معتمدي المشروع ده
 // (approver_tl/cm/pm_id بتاعة UserProject) بدل المعتمدين الافتراضيين على الحساب.
+// مشروع عليه noApproval → السلسلة فاضية لأي حد (حتى من غير مدير المشروع الوحيد التلقائي).
 export async function resolveChainForUser(userId: bigint, projectId?: number | null): Promise<ChainSlot[]> {
+  if (projectId != null) {
+    const p = await prisma.project.findUnique({ where: { id: projectId }, select: { noApproval: true } });
+    if (p?.noApproval) return [];
+  }
   const u = await prisma.user.findUnique({
     where: { id: userId },
     select: { id: true, grade: true, approverTlId: true, approverCmId: true, approverPmId: true },

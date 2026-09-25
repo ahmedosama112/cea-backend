@@ -131,7 +131,9 @@ approvalsRoutes.get(
           ? { id: u.id, grade: u.grade, approverTlId: up.approverTlId, approverCmId: up.approverCmId, approverPmId: up.approverPmId }
           : { id: u.id, grade: u.grade, approverTlId: u.approverTlId, approverCmId: u.approverCmId, approverPmId: u.approverPmId };
         const namesSrc = up ?? u;
-        const chain = buildChain(chainUser, solePmId);
+        // مشروع بدون اعتماد → سلسلة فاضية (نفس resolveChainForUser) — كشف قديم IN_REVIEW عليه بيبان معلّق والأدمن يحرّكه للشيت
+        const noApproval = r.projectId != null && !!projects.find((p) => p.id === r.projectId)?.noApproval;
+        const chain = noApproval ? [] : buildChain(chainUser, solePmId);
         const inChain = chain.some((c) => c.level === r.currentLevel);
         const canAct = myLevel !== 'viewer' && r.reviewState === 'IN_REVIEW'
           && (isAdmin
