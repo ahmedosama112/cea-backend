@@ -163,8 +163,16 @@ async function autoAlerts(req: Request) {
     };
     const count = await prisma.submission.count({ where });
     if (count > 0) {
-      const oldest = await prisma.submission.findFirst({ where, orderBy: { createdAt: 'asc' }, select: { createdAt: true } });
-      out.approvals = { count, since: oldest?.createdAt.toISOString() ?? null };
+      // keys: بصمة كل كشف مستحق — الواجهة بتقارنها بـ«مش دلوقتي» عشان التنبيه يرجع بس لو فيه كشف جديد فعلًا
+      const pending = await prisma.submission.findMany({
+        where, orderBy: { createdAt: 'asc' }, take: 200,
+        select: { id: true, revision: true, currentLevel: true, createdAt: true },
+      });
+      out.approvals = {
+        count,
+        since: pending[0]?.createdAt.toISOString() ?? null,
+        keys: pending.map((s) => `${s.id}:${s.revision}:${s.currentLevel ?? ''}`),
+      };
     }
   }
 
@@ -184,6 +192,7 @@ async function autoAlerts(req: Request) {
         count: rows.length,
         items: rows.map((r) => ({
           id: r.id.toString(),
+          revision: r.revision,
           contractorName: r.contractorName,
           weekStart: ymd(r.weekStart),
           note: r.reviews[0]?.note ?? '',

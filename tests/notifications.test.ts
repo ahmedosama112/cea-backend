@@ -166,7 +166,26 @@ describe('Notifications (التنبيهات الداخلية)', () => {
     const mine = await request(app).get('/api/notifications').set(auth(eng.token));
     expect(mine.body.data.auto.rejected.count).toBe(1);
     expect(mine.body.data.auto.rejected.items[0].contractorName).toBe('مقاول تجريبي');
+    expect(mine.body.data.auto.rejected.items[0].revision).toBe(0);
     const other = await request(app).get('/api/notifications').set(auth(eng2.token));
     expect(other.body.data.auto.rejected).toBeUndefined();
+  });
+
+  it('التنبيهات التلقائية: auto.approvals بيرجّع بصمة لكل كشف مستحق (id:revision:level)', async () => {
+    const file = await prisma.file.create({
+      data: { userId: BigInt(eng.id), fileName: 'a.xlsx', filePath: 'x/a.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', fileSize: 10 },
+    });
+    const sub = await prisma.submission.create({
+      data: {
+        userId: BigInt(eng.id), fileId: file.id, contractorName: 'مقاول اعتماد', weekStart: new Date('2026-09-08'),
+        weekEnd: new Date('2026-09-14'), total: 50, recordsCount: 1, reviewState: 'IN_REVIEW',
+        revision: 2, currentLevel: 'manager', currentApproverId: BigInt(admin.id),
+      },
+    });
+    const res = await request(app).get('/api/notifications').set(auth(admin.token));
+    expect(res.body.data.auto.approvals.count).toBe(1);
+    expect(res.body.data.auto.approvals.keys).toEqual([`${sub.id}:2:manager`]);
+    const other = await request(app).get('/api/notifications').set(auth(eng2.token));
+    expect(other.body.data.auto.approvals).toBeUndefined();
   });
 });
