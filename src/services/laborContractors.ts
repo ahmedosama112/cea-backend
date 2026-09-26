@@ -14,6 +14,15 @@ export async function laborNameSet(): Promise<Set<string>> {
   return new Set(rows.map((r) => normName(r.name)));
 }
 
+// كشف مقاولين عمالة: كل مقاوليه عليهم isLabor (checkLaborMix بيمنع خلطهم بغيرهم أصلًا).
+// بيحدد نوع الكشف اللي بيتبعت لجوجل ('labor_contractor') عشان اسم الشيت المعتمد ياخد "مقاول_عمالة".
+export async function isLaborSubmission(contractorName: string): Promise<boolean> {
+  const names = contractorName.split(/،\s*/).map((n) => n.trim()).filter(Boolean);
+  if (!names.length) return false;
+  const labor = await laborNameSet();
+  return names.every((n) => labor.has(normName(n)));
+}
+
 // تحقق قاعدة كشف العمالة وقت الإرسال/إعادة الإرسال — بيرجع رسالة الخطأ أو null لو الكشف سليم
 export async function checkLaborMix(contractorName: string, placeName: string): Promise<string | null> {
   if (!placeName || !placeName.trim()) {

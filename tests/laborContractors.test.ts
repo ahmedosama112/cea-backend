@@ -2,7 +2,7 @@ import { beforeAll, afterAll, describe, expect, it } from 'vitest';
 import ExcelJS from 'exceljs';
 import { app, prisma, request, resetDb, createAdmin, createEngineer, auth, TestUser } from './helpers';
 import { applyRowRejections, workbookLaborDaysByContractor, workbookLaborDaysDetail } from '../src/services/rowReject';
-import { saveLaborDays } from '../src/services/laborContractors';
+import { saveLaborDays, isLaborSubmission } from '../src/services/laborContractors';
 
 // مقاولين العمالة (2026-09-19): كشفهم لوحده + مكان إلزامي + يوميات قبل/بعد الاعتماد لكل مهندس
 
@@ -90,6 +90,13 @@ describe('قواعد إرسال كشف العمالة + تقرير العمال�
     const res = await submit(eng.token, 'احمد عيد، مقاول نجارة', 'برج 1'); // كتابة مختلفة للهمزة لسه بتتعرف
     expect(res.status).toBe(400);
     expect(JSON.stringify(res.body)).toContain('لوحدهم');
+  });
+
+  it('isLaborSubmission: كشف مقاولين عمالة بس (حتى بكتابة مختلفة للهمزة) — مقاول عادي أو خليط لأ', async () => {
+    expect(await isLaborSubmission('احمد عيد')).toBe(true);
+    expect(await isLaborSubmission('مقاول نجارة')).toBe(false);
+    expect(await isLaborSubmission('أحمد عيد، مقاول نجارة')).toBe(false);
+    expect(await isLaborSubmission('')).toBe(false);
   });
 
   it('مقاول عمالة لوحده + مكان مقبول، ومقاول عادي + مكان مقبول', async () => {

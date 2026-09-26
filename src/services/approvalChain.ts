@@ -3,7 +3,7 @@ import { storage } from './storage';
 import { pushSubmissionToGoogle } from './googleSheet';
 import { stampSignatures, hasSignatureBox, LevelSignature } from './signStamp';
 import { applyRowRejections, applyRowEdits, workbookLaborTotal, workbookLaborDaysDetail, Kind, RejectMode, RowEdit } from './rowReject';
-import { saveLaborDays } from './laborContractors';
+import { saveLaborDays, isLaborSubmission } from './laborContractors';
 
 // ═══════════ سلسلة اعتمادات المديرين (داخل التطبيق قبل جوجل شيت) ═══════════
 // الكشف بيعدّي على المعتمدين المسندين لصاحبه بالترتيب؛ وبس بعد ما يخلص كلهم بيتبعت لجوجل شيت.
@@ -193,8 +193,10 @@ export async function pushSubmissionToSheet(submissionId: bigint): Promise<void>
       console.error('[approval] فشل حساب أيام العمالة المعتمدة', submissionId.toString(), (e as Error).message);
     }
   }
+  // نوع الكشف لجوجل: كشف مقاولين عمالة بياخد 'labor_contractor' (اسم الشيت المعتمد فيه "مقاول_عمالة") — فشل هنا يرجع 'labor'
+  const googleKind = sub.kind === 'labor' && (await isLaborSubmission(sub.contractorName).catch(() => false)) ? 'labor_contractor' : sub.kind;
   // اسم المهندس في الشيت: الاسم بالعربي لو محدد، وإلا أول الإيميل (زي زمان)
-  await pushSubmissionToGoogle(sub.id, toSend, sub.file.fileName, sub.user.displayName || sub.user.email.split('@')[0], sub.user.project ?? null, sub.site, approvalSummary(sub.reviews, sub.revision, sub.rowRejections, sub.rowEdits), sub.kind);
+  await pushSubmissionToGoogle(sub.id, toSend, sub.file.fileName, sub.user.displayName || sub.user.email.split('@')[0], sub.user.project ?? null, sub.site, approvalSummary(sub.reviews, sub.revision, sub.rowRejections, sub.rowEdits), googleKind);
 }
 
 // ملف الكشف **موقّعًا** بتوقيعات معتمدي النسخة الحالية — نفس النسخة اللي بتتبعت لجوجل.
