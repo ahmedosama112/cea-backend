@@ -52,6 +52,20 @@ describe('Records (سراكي)', () => {
     await request(app).delete(`/api/records/${res.body.data.id}`).set(auth(admin.token));
   });
 
+  it('نوع الكمية "شهرية" بيتقبل ويرجع زي ما هو، وفي التعديل كمان', async () => {
+    const res = await request(app).post('/api/records').set(auth(admin.token)).send({ ...baseRecord, qty: 1, qtyType: 'شهرية' });
+    expect(res.status).toBe(201);
+    expect(res.body.data.qtyType).toBe('شهرية');
+    const row = await prisma.record.findUnique({ where: { id: BigInt(res.body.data.id) } });
+    expect(row!.qtyType).toBe('MONTHLY');
+    const put = await request(app).put(`/api/records/${res.body.data.id}`).set(auth(admin.token)).send({ ...baseRecord, qty: 2, qtyType: 'شهرية' });
+    expect(put.status).toBe(200);
+    expect(put.body.data.qtyType).toBe('شهرية');
+    const bad = await request(app).post('/api/records').set(auth(admin.token)).send({ ...baseRecord, qtyType: 'سنوية' });
+    expect(bad.status).toBe(400);
+    await request(app).delete(`/api/records/${res.body.data.id}`).set(auth(admin.token));
+  });
+
   it('ربط المقاول بالاسم snapshot حتى بدون صف مقاول فعلي', async () => {
     const row = await prisma.record.findUnique({ where: { id: BigInt(recordId) } });
     expect(row!.contractorName).toBe(baseRecord.contractor);
