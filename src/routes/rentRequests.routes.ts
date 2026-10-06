@@ -7,7 +7,7 @@ import { asyncHandler } from '../utils/asyncHandler';
 import { validate } from '../middlewares/validate';
 import { idParamSchema } from '../utils/crudFactory';
 import { ymdDate } from '../schema/entities.schema';
-import { rateTypeArSchema, toEnum, arabizeRateTypes } from '../utils/rateType';
+import { rateTypeArSchema, toEnum, arabizeRateTypes, RateTypeAr } from '../utils/rateType';
 
 // ═══════════ طلبات الإيجار (معدات/عمالة) — المهندس يطلب، مدير المشروع يعتمد/يرفض ═══════════
 // (authenticate + requireModule('rent_requests') مطبّقين في routes/index.ts)
@@ -133,7 +133,7 @@ rentRequestsRoutes.post(
   '/',
   validate({ body: createSchema }),
   asyncHandler(async (req: Request, res: Response) => {
-    const body = req.body as { contractorId: bigint; placeId: bigint; resourceType: 'EQUIPMENT' | 'LABOR'; day: string; date: string; qty: number; qtyType: 'يومية' | 'ساعة' | 'مقطوعية' | 'عدد'; price: number; statementOfWork: string };
+    const body = req.body as { contractorId: bigint; placeId: bigint; resourceType: 'EQUIPMENT' | 'LABOR'; day: string; date: string; qty: number; qtyType: RateTypeAr; price: number; statementOfWork: string };
     const contractor = await prisma.contractor.findFirst({ where: { id: body.contractorId, userId: req.user!.id } });
     if (!contractor) throw AppError.validation('المقاول غير موجود أو لا يخصك');
     const place = await prisma.place.findFirst({ where: { id: body.placeId, userId: req.user!.id } });

@@ -86,7 +86,7 @@ describe('طلبات الإيجار', () => {
 
   it('qtyType غير صحيح مرفوض', async () => {
     const res = await request(app).post('/api/rent-requests').set(auth(eng.token))
-      .send({ contractorId, placeId, resourceType: 'EQUIPMENT', ...baseLine, qtyType: 'شهرية', statementOfWork: 'x' });
+      .send({ contractorId, placeId, resourceType: 'EQUIPMENT', ...baseLine, qtyType: 'سنوية', statementOfWork: 'x' });
     expect(res.status).toBe(400);
   });
 
