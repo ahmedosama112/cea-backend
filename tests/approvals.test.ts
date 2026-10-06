@@ -435,6 +435,65 @@ describe('اعتمادات المديرين', () => {
     await patchUser(admin.token, eng.id, { approverCmId: null });
   });
 
+  it('مدير المشروع بيبعت سركيه بنفسه (من غير سلسلة) → توقيعه بيتختم في بلوك "توقيع مدير المشروع" تحت', async () => {
+    // كشف بتخطيط الواجهة: صف التوقيعات 16 وعناوين البلوكات في 17 (A = مدير المشروع · G = مدير التنفيذ · J = مدير الفريق)
+    const sheetWithSigRow = async () => {
+      const wb = new ExcelJS.Workbook();
+      const ws = wb.addWorksheet('مقاول');
+      ws.columns = [12, 10, 12, 6, 6, 6, 6, 12, 14, 9, 14, 12, 11].map((width) => ({ width }));
+      ws.getCell(8, 13).value = '2026-08-12'; ws.getCell(8, 8).value = 500; ws.getCell(15, 8).value = 500;
+      ws.getRow(16).height = 55;
+      ws.mergeCells(17, 1, 17, 5); ws.getCell(17, 1).value = 'توقيع مدير المشروع';
+      ws.mergeCells(17, 7, 17, 9); ws.getCell(17, 7).value = 'توقيع مدير التنفيذ';
+      ws.mergeCells(17, 10, 17, 13); ws.getCell(17, 10).value = 'توقيع مدير الفريق';
+      return Buffer.from(await wb.xlsx.writeBuffer());
+    };
+    const sendAs = async (u: TestUser) => request(app).post('/api/submissions').set(auth(u.token))
+      .field('contractorName', 'مقاول').field('placeName', 'موقع').field('weekStart', '2026-08-12')
+      .field('weekEnd', '2026-08-18').field('total', '500').field('recordsCount', '1')
+      .attach('file', await sheetWithSigRow(), 'pm.xlsx');
+    const imagesOf = async (id: string) => {
+      const file = await request(app).get(`/api/approvals/${id}/file`).set(auth(pm.token)).buffer(true).parse((r, cb) => { const chunks: Buffer[] = []; r.on('data', (c: Buffer) => chunks.push(c)); r.on('end', () => cb(null, Buffer.concat(chunks))); });
+      expect(file.status).toBe(200);
+      const wb = new ExcelJS.Workbook();
+      await wb.xlsx.load(file.body as ArrayBuffer);
+      return wb.worksheets[0].getImages();
+    };
+
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+    const setSig = async (u: TestUser) => {
+      const f = await request(app).post('/api/files').set(auth(u.token)).attach('file', png, 'sig.png');
+      expect(f.status).toBe(201);
+      await request(app).put(`/api/admin/users/${u.id}/settings`).set(auth(admin.token)).send({ signatureFileId: f.body.data.id });
+    };
+
+    // pm رافع توقيعه — كشفه بيتبعت فورًا وبلوك مدير المشروع (A16) فيه توقيعه
+    await setSig(pm);
+    const res = await sendAs(pm);
+    expect(res.status).toBe(201);
+    expect(res.body.data.reviewState).toBe('SENT');
+    const imgs = await imagesOf(res.body.data.id);
+    expect(imgs.length).toBe(1);
+    expect(imgs[0].range.tl.nativeRow).toBe(15);  // صف التوقيعات 16
+    expect(imgs[0].range.tl.nativeCol).toBeLessThan(5); // بلوك A..E = مدير المشروع
+
+    // درجة تانية بتبعت بنفسها (مدير التنفيذ) → مفيش ختم ذاتي (الطلب لمدير المشروع بس)
+    await setSig(cm);
+    const cmRes = await sendAs(cm);
+    expect(cmRes.body.data.reviewState).toBe('SENT');
+    expect((await imagesOf(cmRes.body.data.id)).length).toBe(0);
+    await request(app).put(`/api/admin/users/${cm.id}/settings`).set(auth(admin.token)).send({ signatureFileId: null });
+
+    // لو فيه مدير مشروع اعتمد الكشف فعلًا في النسخة دي، اعتماده هو اللي بيتحط مش صاحب الكشف
+    const submitter = { grade: 'project manager', email: 'pm@test.com', accountSettings: null };
+    const approverReview = { level: 'project manager', decision: 'APPROVED', revision: 0, createdAt: new Date(), byUser: { email: 'pm2@test.com', accountSettings: null } };
+    const withApprover = await collectSignatures([approverReview], 0, submitter);
+    expect(withApprover.filter((s) => s.level === 'project manager').map((s) => s.by)).toEqual(['pm2']);
+    const selfOnly = await collectSignatures([], 0, submitter);
+    expect(selfOnly.map((s) => [s.level, s.by])).toEqual([['project manager', 'pm']]);
+    expect(await collectSignatures([], 0, { ...submitter, grade: 'junior' })).toEqual([]);
+  });
+
   it('المصفوفة قابلة للتعديل: الترتيب بيتفرض بترتيب السلم، والسلسلة الجديدة بتتطبق على الكشوف الجاية', async () => {
     // junior: نشيل مدير التنفيذ ونسيب مدير الفريق + مدير المشروع (بترتيب مقلوب عمدًا)
     const put = await request(app).put('/api/admin/approval-matrix').set(auth(admin.token))

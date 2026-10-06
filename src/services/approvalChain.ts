@@ -209,6 +209,8 @@ export async function signedFileBuffer(submissionId: bigint, mode: RejectMode = 
     where: { id: submissionId },
     include: {
       file: true,
+      // صاحب الكشف: لو مدير مشروع بيتختم توقيعه في بلوك مدير المشروع (collectSignatures)
+      user: { select: { grade: true, email: true, displayName: true, title: true, accountSettings: { select: { signatureFile: true } } } },
       reviews: {
         orderBy: { createdAt: 'asc' },
         include: { byUser: { select: { email: true, displayName: true, title: true, accountSettings: { select: { signatureFile: true } } } } },
@@ -224,7 +226,7 @@ export async function signedFileBuffer(submissionId: bigint, mode: RejectMode = 
   // النسخة النهائية (تتختم وتروح جوجل/الـ DC): السطور المشطوبة بتبقى أيام فاضية — نضيفة بلا أثر أحمر (السبب في خانة سلسلة الاعتماد بالشيت)
   const buffer = await rejectedFileBuffer(original, sub.rowRejections, sub.revision, sub.kind as Kind, mode, sub.rowEdits);
   try {
-    const sigs = await collectSignatures(sub.reviews, sub.revision);
+    const sigs = await collectSignatures(sub.reviews, sub.revision, sub.user);
     if (!sigs.length) return buffer;
     // (N11) مهلة للختم: ملف غريب بياخد وقت طويل مايعلّقش الطلب — بنرجع الأصل بلا توقيعات ونسجّل
     const timeout = new Promise<never>((_, rej) => setTimeout(() => rej(new Error('انتهت مهلة ختم التوقيعات (20 ث)')), 20_000).unref?.());
@@ -263,14 +265,33 @@ export async function rejectedFileBuffer(original: Buffer, rejections: RowReject
 // توقيعات المستوى الواحد بتيجي من حساب المعتمد نفسه (نفس التوقيع اللي بيرفعه من شاشة "توقيع المهندس").
 // بناخد آخر قرار اعتماد في النسخة الحالية لكل مستوى — الرفض مالوش توقيع طبعًا،
 // والمستوى اللي معتمده مرفعش توقيع بيفضل بلوكه فاضي بالعنوان بس (زي ما كان بلوك العامل).
+type SignerUser = { email?: string; displayName?: string | null; title?: string | null; accountSettings: { signatureFile: { filePath: string; mimeType: string } | null } | null } | null;
 type SignatureReview = {
   level: string;
   decision: string;
   revision: number;
   createdAt?: Date;
-  byUser: { email?: string; displayName?: string | null; title?: string | null; accountSettings: { signatureFile: { filePath: string; mimeType: string } | null } | null } | null;
+  byUser: SignerUser;
 };
-export async function collectSignatures(reviews: SignatureReview[], revision: number): Promise<LevelSignature[]> {
+// صاحب الكشف — بيتختم توقيعه في بلوك درجته لو درجته من SELF_SIGN_GRADES
+export type SignatureSubmitter = NonNullable<SignerUser> & { grade: string };
+
+// (أكتوبر 2026) مدير المشروع لما يبعت سركيه بنفسه: سلسلته فاضية (مفيش مراجعة) فبلوك "توقيع مدير المشروع" تحت
+// كان بيطلع فاضي، رغم إن توقيعه بيتحط جمب السطور من الواجهة. دلوقتي توقيعه من حسابه بيتختم في البلوك ده كمان —
+// إلا لو فيه مدير مشروع اعتمد الكشف فعلًا في النسخة الحالية (توقيع المعتمد هو اللي يتحط).
+const SELF_SIGN_GRADES = new Set(['project manager']);
+
+async function signatureOf(level: string, u: SignerUser, at?: Date): Promise<LevelSignature> {
+  const by = (u ? (u.displayName || u.title || (u.email ? u.email.split('@')[0] : '')) : '') || undefined;
+  const f = u?.accountSettings?.signatureFile;
+  // بلا توقيع مرفوع: بنكتب "معتمد بواسطة" بس (البلوك فاضي) — image = null
+  if (!f) return { level, image: null, ext: 'png', by, at };
+  const image = await storage.read(f.filePath).catch(() => null);
+  if (!image) { console.error('[approval] توقيع المعتمد مش موجود على السيرفر', level, f.filePath); return { level, image: null, ext: 'png', by, at }; }
+  return { level, image, ext: f.mimeType.includes('jpeg') || f.mimeType.includes('jpg') ? 'jpeg' : 'png', by, at };
+}
+
+export async function collectSignatures(reviews: SignatureReview[], revision: number, submitter?: SignatureSubmitter | null): Promise<LevelSignature[]> {
   const byLevel = new Map<string, SignatureReview>();
   for (const r of reviews) {
     if (r.revision !== revision) continue;
@@ -279,14 +300,9 @@ export async function collectSignatures(reviews: SignatureReview[], revision: nu
     byLevel.set(r.level, r); // آخر اعتماد على المستوى ده هو المعتمد
   }
   const out: LevelSignature[] = [];
-  for (const [level, r] of byLevel) {
-    const by = r.byUser ? (r.byUser.displayName || r.byUser.title || (r.byUser.email ? r.byUser.email.split('@')[0] : '')) : '';
-    const f = r.byUser?.accountSettings?.signatureFile;
-    // معتمد بلا توقيع مرفوع: بنكتب "معتمد بواسطة" بس (البلوك فاضي) — image = null
-    if (!f) { out.push({ level, image: null, ext: 'png', by: by || undefined, at: r.createdAt }); continue; }
-    const image = await storage.read(f.filePath).catch(() => null);
-    if (!image) { console.error('[approval] توقيع المعتمد مش موجود على السيرفر', level, f.filePath); out.push({ level, image: null, ext: 'png', by: by || undefined, at: r.createdAt }); continue; }
-    out.push({ level, image, ext: f.mimeType.includes('jpeg') || f.mimeType.includes('jpg') ? 'jpeg' : 'png', by: by || undefined, at: r.createdAt });
+  for (const [level, r] of byLevel) out.push(await signatureOf(level, r.byUser, r.createdAt));
+  if (submitter && SELF_SIGN_GRADES.has(submitter.grade) && hasSignatureBox(submitter.grade) && !byLevel.has(submitter.grade)) {
+    out.push(await signatureOf(submitter.grade, submitter));
   }
   return out;
 }
