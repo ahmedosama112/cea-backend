@@ -211,9 +211,12 @@ async function uploadBackup(json: string, fileName: string): Promise<UploadResul
         hostname: redirectUrl.hostname,
         durationMs: Date.now() - redirectStartedAt,
       });
+      // (أكتوبر 2026) خادم المحتوى نفسه (جوجل) بيرجّع تحويل تاني بشكل متقطع — نفس فئة الـ 404/HTML العابرة،
+      // والمحاولة اللي بعدها بتنجح. كان بيوقف محاولات اليوم كله؛ دلوقتي بيعيد زي باقي أعطال خادم المحتوى.
+      // (التحويل الأول لهوست غير جوجل فوق بيفضل يوقف على طول)
       if (response.status >= 300 && response.status < 400) {
-        observe('unexpected-redirect');
-        return { ok: false, detail: 'تحويل إضافي غير متوقع من خادم المحتوى', kind: 'unexpected-redirect', retryable: false };
+        observe('content-redirect-failed');
+        return { ok: false, detail: 'تحويل إضافي غير متوقع من خادم المحتوى', kind: 'content-redirect-failed', retryable: true };
       }
     }
 
