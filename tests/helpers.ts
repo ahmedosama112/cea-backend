@@ -20,7 +20,7 @@ export async function resetDb() {
     'exec_record_stages', 'exec_records', 'item_stages', 'items',
     'daily_records', 'equipment_records', 'contractors', 'places', 'inspectors',
     'purchase_requests', 'stock_moves', 'issue_request_lines', 'issue_requests', 'inventory_items',
-    'submission_row_edits', 'submission_row_rejections', 'submission_reviews', 'submissions', 'app_config',
+    'submission_row_edits', 'submission_row_rejections', 'submission_reviews', 'submission_revisions', 'submissions', 'app_config',
     'notification_reads', 'notification_targets', 'notifications',
     'rent_request_reviews', 'rent_requests',
     'user_projects', 'projects',

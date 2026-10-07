@@ -204,7 +204,8 @@ export async function pushSubmissionToSheet(submissionId: bigint): Promise<void>
 // المعاينة/التحميل بعد الاعتماد الكامل مطابقين دايمًا للي وصل الشيت.
 // فشل الختم مايوقفش حاجة — بيرجع الأصل بلا توقيعات والخطأ بيتسجّل. null = الملف نفسه مش موجود.
 // mode: 'clear' = النسخة اللي بتروح جوجل/الـ DC (السطر المشطوب يوم فاضي) · 'strike' = معاينة/تحميل داخل التطبيق (السطر أحمر بسببه)
-export async function signedFileBuffer(submissionId: bigint, mode: RejectMode = 'clear'): Promise<Buffer | null> {
+// revision: نسخة قديمة اتبدّلت بإعادة إرسال (ملفها من submission_revisions) — الافتراضي النسخة الحالية
+export async function signedFileBuffer(submissionId: bigint, mode: RejectMode = 'clear', revision?: number): Promise<Buffer | null> {
   const sub = await prisma.submission.findUnique({
     where: { id: submissionId },
     include: {
@@ -220,13 +221,20 @@ export async function signedFileBuffer(submissionId: bigint, mode: RejectMode = 
     },
   });
   if (!sub) return null;
-  const original = await storage.read(sub.file.filePath).catch(() => null);
+  const rev = revision ?? sub.revision;
+  let filePath = sub.file.filePath;
+  if (rev !== sub.revision) {
+    const old = await prisma.submissionRevision.findUnique({ where: { submissionId_revision: { submissionId, revision: rev } }, include: { file: true } });
+    if (!old?.file) return null;
+    filePath = old.file.filePath;
+  }
+  const original = await storage.read(filePath).catch(() => null);
   if (!original) return null;
   // السطور المشطوبة (النسخة الحالية) بتتطبق على الملف قبل الختم — نفس اللي بيشوفه المعتمدين وبيوصل جوجل
   // النسخة النهائية (تتختم وتروح جوجل/الـ DC): السطور المشطوبة بتبقى أيام فاضية — نضيفة بلا أثر أحمر (السبب في خانة سلسلة الاعتماد بالشيت)
-  const buffer = await rejectedFileBuffer(original, sub.rowRejections, sub.revision, sub.kind as Kind, mode, sub.rowEdits);
+  const buffer = await rejectedFileBuffer(original, sub.rowRejections, rev, sub.kind as Kind, mode, sub.rowEdits);
   try {
-    const sigs = await collectSignatures(sub.reviews, sub.revision, sub.user);
+    const sigs = await collectSignatures(sub.reviews, rev, sub.user);
     if (!sigs.length) return buffer;
     // (N11) مهلة للختم: ملف غريب بياخد وقت طويل مايعلّقش الطلب — بنرجع الأصل بلا توقيعات ونسجّل
     const timeout = new Promise<never>((_, rej) => setTimeout(() => rej(new Error('انتهت مهلة ختم التوقيعات (20 ث)')), 20_000).unref?.());

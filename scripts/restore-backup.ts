@@ -31,7 +31,7 @@ const INSERT_ORDER = [
   'execRecords', 'execRecordStages', 'dailyRecords', 'equipmentRecords',
   // الكشوف قبل مراجعاتها وسطورها المشطوبة/المعدّلة وتعليقاتها
   'submissions', 'submissionReviews', 'submissionRowRejections', 'submissionRowEdits', 'submissionComments',
-  'submissionLaborDays', 'appConfig',
+  'submissionLaborDays', 'submissionRevisions', 'appConfig',
   // المخازن: الأصناف قبل الطلبات، والطلبات قبل الحركات (stockMoves بتشاور على issueRequestId)
   'inventoryItems', 'issueRequests', 'issueRequestLines', 'stockMoves', 'purchaseRequests',
   // التنبيهات: التعريف قبل المستقبلين و"تم"
@@ -53,6 +53,7 @@ const DELEGATES: Record<TableKey, { createMany: (args: { data: unknown[] }) => P
   submissionReviews: prisma.submissionReview, submissionRowRejections: prisma.submissionRowRejection,
   submissionRowEdits: prisma.submissionRowEdit, submissionComments: prisma.submissionComment,
   submissionLaborDays: prisma.submissionLaborDays,
+  submissionRevisions: prisma.submissionRevision,
   appConfig: prisma.appConfig,
   inventoryItems: prisma.inventoryItem, issueRequests: prisma.issueRequest,
   issueRequestLines: prisma.issueRequestLine, stockMoves: prisma.stockMove,

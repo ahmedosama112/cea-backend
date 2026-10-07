@@ -31,17 +31,20 @@ const SUB_INCLUDE = {
   rowRejections: { orderBy: { createdAt: 'asc' as const }, include: { byUser: { select: { email: true, displayName: true, title: true } } } },
   rowEdits: { orderBy: { createdAt: 'asc' as const }, include: { byUser: { select: { email: true, displayName: true, title: true } } } },
   comments: { orderBy: { createdAt: 'asc' as const }, include: { user: { select: { id: true, email: true, displayName: true, title: true } } } },
+  // النسخ القديمة اللي اتبدّلت بإعادة إرسال — الواجهة بتعرض كل واحدة سطر باهت مشطوب "تم إرسال rev NN"
+  revisions: { orderBy: { revision: 'asc' as const }, select: { revision: true, submittedAt: true, replacedAt: true, file: { select: { id: true, fileName: true, fileSize: true } } } },
 } as const;
 
 // إيموجيهات الريأكشن المسموحة — قائمة مغلقة، السيرفر بيرفض أي حاجة غيرها
 const REACTION_EMOJIS = ['👍', '❤️', '🔥', '👏', '⚠️', '😂'] as const;
 
-function shape(s: Record<string, unknown> & { weekStart: Date; weekEnd: Date; createdAt: Date }) {
+function shape(s: Record<string, unknown> & { weekStart: Date; weekEnd: Date; createdAt: Date; submittedAt?: Date }) {
   return {
     ...s,
     weekStart: s.weekStart.toISOString().slice(0, 10),
     weekEnd: s.weekEnd.toISOString().slice(0, 10),
     createdAt: s.createdAt.toISOString(),
+    submittedAt: (s.submittedAt ?? s.createdAt).toISOString(),
   };
 }
 
@@ -92,7 +95,7 @@ approvalsRoutes.get(
     const since = new Date(Date.now() - weeks * 7 * 24 * 60 * 60 * 1000);
     const stateFilter = {
       queueHiddenAt: null,
-      OR: [{ reviewState: 'IN_REVIEW' }, { reviewState: { in: ['RETURNED', 'SENT'] }, createdAt: { gte: since } }],
+      OR: [{ reviewState: 'IN_REVIEW' }, { reviewState: { in: ['RETURNED', 'SENT'] }, submittedAt: { gte: since } }],
     };
     // (7 سبتمبر 2026 — قرار صاحب المشروع) الطابور بيعرض **كل** الكشوف لكل من عنده الوحدة (كلهم مديرين):
     // الرؤية للجميع، والاعتماد (canAct/decide) محصور على المعتمد المسند بس.
@@ -103,7 +106,8 @@ approvalsRoutes.get(
     const rows = await prisma.submission.findMany({
       where: stateFilter,
       include: SUB_INCLUDE,
-      orderBy: { createdAt: 'desc' },
+      // بتاريخ إرسال النسخة الحالية: الكشف اللي اتبعت تاني بيطلع فوق
+      orderBy: { submittedAt: 'desc' },
       take: Math.min(200 * weeks, 2000),
     });
     const solePmId = await soleProjectManagerId();
@@ -186,10 +190,20 @@ approvalsRoutes.get(
     // أثناء المراجعة بيرجّع الأصل زي ما بعته المهندس + السطور المشطوبة (عشان المعتمد اللي بعده يشوفها).
     // (8 سبتمبر 2026) أثناء المراجعة كمان: توقيعات اللي اعتمدوا لحد دلوقتي بتنزل على الكشف + "معتمد بواسطة" تحت عنوان البلوك —
     // فالمعتمد اللي بعده يشوف مين اعتمد قبله. بعد SENT نفس الشيء (كل التوقيعات). السطور المشطوبة بالأحمر في الحالتين.
-    const buffer: Buffer | null = await signedFileBuffer(sub.id, 'strike');
+    // (أكتوبر 2026) ?rev=N = نسخة قديمة اتبدّلت بإعادة إرسال (السطر الباهت في الطابور) — ملفها هي بشطبها وتوقيعاتها
+    let file = sub.file;
+    let revision: number | undefined;
+    if (req.query.rev !== undefined && Number(req.query.rev) !== sub.revision) {
+      revision = Number(req.query.rev);
+      if (!Number.isInteger(revision) || revision < 0) throw AppError.validation('رقم النسخة غير صحيح');
+      const old = await prisma.submissionRevision.findUnique({ where: { submissionId_revision: { submissionId: sub.id, revision } }, include: { file: true } });
+      if (!old?.file) throw AppError.notFound('ملف النسخة دي مش محفوظ');
+      file = old.file;
+    }
+    const buffer: Buffer | null = await signedFileBuffer(sub.id, 'strike', revision);
     if (!buffer) throw AppError.notFound('ملف الكشف لم يعد موجودًا على السيرفر');
-    res.setHeader('Content-Type', sub.file.mimeType);
-    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(sub.file.fileName)}`);
+    res.setHeader('Content-Type', file.mimeType);
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(file.fileName)}`);
     res.send(buffer);
   }),
 );

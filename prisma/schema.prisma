@@ -428,6 +428,7 @@ model File {
   accountSettings AccountSettings?
   dailyRecord     DailyRecord?
   submissions     Submission[]
+  submissionRevisions SubmissionRevision[]
 
   @@index([userId])
   @@map("files")
@@ -614,6 +615,9 @@ model Submission {
   // المعتمد المسند لهذا الكشف في المستوى الحالي (بلا FK زي reviewed_by_id).
   // null = كشف قديم من قبل نظام الإسناد → أي معتمد درجته = currentLevel يقدر يعتمده (السلوك القديم)
   currentApproverId BigInt?       @map("current_approver_id")
+  // (أكتوبر 2026) تاريخ إرسال النسخة الحالية — بيساوي createdAt في rev 00 وبيتحدّث مع كل إعادة إرسال.
+  // طابور الاعتمادات بيترتب بيه، فالنسخة الجديدة بتطلع فوق بتاريخ إرسالها مش بتاريخ الكشف الأصلي
+  submittedAt    DateTime         @default(now()) @map("submitted_at")
   createdAt      DateTime         @default(now()) @map("created_at")
   updatedAt      DateTime         @updatedAt @map("updated_at")
 
@@ -624,6 +628,7 @@ model Submission {
   rowEdits      SubmissionRowEdit[]
   comments      SubmissionComment[]
   laborDays     SubmissionLaborDays[]
+  revisions     SubmissionRevision[]
 
   @@index([userId, createdAt])
   @@index([status])
@@ -685,6 +690,24 @@ model SubmissionRowEdit {
 
   @@unique([submissionId, revision, sheetIndex, row], map: "sre_sub_rev_sheet_row_key")
   @@map("submission_row_edits")
+}
+
+// (أكتوبر 2026) نسخة قديمة من الكشف اتبدّلت بإعادة إرسال — بنحفظ ملفها وتاريخ إرسالها قبل ما Submission.fileId
+// يتغيّر، عشان طابور الاعتمادات يعرضها سطر باهت مشطوب "تم إرسال rev NN" مكانها، والنسخة الجديدة سطر فوق.
+// القرارات/الشطب/التعديلات بتاعتها موجودة أصلًا في جداولها بختم revision.
+model SubmissionRevision {
+  id           BigInt   @id @default(autoincrement())
+  submissionId BigInt   @map("submission_id")
+  revision     Int
+  fileId       BigInt?  @map("file_id")
+  submittedAt  DateTime @map("submitted_at") // إمتى النسخة دي اتبعتت
+  replacedAt   DateTime @default(now()) @map("replaced_at") // إمتى اتبعتت النسخة اللي بعدها
+
+  submission Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  file       File?      @relation(fields: [fileId], references: [id], onDelete: SetNull)
+
+  @@unique([submissionId, revision], map: "srv_sub_rev_key")
+  @@map("submission_revisions")
 }
 
 // قرار اعتماد واحد على كشف من مستوى معيّن — سجل تدقيق كامل (مين/امتى/القرار/الملاحظة/النسخة)

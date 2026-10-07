@@ -195,6 +195,22 @@ describe('اعتمادات المديرين', () => {
     expect(resend.body.data.currentLevel).toBe('team leader');
     expect(resend.body.data.currentApproverId).toBe(tl.id);
     expect(resend.body.data.reviewState).toBe('IN_REVIEW');
+
+    // النسخة القديمة بتفضل محفوظة بملفها وتاريخ إرسالها، والجديدة بتاريخ إرسال جديد → بتطلع فوق في الطابور
+    const q = (await request(app).get('/api/approvals/queue').set(auth(tl.token))).body;
+    const row = q.data.find((s: { id: string }) => s.id === id);
+    expect(row.revisions).toHaveLength(1);
+    expect(row.revisions[0].revision).toBe(0);
+    expect(row.revisions[0].file.fileName).toBe('k.xlsx');
+    expect(row.file.fileName).toBe('k2.xlsx');
+    expect(new Date(row.submittedAt).getTime()).toBeGreaterThan(new Date(row.revisions[0].submittedAt).getTime());
+    expect(q.data[0].id).toBe(id);
+    // ملف النسخة القديمة لسه بيتفتح (?rev=0)، ونسخة مش موجودة → 404
+    const oldFile = await request(app).get(`/api/approvals/${id}/file?rev=0`).set(auth(tl.token));
+    expect(oldFile.status).toBe(200);
+    expect(oldFile.headers['content-disposition']).toContain('k.xlsx');
+    const missing = await request(app).get(`/api/approvals/${id}/file?rev=5`).set(auth(tl.token));
+    expect(missing.status).toBe(404);
   });
 
   it('المعتمد (مش صاحب الملف ولا أدمن) يقدر يفتح ملف الكشف من مسار الاعتمادات', async () => {
