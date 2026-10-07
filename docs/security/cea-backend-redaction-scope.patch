@@ -1,0 +1,72 @@
+diff --git a/src/utils/errorDiagnostics.ts b/src/utils/errorDiagnostics.ts
+--- a/src/utils/errorDiagnostics.ts
++++ b/src/utils/errorDiagnostics.ts
+@@ -7,12 +7,16 @@
+ 
+   const secrets = new Set<string>();
+   function add(value: unknown) {
+-    if (typeof value === 'string' && value) secrets.add(value);
++    if (typeof value === 'string' && value.length >= 8) secrets.add(value);
+   }
+   for (const [name, value] of Object.entries(process.env)) {
+     if (/SECRET|TOKEN|PASSWORD|DATABASE_URL|API_KEY/i.test(name)) add(value);
+     if (/DATABASE_URL/i.test(name) && value) {
+-      try { add(decodeURIComponent(new URL(value).password)); } catch { /* ليس URL صالحًا */ }
++      try {
++        const pw = new URL(value).password;
++        add(pw);
++        add(decodeURIComponent(pw));
++      } catch { /* ليس URL صالحًا */ }
+     }
+   }
+   const authorization = req.get('authorization');
+diff --git a/tests/requestSecurity.test.ts b/tests/requestSecurity.test.ts
+--- a/tests/requestSecurity.test.ts
++++ b/tests/requestSecurity.test.ts
+@@ -1,8 +1,13 @@
+ import express from 'express';
++import type { Request } from 'express';
+ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+ import { app, prisma, request, resetDb, createAdmin, auth, TestUser } from './helpers';
+ import { errorHandler } from '../src/middlewares/errorHandler';
+ import * as activity from '../src/services/activityLog';
++import { errorDiagnostics } from '../src/utils/errorDiagnostics';
++
++const fakeReq = (body: unknown = {}) =>
++  ({ body, query: {}, get: () => undefined }) as unknown as Request;
+ 
+ describe('Request error security', () => {
+   let admin: TestUser;
+@@ -19,6 +24,32 @@
+     vi.spyOn(activity, 'logActivity').mockImplementation(() => undefined);
+   });
+   afterEach(() => { vi.restoreAllMocks(); });
++
++  it('does not redact short non-secret values from env or request', () => {
++    const prev = process.env.ACCESS_TOKEN_TTL_MIN;
++    process.env.ACCESS_TOKEN_TTL_MIN = '15';
++    try {
++      const msg = 'Timed out after 15000ms reading undefined';
++      const d = errorDiagnostics(new Error(msg), fakeReq({ token: 'e' }));
++      expect(d.message).toBe(msg);
++    } finally {
++      if (prev === undefined) delete process.env.ACCESS_TOKEN_TTL_MIN;
++      else process.env.ACCESS_TOKEN_TTL_MIN = prev;
++    }
++  });
++
++  it('redacts both encoded and decoded database passwords', () => {
++    const prev = process.env.TEST_DATABASE_URL;
++    process.env.TEST_DATABASE_URL = 'mysql://u:p%40ss%2Fw0rd-canary@127.0.0.1:3306/cea_test';
++    try {
++      const d = errorDiagnostics(
++        new Error('failed for p%40ss%2Fw0rd-canary and p@ss/w0rd-canary'), fakeReq());
++      expect(d.message).not.toContain('w0rd-canary');
++    } finally {
++      if (prev === undefined) delete process.env.TEST_DATABASE_URL;
++      else process.env.TEST_DATABASE_URL = prev;
++    }
++  });
+ 
+   function expectNoSensitiveLogging(body: unknown) {
+     expect(JSON.stringify(vi.mocked(console.error).mock.calls)).not.toContain(canary);

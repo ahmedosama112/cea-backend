@@ -1,0 +1,2040 @@
+diff --git a/README.md b/README.md
+index 1b65f9c..595fd44 100644
+--- a/README.md
++++ b/README.md
+@@ -6,7 +6,7 @@
+ 
+ ## التشغيل في التطوير (Development)
+ 
+-المتطلبات: Node.js 18+، Docker Desktop.
++المتطلبات: Node.js 20.13+ (يدعم watch المدمج)، Docker Desktop.
+ 
+ ```bash
+ # 1. شغّل MySQL (+ Adminer على http://localhost:8080 لتصفح البيانات)
+@@ -22,7 +22,8 @@ npm install
+ npm run prisma:migrate
+ 
+ # 5. (اختياري) ازرع البيانات الافتراضية + أول مستخدم أدمن
+-#    مرر SEED_ADMIN_EMAIL و SEED_ADMIN_PASSWORD أو أدخلهما تفاعليًا
++#    مرر SEED_ADMIN_PASSWORD بأمان في البيئة (8 أحرف على الأقل و72 بايت UTF-8 كحد أقصى).
++#    مرر SEED_ADMIN_EMAIL أو أدخل الإيميل تفاعليًا؛ كلمة المرور لا تُطبع.
+ npm run db:seed
+ 
+ # 6. شغّل السيرفر
+diff --git a/package-lock.json b/package-lock.json
+index 5c2d09e..f4784c6 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -18,7 +18,7 @@
+         "express-rate-limit": "^7.4.0",
+         "helmet": "^7.1.0",
+         "jsonwebtoken": "^9.0.2",
+-        "morgan": "^1.10.0",
++        "morgan": "^1.12.1",
+         "multer": "^1.4.5-lts.2",
+         "zod": "^3.23.8"
+       },
+@@ -35,7 +35,6 @@
+         "prisma": "^5.20.0",
+         "supertest": "^7.2.2",
+         "ts-node": "^10.9.2",
+-        "ts-node-dev": "^2.0.0",
+         "typescript": "^5.5.3",
+         "vitest": "^4.1.10"
+       }
+@@ -136,13 +135,13 @@
+       }
+     },
+     "node_modules/@oxc-project/types": {
+-      "version": "0.144.0",
+-      "resolved": "https://registry.npmjs.org/@oxc-project/types/-/types-0.144.0.tgz",
+-      "integrity": "sha512-nuhZIOLuI6TFQ32I/WnUx+SCPY7SdSKwgnFHydAuoS1+Z4BRcaP+RRJmGzl9lw+0OFF7UmaESf7KQRXaNLHypg==",
++      "version": "0.152.0",
++      "resolved": "https://registry.npmjs.org/@oxc-project/types/-/types-0.152.0.tgz",
++      "integrity": "sha512-oM/5rLBm2tPkg0iBgkH/FOeR3PCDpY19GTgAZjMFM8h9WI9VW7cLgzp6nwtarYKmovavIQZ+Fe/RKX/8C8O/Rw==",
+       "dev": true,
+       "license": "MIT",
+       "funding": {
+-        "url": "https://github.com/sponsors/Boshen"
++        "url": "https://github.com/sponsors/oxc-project"
+       }
+     },
+     "node_modules/@paralleldrive/cuid2": {
+@@ -223,10 +222,27 @@
+         "@prisma/debug": "5.22.0"
+       }
+     },
++    "node_modules/@rolldown/binding-android-arm-eabi": {
++      "version": "1.2.12",
++      "resolved": "https://registry.npmjs.org/@rolldown/binding-android-arm-eabi/-/binding-android-arm-eabi-1.2.12.tgz",
++      "integrity": "sha512-dB/a1214qKfHMXCpgqR4OZT+jS4kTyEXbQGJPqzobt5EwH5rX080pxE37alt3RzvR1bf1Yz/yGqRfrYAxuPw0A==",
++      "cpu": [
++        "arm"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "android"
++      ],
++      "engines": {
++        "node": "^20.19.0 || >=22.12.0"
++      }
++    },
+     "node_modules/@rolldown/binding-android-arm64": {
+-      "version": "1.2.4",
+-      "resolved": "https://registry.npmjs.org/@rolldown/binding-android-arm64/-/binding-android-arm64-1.2.4.tgz",
+-      "integrity": "sha512-jHC2cnyKz5xU2fhECtFl8OZ83cYNt13GZQD+0uMJ/X3o+ijmd56okHhTUwxVSHPx1IRVIJEZ1/1pPzeLCU6XKA==",
++      "version": "1.2.12",
++      "resolved": "https://registry.npmjs.org/@rolldown/binding-android-arm64/-/binding-android-arm64-1.2.12.tgz",
++      "integrity": "sha512-7KHFgQ5VJxIHcLlrwrc3Xbds7oTNQT7Pgi9gQCJKrd2VGab/UksIOYp6VD8MzCstGxOKMgNamPwUCfxPdP1OHg==",
+       "cpu": [
+         "arm64"
+       ],
+@@ -241,9 +257,9 @@
+       }
+     },
+     "node_modules/@rolldown/binding-darwin-arm64": {
+-      "version": "1.2.4",
+-      "resolved": "https://registry.npmjs.org/@rolldown/binding-darwin-arm64/-/binding-darwin-arm64-1.2.4.tgz",
+-      "integrity": "sha512-Dc5mPD8F5F/FS8i01syd7FTF6yB2fVthH/TRkjwJkzUK6EpoxHtqvZQP5Zwq80/5z19TWYHIg1KOHboCgVx/aQ==",
++      "version": "1.2.12",
++      "resolved": "https://registry.npmjs.org/@rolldown/binding-darwin-arm64/-/binding-darwin-arm64-1.2.12.tgz",
++      "integrity": "sha512-3YIhqHD96nA5SaYNRBR16HnGv4oavZvXfD/ayHM+oYZ0WD/8lBAtf6zQua4kEyAvpqrluKXl0lnOBoiNby7x9w==",
+       "cpu": [
+         "arm64"
+       ],
+@@ -258,9 +274,9 @@
+       }
+     },
+     "node_modules/@rolldown/binding-darwin-x64": {
+-      "version": "1.2.4",
+-      "resolved": "https://registry.npmjs.org/@rolldown/binding-darwin-x64/-/binding-darwin-x64-1.2.4.tgz",
+-      "integrity": "sha512-fpDm4oBo6SqLvWUYCmFhdde3U9KH2fRNNMeAnAPAIwxRL345xutL0EtEUcuoxsoazdJGv/MuDBQHlCDrtbvqOg==",
++      "version": "1.2.12",
++      "resolved": "https://registry.npmjs.org/@rolldown/binding-darwin-x64/-/binding-darwin-x64-1.2.12.tgz",
++      "integrity": "sha512-UuuJ35MFw4gmFOrE9pEqIV+K3syIKveph+Qc1/ljHZVdoDW4pz/JHR/eMVom+TZGl/5OOvGJOWaOCVt3ZfqhxA==",
+       "cpu": [
+         "x64"
+       ],
+@@ -275,9 +291,9 @@
+       }
+     },
+     "node_modules/@rolldown/binding-freebsd-x64": {
+-      "version": "1.2.4",
+-      "resolved": "https://registry.npmjs.org/@rolldown/binding-freebsd-x64/-/binding-freebsd-x64-1.2.4.tgz",
+-      "integrity": "sha512-rSJoreDE/HoIzoaib6MTp5jQtCTdMHKIvItAKT/ImS6Y6Ww76oUaeMyp4Vc/fAgd/ehji068IxetHXAnqUwN9A==",
++      "version": "1.2.12",
++      "resolved": "https://registry.npmjs.org/@rolldown/binding-freebsd-x64/-/binding-freebsd-x64-1.2.12.tgz",
++      "integrity": "sha512-uMvssit0a4W+/7D8CbHUvG719mH3R2jwXAlh/XcPvuHTE0g++LymF88DCGNX0HM2rBOn0xrzgXktIB6fLSJBTQ==",
+       "cpu": [
+         "x64"
+       ],
+@@ -292,9 +308,9 @@
+       }
+     },
+     "node_modules/@rolldown/binding-linux-arm-gnueabihf": {
+-      "version": "1.2.4",
+-      "resolved": "https://registry.npmjs.org/@rolldown/binding-linux-arm-gnueabihf/-/binding-linux-arm-gnueabihf-1.2.4.tgz",
+-      "integrity": "sha512-/jm8OGHgn7oGaJu3i/qZI9spUGcJ+y/lk43ttQ/iO1tOd9NissG6o97bighBCiL+BKRngmcDuR6ikfwYdJmVuQ==",
++      "version": "1.2.12",
++      "resolved": "https://registry.npmjs.org/@rolldown/binding-linux-arm-gnueabihf/-/binding-linux-arm-gnueabihf-1.2.12.tgz",
++      "integrity": "sha512-XcFu0R0xWnwzSf4IQgFH1rJIckPN1pLy2R+4r9IDB7Yfu/ys9cVqfa4pBrMHj7a3gl8mIR4nRNPg0e5IvEVs6g==",
+       "cpu": [
+         "arm"
+       ],
+@@ -309,16 +325,13 @@
+       }
+     },
+     "node_modules/@rolldown/binding-linux-arm64-gnu": {
+-      "version": "1.2.4",
+-      "resolved": "https://registry.npmjs.org/@rolldown/binding-linux-arm64-gnu/-/binding-linux-arm64-gnu-1.2.4.tgz",
+-      "integrity": "sha512-tIP06BeD9EqvECBrPZ+sqdPlYrT+aYaAiu1wYziVx5elRK/ftm33JxVDy2bXGbr6J0CrtirCkR87/X5a2euEng==",
++      "version": "1.2.12",
++      "resolved": "https://registry.npmjs.org/@rolldown/binding-linux-arm64-gnu/-/binding-linux-arm64-gnu-1.2.12.tgz",
++      "integrity": "sha512-260UrKgn8tz39ak+SMDOirKzr7V04M9dWPw5llW00SwBivCZoWcRBKV1d8cXnRkUmSZA3BdiUmBHWk7734Ulpw==",
+       "cpu": [
+         "arm64"
+       ],
+       "dev": true,
+-      "libc": [
+-        "glibc"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -329,16 +342,13 @@
+       }
+     },
+     "node_modules/@rolldown/binding-linux-arm64-musl": {
+-      "version": "1.2.4",
+-      "resolved": "https://registry.npmjs.org/@rolldown/binding-linux-arm64-musl/-/binding-linux-arm64-musl-1.2.4.tgz",
+-      "integrity": "sha512-Ql1Q0EQqVThvn9VAVlwNzsUvbSFtCMGjLpRRi4pk5i7NZZ4n5ISiLMjHYtus4VQ2PvkSw24zyaCVsiS+sXPj1w==",
++      "version": "1.2.12",
++      "resolved": "https://registry.npmjs.org/@rolldown/binding-linux-arm64-musl/-/binding-linux-arm64-musl-1.2.12.tgz",
++      "integrity": "sha512-5YK1I9SqDkbPgc1IA8BgDl34suqUS2q0KWnBrirm0E51YjOs6eo6dV6jbQfNE/argHRSvd0QUGgtpIoYx+WWpw==",
+       "cpu": [
+         "arm64"
+       ],
+       "dev": true,
+-      "libc": [
+-        "musl"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -349,16 +359,13 @@
+       }
+     },
+     "node_modules/@rolldown/binding-linux-ppc64-gnu": {
+-      "version": "1.2.4",
+-      "resolved": "https://registry.npmjs.org/@rolldown/binding-linux-ppc64-gnu/-/binding-linux-ppc64-gnu-1.2.4.tgz",
+-      "integrity": "sha512-GjbjXD4XXfN19D0LZNbmiCBUoDiRACsYHr0yaIbbn8aFsXjHZifcYqu/W5Er5X2X990WjHXFrxarn5chzItorQ==",
++      "version": "1.2.12",
++      "resolved": "https://registry.npmjs.org/@rolldown/binding-linux-ppc64-gnu/-/binding-linux-ppc64-gnu-1.2.12.tgz",
++      "integrity": "sha512-Rkcrmp7eFRg74yL5fXEU91JEWbdEPLevWwGtXpmhbjlD1StScbWTmO94Bhly+Mo+ketKYkdmM1vNUKeWSlx8cQ==",
+       "cpu": [
+         "ppc64"
+       ],
+       "dev": true,
+-      "libc": [
+-        "glibc"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -369,16 +376,13 @@
+       }
+     },
+     "node_modules/@rolldown/binding-linux-s390x-gnu": {
+-      "version": "1.2.4",
+-      "resolved": "https://registry.npmjs.org/@rolldown/binding-linux-s390x-gnu/-/binding-linux-s390x-gnu-1.2.4.tgz",
+-      "integrity": "sha512-p5WR0NOwaRmJ/B1b6IjEFLLivwEsf3PrdBIhRbhTCQisbo2SvHHpG4ELB/+FgQNnB88LTOF86upmJmbvZdQ2lw==",
++      "version": "1.2.12",
++      "resolved": "https://registry.npmjs.org/@rolldown/binding-linux-s390x-gnu/-/binding-linux-s390x-gnu-1.2.12.tgz",
++      "integrity": "sha512-qvK4DuAsQc2BSjlx+Xr+IzOIvvxbGZqxFwdWfG6F518Erj0GGISyQbJ6pIappnOxlNPzNHvo/L0BwB30GZ+zVw==",
+       "cpu": [
+         "s390x"
+       ],
+       "dev": true,
+-      "libc": [
+-        "glibc"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -389,16 +393,13 @@
+       }
+     },
+     "node_modules/@rolldown/binding-linux-x64-gnu": {
+-      "version": "1.2.4",
+-      "resolved": "https://registry.npmjs.org/@rolldown/binding-linux-x64-gnu/-/binding-linux-x64-gnu-1.2.4.tgz",
+-      "integrity": "sha512-4/GyVjmhR+Tc6HLJvwc1sOhPqAZtySiSMesOZyX6JQ5XBxoTDEMKQzvo07NIK6nTon/SivlZqvhzvuVBNQhObQ==",
++      "version": "1.2.12",
++      "resolved": "https://registry.npmjs.org/@rolldown/binding-linux-x64-gnu/-/binding-linux-x64-gnu-1.2.12.tgz",
++      "integrity": "sha512-Q9uLBO53Xd4QIq1WOycVQyPP1O4HhraEV2qqb3uTrnVw6QZih9duY4vNXOivL1xoUS1/z+W8eF4NMfl2a8Sdjw==",
+       "cpu": [
+         "x64"
+       ],
+       "dev": true,
+-      "libc": [
+-        "glibc"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -409,16 +410,13 @@
+       }
+     },
+     "node_modules/@rolldown/binding-linux-x64-musl": {
+-      "version": "1.2.4",
+-      "resolved": "https://registry.npmjs.org/@rolldown/binding-linux-x64-musl/-/binding-linux-x64-musl-1.2.4.tgz",
+-      "integrity": "sha512-l9eeLsCNvPpmSXUej0etw/J1eqV0Jj1D5G/xG6YTijmE6dkv6E2QezgWbTfQk63v952DPqrjOCoiqxq7Bw0YUQ==",
++      "version": "1.2.12",
++      "resolved": "https://registry.npmjs.org/@rolldown/binding-linux-x64-musl/-/binding-linux-x64-musl-1.2.12.tgz",
++      "integrity": "sha512-3IBxWFMjbOZskDPKv8Lf9BCnahlKuHthWkYnyIxOH/QcJrFcS4EmcenthApkwr/5+nEqZlLzeYbxeMaX7A5u4g==",
+       "cpu": [
+         "x64"
+       ],
+       "dev": true,
+-      "libc": [
+-        "musl"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -429,9 +427,9 @@
+       }
+     },
+     "node_modules/@rolldown/binding-openharmony-arm64": {
+-      "version": "1.2.4",
+-      "resolved": "https://registry.npmjs.org/@rolldown/binding-openharmony-arm64/-/binding-openharmony-arm64-1.2.4.tgz",
+-      "integrity": "sha512-e0F355MSTMm3+UOqtV3L24gFUp2N5m1f8L/7d56deik6va+AXdrt9F8LbzGpeWGWRbZEDq4m8NVnJDeBtf9DZg==",
++      "version": "1.2.12",
++      "resolved": "https://registry.npmjs.org/@rolldown/binding-openharmony-arm64/-/binding-openharmony-arm64-1.2.12.tgz",
++      "integrity": "sha512-xtX61xg4LKPkPWilZU1ynKClz5Gj4bf74LML4r3eVLWumKnGjoEr1OSHQhMdbBDoYTi+yjrujvpZe2pUnqCrrA==",
+       "cpu": [
+         "arm64"
+       ],
+@@ -446,9 +444,9 @@
+       }
+     },
+     "node_modules/@rolldown/binding-win32-arm64-msvc": {
+-      "version": "1.2.4",
+-      "resolved": "https://registry.npmjs.org/@rolldown/binding-win32-arm64-msvc/-/binding-win32-arm64-msvc-1.2.4.tgz",
+-      "integrity": "sha512-AWLi0uBRYh6QlE7OKhiz+phZC0qwtij2QZmhmOdsLdFn64m7oMpooE9ICE3lhm9xMb4SpDo2WbHcxX1iFLFtqw==",
++      "version": "1.2.12",
++      "resolved": "https://registry.npmjs.org/@rolldown/binding-win32-arm64-msvc/-/binding-win32-arm64-msvc-1.2.12.tgz",
++      "integrity": "sha512-At7fPB6PCaIjzgIhEZFxuT+BBFqiQibJDT4d3PhiR3f4E7bbMZF4aKblbFfEM3sETRDd1YiQx/+U/g/B/ou5Ew==",
+       "cpu": [
+         "arm64"
+       ],
+@@ -463,9 +461,9 @@
+       }
+     },
+     "node_modules/@rolldown/binding-win32-x64-msvc": {
+-      "version": "1.2.4",
+-      "resolved": "https://registry.npmjs.org/@rolldown/binding-win32-x64-msvc/-/binding-win32-x64-msvc-1.2.4.tgz",
+-      "integrity": "sha512-UwSDJOg3dqCAejWdxclJjCsh3Qq4vLYMDxmyHqo1btz3stK2VqgwNd3mm5tuIwzSlGIQ/1H9Hr+Zn09mrezNqQ==",
++      "version": "1.2.12",
++      "resolved": "https://registry.npmjs.org/@rolldown/binding-win32-x64-msvc/-/binding-win32-x64-msvc-1.2.12.tgz",
++      "integrity": "sha512-WIw2haVKwjuYdXkHaoC0mF8Le71TuCBxjrdKqLbJGctbBABj+ClfmNvtbOnzpq3RokNo5+V1qhtSzJyXorsklQ==",
+       "cpu": [
+         "x64"
+       ],
+@@ -743,20 +741,6 @@
+         "@types/node": "*"
+       }
+     },
+-    "node_modules/@types/strip-bom": {
+-      "version": "3.0.0",
+-      "resolved": "https://registry.npmjs.org/@types/strip-bom/-/strip-bom-3.0.0.tgz",
+-      "integrity": "sha512-xevGOReSYGM7g/kUBZzPqCrR/KYAo+F0yiPc85WFTJa0MSLtyFTVTU6cJu/aV4mid7IffDIWqo69THF2o4JiEQ==",
+-      "dev": true,
+-      "license": "MIT"
+-    },
+-    "node_modules/@types/strip-json-comments": {
+-      "version": "0.0.30",
+-      "resolved": "https://registry.npmjs.org/@types/strip-json-comments/-/strip-json-comments-0.0.30.tgz",
+-      "integrity": "sha512-7NQmHra/JILCd1QqpSzl8+mJRc8ZHz3uDm8YV1Ks9IhK0epEiTw8aIErbvH9PI+6XbqhyIQy3462nEsn7UVzjQ==",
+-      "dev": true,
+-      "license": "MIT"
+-    },
+     "node_modules/@types/superagent": {
+       "version": "8.1.11",
+       "resolved": "https://registry.npmjs.org/@types/superagent/-/superagent-8.1.11.tgz",
+@@ -782,16 +766,16 @@
+       }
+     },
+     "node_modules/@vitest/expect": {
+-      "version": "4.1.10",
+-      "resolved": "https://registry.npmjs.org/@vitest/expect/-/expect-4.1.10.tgz",
+-      "integrity": "sha512-YsCn+qAk1GWjQOWFEsEcL2gNQ0zmVmQu3T03qP6UyjhtmdtwtbuI+DASn/7iQB3HGTXkdBwGddzxPlmiql5vlA==",
++      "version": "4.1.11",
++      "resolved": "https://registry.npmjs.org/@vitest/expect/-/expect-4.1.11.tgz",
++      "integrity": "sha512-VX2x5vNJXET47KAFzwERI+KRMtTTCSWTfSMKsW7JsUsXV4psq++e3DvZpuTDOpHcxytiDs6p2nhVb2tVDiiUYw==",
+       "dev": true,
+       "license": "MIT",
+       "dependencies": {
+         "@standard-schema/spec": "^1.1.0",
+         "@types/chai": "^5.2.2",
+-        "@vitest/spy": "4.1.10",
+-        "@vitest/utils": "4.1.10",
++        "@vitest/spy": "4.1.11",
++        "@vitest/utils": "4.1.11",
+         "chai": "^6.2.2",
+         "tinyrainbow": "^3.1.0"
+       },
+@@ -800,13 +784,13 @@
+       }
+     },
+     "node_modules/@vitest/mocker": {
+-      "version": "4.1.10",
+-      "resolved": "https://registry.npmjs.org/@vitest/mocker/-/mocker-4.1.10.tgz",
+-      "integrity": "sha512-v0xaezt+DKEmKfaxg133ldzADrwLGd7Ze1MfQQTYfvs8OqZIwbxyxaYURivwV7sWy5fqn3rH5uOrSp07bp44Ow==",
++      "version": "4.1.11",
++      "resolved": "https://registry.npmjs.org/@vitest/mocker/-/mocker-4.1.11.tgz",
++      "integrity": "sha512-2XJVD55d1o5AZous5CCGKS74g/riOj9odEt2bQpCVZeblHyHdnMeFl4jl0XjU21stf4mbjUkew2eXQZt65g5CQ==",
+       "dev": true,
+       "license": "MIT",
+       "dependencies": {
+-        "@vitest/spy": "4.1.10",
++        "@vitest/spy": "4.1.11",
+         "estree-walker": "^3.0.3",
+         "magic-string": "^0.30.21"
+       },
+@@ -827,9 +811,9 @@
+       }
+     },
+     "node_modules/@vitest/pretty-format": {
+-      "version": "4.1.10",
+-      "resolved": "https://registry.npmjs.org/@vitest/pretty-format/-/pretty-format-4.1.10.tgz",
+-      "integrity": "sha512-W1HsjSH4MXQ9YfmmhLAoIYf1HRfekQCGngeIgcei6MP5QQGWUe0gkopdZQaVCFO+JDJMrAJGwa5pRpNpvy4P8Q==",
++      "version": "4.1.11",
++      "resolved": "https://registry.npmjs.org/@vitest/pretty-format/-/pretty-format-4.1.11.tgz",
++      "integrity": "sha512-yiZzPbGTS9Sr/JpFl8zHrcIkAofNbFV6k21vIgQN/cY/oxZeXhJv5sc/MBJ5jFKWmWs+oJHw0UXLZjmf931+Vw==",
+       "dev": true,
+       "license": "MIT",
+       "dependencies": {
+@@ -840,13 +824,13 @@
+       }
+     },
+     "node_modules/@vitest/runner": {
+-      "version": "4.1.10",
+-      "resolved": "https://registry.npmjs.org/@vitest/runner/-/runner-4.1.10.tgz",
+-      "integrity": "sha512-IKI6kpIH+LmpROplyLwBBaCfMgOZOMsygVa6BARD6ahA04VRuJSa6OaVG7kRvSEMD870Vd91rSSw0eegtWyLGg==",
++      "version": "4.1.11",
++      "resolved": "https://registry.npmjs.org/@vitest/runner/-/runner-4.1.11.tgz",
++      "integrity": "sha512-LztvUgdwMNJMIkj3hQnnxiC2Xy1zNxq928W/xhjCLaNCzqTZOudjwbQf6v9IntZGPw132i2Lq2rgTRZHD3JHNw==",
+       "dev": true,
+       "license": "MIT",
+       "dependencies": {
+-        "@vitest/utils": "4.1.10",
++        "@vitest/utils": "4.1.11",
+         "pathe": "^2.0.3"
+       },
+       "funding": {
+@@ -854,14 +838,14 @@
+       }
+     },
+     "node_modules/@vitest/snapshot": {
+-      "version": "4.1.10",
+-      "resolved": "https://registry.npmjs.org/@vitest/snapshot/-/snapshot-4.1.10.tgz",
+-      "integrity": "sha512-xRkfOT1qpTAi/Ti4Y1LtfRc3kEuqxGw59eN2jN9pRWMtS/XDevekhcFSqvQqjUNGksfjMJu3Y+oJ+4Ypn2OaJw==",
++      "version": "4.1.11",
++      "resolved": "https://registry.npmjs.org/@vitest/snapshot/-/snapshot-4.1.11.tgz",
++      "integrity": "sha512-pN7ikn1ON7h8ee4gIAp4AzyK+zBtJPzVbqOgu5LCEh4VaJVbPQcgYQYJIMGQPXVeJJq1fnfazis7a5pFNPahog==",
+       "dev": true,
+       "license": "MIT",
+       "dependencies": {
+-        "@vitest/pretty-format": "4.1.10",
+-        "@vitest/utils": "4.1.10",
++        "@vitest/pretty-format": "4.1.11",
++        "@vitest/utils": "4.1.11",
+         "magic-string": "^0.30.21",
+         "pathe": "^2.0.3"
+       },
+@@ -870,9 +854,9 @@
+       }
+     },
+     "node_modules/@vitest/spy": {
+-      "version": "4.1.10",
+-      "resolved": "https://registry.npmjs.org/@vitest/spy/-/spy-4.1.10.tgz",
+-      "integrity": "sha512-PLf/Ugvoq5wO/b4rwYCR1h2PSIdXz7wnkQFMiUpLdtM7l6pqVFcQIBEHyT1+l+cj7mNwAfZHzqXqDyjvOuwbDw==",
++      "version": "4.1.11",
++      "resolved": "https://registry.npmjs.org/@vitest/spy/-/spy-4.1.11.tgz",
++      "integrity": "sha512-apNa/prQy2qCeywhnixOHPRCgGNhvg7T4Dapfl1GahLp/R+uhBm5cPyFoNVyqsNd2h1nJxL6BqqdIjiABL60YA==",
+       "dev": true,
+       "license": "MIT",
+       "funding": {
+@@ -880,13 +864,13 @@
+       }
+     },
+     "node_modules/@vitest/utils": {
+-      "version": "4.1.10",
+-      "resolved": "https://registry.npmjs.org/@vitest/utils/-/utils-4.1.10.tgz",
+-      "integrity": "sha512-fy9am/HWxbaGt/Sawrp90vt6Y6jQwf1RX77cz3uwoJwJVMli/e1IEwRPnMNJ7vKfPTwo0diXifkpPvwH9v7nGA==",
++      "version": "4.1.11",
++      "resolved": "https://registry.npmjs.org/@vitest/utils/-/utils-4.1.11.tgz",
++      "integrity": "sha512-zTCVGpyFsGWBhllOyKlTw/vnr6D9qxsfSDyfbyZmTyjHw5N/VuvzHpHoQjm2ZJzn4RJgx5w4r7V0er69CmLgPQ==",
+       "dev": true,
+       "license": "MIT",
+       "dependencies": {
+-        "@vitest/pretty-format": "4.1.10",
++        "@vitest/pretty-format": "4.1.11",
+         "convert-source-map": "^2.0.0",
+         "tinyrainbow": "^3.1.0"
+       },
+@@ -933,20 +917,6 @@
+         "node": ">=0.4.0"
+       }
+     },
+-    "node_modules/anymatch": {
+-      "version": "3.1.3",
+-      "resolved": "https://registry.npmjs.org/anymatch/-/anymatch-3.1.3.tgz",
+-      "integrity": "sha512-KMReFUr0B4t+D+OBkjR3KYqvocp2XaSzO55UcB6mgQMd3KbcE+mWTyvVV7D/zsdEbNnV6acZUutkiHQXvTr1Rw==",
+-      "dev": true,
+-      "license": "ISC",
+-      "dependencies": {
+-        "normalize-path": "^3.0.0",
+-        "picomatch": "^2.0.4"
+-      },
+-      "engines": {
+-        "node": ">= 8"
+-      }
+-    },
+     "node_modules/append-field": {
+       "version": "1.0.0",
+       "resolved": "https://registry.npmjs.org/append-field/-/append-field-1.0.0.tgz",
+@@ -1121,19 +1091,6 @@
+         "node": "*"
+       }
+     },
+-    "node_modules/binary-extensions": {
+-      "version": "2.3.0",
+-      "resolved": "https://registry.npmjs.org/binary-extensions/-/binary-extensions-2.3.0.tgz",
+-      "integrity": "sha512-Ceh+7ox5qe7LJuLHoY0feh3pHuUDHAcRUeyL2VYghZwfpkNIy/+8Ocg0a3UuSoYzavmylwuLWQOf3hl0jjMMIw==",
+-      "dev": true,
+-      "license": "MIT",
+-      "engines": {
+-        "node": ">=8"
+-      },
+-      "funding": {
+-        "url": "https://github.com/sponsors/sindresorhus"
+-      }
+-    },
+     "node_modules/bl": {
+       "version": "4.1.0",
+       "resolved": "https://registry.npmjs.org/bl/-/bl-4.1.0.tgz",
+@@ -1190,28 +1147,15 @@
+       }
+     },
+     "node_modules/brace-expansion": {
+-      "version": "1.1.18",
+-      "resolved": "https://registry.npmjs.org/brace-expansion/-/brace-expansion-1.1.18.tgz",
+-      "integrity": "sha512-Edep/X9fGqVNmzKBVsDYIOtD+z1tuezV70LBjdCst9Tqu76lsnvRiZ6oTic1n+/BIwX6QDGAO94PN4N2SADvtw==",
++      "version": "1.1.21",
++      "resolved": "https://registry.npmjs.org/brace-expansion/-/brace-expansion-1.1.21.tgz",
++      "integrity": "sha512-9zeA+KLZNNzglF2TPKRQEDyx6Yby7daAkuy8MiPzpXPsYDWi/DRM8jmwUDxokQjYqBpv5DgPiwD4h4ZZSy1Ujw==",
+       "license": "MIT",
+       "dependencies": {
+         "balanced-match": "^1.0.0",
+         "concat-map": "0.0.1"
+       }
+     },
+-    "node_modules/braces": {
+-      "version": "3.0.3",
+-      "resolved": "https://registry.npmjs.org/braces/-/braces-3.0.3.tgz",
+-      "integrity": "sha512-yQbXgO/OSZVD2IsiLlro+7Hf6Q18EJrKSEsdoMzKePKXct3gvD8oLcOQdIzGupr5Fj+EDe8gO/lxc1BzfMpxvA==",
+-      "dev": true,
+-      "license": "MIT",
+-      "dependencies": {
+-        "fill-range": "^7.1.1"
+-      },
+-      "engines": {
+-        "node": ">=8"
+-      }
+-    },
+     "node_modules/buffer": {
+       "version": "5.7.1",
+       "resolved": "https://registry.npmjs.org/buffer/-/buffer-5.7.1.tgz",
+@@ -1324,9 +1268,9 @@
+       }
+     },
+     "node_modules/chai": {
+-      "version": "6.2.2",
+-      "resolved": "https://registry.npmjs.org/chai/-/chai-6.2.2.tgz",
+-      "integrity": "sha512-NUPRluOfOiTKBKvWPtSD4PhFvWCqOi0BGStNWs57X9js7XGTprSmFoz5F0tWhR4WPjNeR9jXqdC7/UpSJTnlRg==",
++      "version": "6.3.0",
++      "resolved": "https://registry.npmjs.org/chai/-/chai-6.3.0.tgz",
++      "integrity": "sha512-XWAtwJ6OHO+tj0EKCs0Y2UamnyOxseZWltU4x2U2wh8g4AigdjwvtUjvLP2tqkA/avxHEtzxNaqGq/YGNwckKg==",
+       "dev": true,
+       "license": "MIT",
+       "engines": {
+@@ -1345,31 +1289,6 @@
+         "node": "*"
+       }
+     },
+-    "node_modules/chokidar": {
+-      "version": "3.6.0",
+-      "resolved": "https://registry.npmjs.org/chokidar/-/chokidar-3.6.0.tgz",
+-      "integrity": "sha512-7VT13fmjotKpGipCW9JEQAusEPE+Ei8nl6/g4FBAmIm0GOOLMua9NDDo/DWp0ZAxCr3cPq5ZpBqmPAQgDda2Pw==",
+-      "dev": true,
+-      "license": "MIT",
+-      "dependencies": {
+-        "anymatch": "~3.1.2",
+-        "braces": "~3.0.2",
+-        "glob-parent": "~5.1.2",
+-        "is-binary-path": "~2.1.0",
+-        "is-glob": "~4.0.1",
+-        "normalize-path": "~3.0.0",
+-        "readdirp": "~3.6.0"
+-      },
+-      "engines": {
+-        "node": ">= 8.10.0"
+-      },
+-      "funding": {
+-        "url": "https://paulmillr.com/funding/"
+-      },
+-      "optionalDependencies": {
+-        "fsevents": "~2.3.2"
+-      }
+-    },
+     "node_modules/combined-stream": {
+       "version": "1.0.8",
+       "resolved": "https://registry.npmjs.org/combined-stream/-/combined-stream-1.0.8.tgz",
+@@ -1685,16 +1604,6 @@
+         "readable-stream": "^2.0.2"
+       }
+     },
+-    "node_modules/dynamic-dedupe": {
+-      "version": "0.3.0",
+-      "resolved": "https://registry.npmjs.org/dynamic-dedupe/-/dynamic-dedupe-0.3.0.tgz",
+-      "integrity": "sha512-ssuANeD+z97meYOqd50e04Ze5qp4bPqo8cCkI4TRjZkzAUgIDTrXV1R8QCdINpiI+hw14+rYazvTRdQrz0/rFQ==",
+-      "dev": true,
+-      "license": "MIT",
+-      "dependencies": {
+-        "xtend": "^4.0.0"
+-      }
+-    },
+     "node_modules/ecdsa-sig-formatter": {
+       "version": "1.0.11",
+       "resolved": "https://registry.npmjs.org/ecdsa-sig-formatter/-/ecdsa-sig-formatter-1.0.11.tgz",
+@@ -1931,19 +1840,6 @@
+       "dev": true,
+       "license": "MIT"
+     },
+-    "node_modules/fill-range": {
+-      "version": "7.1.1",
+-      "resolved": "https://registry.npmjs.org/fill-range/-/fill-range-7.1.1.tgz",
+-      "integrity": "sha512-YsGpe3WHLK8ZYi4tWDg2Jy3ebRz2rXowDxnld4bkQB00cc/1Zw9AWnC0i9ztDJitivtQvaI9KaLyKrc+hBW0yg==",
+-      "dev": true,
+-      "license": "MIT",
+-      "dependencies": {
+-        "to-regex-range": "^5.0.1"
+-      },
+-      "engines": {
+-        "node": ">=8"
+-      }
+-    },
+     "node_modules/finalhandler": {
+       "version": "1.3.2",
+       "resolved": "https://registry.npmjs.org/finalhandler/-/finalhandler-1.3.2.tgz",
+@@ -2124,19 +2020,6 @@
+         "url": "https://github.com/sponsors/isaacs"
+       }
+     },
+-    "node_modules/glob-parent": {
+-      "version": "5.1.2",
+-      "resolved": "https://registry.npmjs.org/glob-parent/-/glob-parent-5.1.2.tgz",
+-      "integrity": "sha512-AOIgSQCepiJYwP3ARnGx+5VnTu2HBYdzbGP45eLw1vr3zB3vZLeyed1sC9hnbcOc9/SrMyM5RPQrkGz4aS9Zow==",
+-      "dev": true,
+-      "license": "ISC",
+-      "dependencies": {
+-        "is-glob": "^4.0.1"
+-      },
+-      "engines": {
+-        "node": ">= 6"
+-      }
+-    },
+     "node_modules/gopd": {
+       "version": "1.2.0",
+       "resolved": "https://registry.npmjs.org/gopd/-/gopd-1.2.0.tgz",
+@@ -2288,68 +2171,6 @@
+         "node": ">= 0.10"
+       }
+     },
+-    "node_modules/is-binary-path": {
+-      "version": "2.1.0",
+-      "resolved": "https://registry.npmjs.org/is-binary-path/-/is-binary-path-2.1.0.tgz",
+-      "integrity": "sha512-ZMERYes6pDydyuGidse7OsHxtbI7WVeUEozgR/g7rd0xUimYNlvZRE/K2MgZTjWy725IfelLeVcEM97mmtRGXw==",
+-      "dev": true,
+-      "license": "MIT",
+-      "dependencies": {
+-        "binary-extensions": "^2.0.0"
+-      },
+-      "engines": {
+-        "node": ">=8"
+-      }
+-    },
+-    "node_modules/is-core-module": {
+-      "version": "2.16.2",
+-      "resolved": "https://registry.npmjs.org/is-core-module/-/is-core-module-2.16.2.tgz",
+-      "integrity": "sha512-evOr8xfXKxE6qSR0hSXL2r3sd7ALj8+7jQEUvPYcm5sgZFdJ+AYzT6yNmJenvIYQBgIGwfwz08sL8zoL7yq2BA==",
+-      "dev": true,
+-      "license": "MIT",
+-      "dependencies": {
+-        "hasown": "^2.0.3"
+-      },
+-      "engines": {
+-        "node": ">= 0.4"
+-      },
+-      "funding": {
+-        "url": "https://github.com/sponsors/ljharb"
+-      }
+-    },
+-    "node_modules/is-extglob": {
+-      "version": "2.1.1",
+-      "resolved": "https://registry.npmjs.org/is-extglob/-/is-extglob-2.1.1.tgz",
+-      "integrity": "sha512-SbKbANkN603Vi4jEZv49LeVJMn4yGwsbzZworEoyEiutsN3nJYdbO36zfhGJ6QEDpOZIFkDtnq5JRxmvl3jsoQ==",
+-      "dev": true,
+-      "license": "MIT",
+-      "engines": {
+-        "node": ">=0.10.0"
+-      }
+-    },
+-    "node_modules/is-glob": {
+-      "version": "4.0.3",
+-      "resolved": "https://registry.npmjs.org/is-glob/-/is-glob-4.0.3.tgz",
+-      "integrity": "sha512-xelSayHH36ZgE7ZWhli7pW34hNbNl8Ojv5KVmkJD4hBdD3th8Tfk9vYasLM+mXWOZhFkgZfxhLSnrwRr4elSSg==",
+-      "dev": true,
+-      "license": "MIT",
+-      "dependencies": {
+-        "is-extglob": "^2.1.1"
+-      },
+-      "engines": {
+-        "node": ">=0.10.0"
+-      }
+-    },
+-    "node_modules/is-number": {
+-      "version": "7.0.0",
+-      "resolved": "https://registry.npmjs.org/is-number/-/is-number-7.0.0.tgz",
+-      "integrity": "sha512-41Cifkg6e8TylSpdtTpeLVMqvSBEVzTttHvERD741+pnZ8ANv0004MRL43QKPDlK9cGvNp6NZWZUBlbGXYxxng==",
+-      "dev": true,
+-      "license": "MIT",
+-      "engines": {
+-        "node": ">=0.12.0"
+-      }
+-    },
+     "node_modules/isarray": {
+       "version": "1.0.0",
+       "resolved": "https://registry.npmjs.org/isarray/-/isarray-1.0.0.tgz",
+@@ -2581,9 +2402,6 @@
+         "arm64"
+       ],
+       "dev": true,
+-      "libc": [
+-        "glibc"
+-      ],
+       "license": "MPL-2.0",
+       "optional": true,
+       "os": [
+@@ -2605,9 +2423,6 @@
+         "arm64"
+       ],
+       "dev": true,
+-      "libc": [
+-        "musl"
+-      ],
+       "license": "MPL-2.0",
+       "optional": true,
+       "os": [
+@@ -2629,9 +2444,6 @@
+         "x64"
+       ],
+       "dev": true,
+-      "libc": [
+-        "glibc"
+-      ],
+       "license": "MPL-2.0",
+       "optional": true,
+       "os": [
+@@ -2653,9 +2465,6 @@
+         "x64"
+       ],
+       "dev": true,
+-      "libc": [
+-        "musl"
+-      ],
+       "license": "MPL-2.0",
+       "optional": true,
+       "os": [
+@@ -2946,9 +2755,9 @@
+       }
+     },
+     "node_modules/morgan": {
+-      "version": "1.11.0",
+-      "resolved": "https://registry.npmjs.org/morgan/-/morgan-1.11.0.tgz",
+-      "integrity": "sha512-zSkVu3t18r39pw4ixfBKvfZi3y2UOqr7d4WYwcj3m8nXpEQK4rPO6GLzs/CExoRgmX3y9EjmmcXqv6jq0SK46g==",
++      "version": "1.12.1",
++      "resolved": "https://registry.npmjs.org/morgan/-/morgan-1.12.1.tgz",
++      "integrity": "sha512-tljKC0ex20AjO58Ob/eZ53JloycbVswbVNCHx6V6VLGzqt/w8dIynVGL0G8qVjNKwiA7sYSogCrN6QtJ82IV+g==",
+       "license": "MIT",
+       "dependencies": {
+         "basic-auth": "~2.0.1",
+@@ -2991,9 +2800,9 @@
+       }
+     },
+     "node_modules/nanoid": {
+-      "version": "3.3.18",
+-      "resolved": "https://registry.npmjs.org/nanoid/-/nanoid-3.3.18.tgz",
+-      "integrity": "sha512-DTg4MJbGMWkfi6VZFdNt2/caMbQy4Ou+Op/hJQvGEWcnVfoA1QA+xzRKAzw9jD6+GVOOeYr/mIcuDSdug6F6+w==",
++      "version": "3.3.20",
++      "resolved": "https://registry.npmjs.org/nanoid/-/nanoid-3.3.20.tgz",
++      "integrity": "sha512-uKdg2G3GNCKQn9byYOpxbGqrT2fGO5KRt5J/8b3pok8rT6qxGWF6hxMyJiEYtAf+FVyYuD9hRaDqX5uPFYJ4ZQ==",
+       "dev": true,
+       "funding": [
+         {
+@@ -3116,13 +2925,6 @@
+         "node": ">=0.10.0"
+       }
+     },
+-    "node_modules/path-parse": {
+-      "version": "1.0.7",
+-      "resolved": "https://registry.npmjs.org/path-parse/-/path-parse-1.0.7.tgz",
+-      "integrity": "sha512-LDJzPVEEEPR+y48z93A0Ed0yXb8pAByGWo/k5YYdYgpY2/2EsOsksJrq7lOHxryrVOn1ejG6oAp8ahvOIQD8sw==",
+-      "dev": true,
+-      "license": "MIT"
+-    },
+     "node_modules/path-to-regexp": {
+       "version": "0.1.13",
+       "resolved": "https://registry.npmjs.org/path-to-regexp/-/path-to-regexp-0.1.13.tgz",
+@@ -3143,23 +2945,10 @@
+       "dev": true,
+       "license": "ISC"
+     },
+-    "node_modules/picomatch": {
+-      "version": "2.3.2",
+-      "resolved": "https://registry.npmjs.org/picomatch/-/picomatch-2.3.2.tgz",
+-      "integrity": "sha512-V7+vQEJ06Z+c5tSye8S+nHUfI51xoXIXjHQ99cQtKUkQqqO1kO/KCJUfZXuB47h/YBlDhah2H3hdUGXn8ie0oA==",
+-      "dev": true,
+-      "license": "MIT",
+-      "engines": {
+-        "node": ">=8.6"
+-      },
+-      "funding": {
+-        "url": "https://github.com/sponsors/jonschlinkert"
+-      }
+-    },
+     "node_modules/postcss": {
+-      "version": "8.5.26",
+-      "resolved": "https://registry.npmjs.org/postcss/-/postcss-8.5.26.tgz",
+-      "integrity": "sha512-u82N74LFzG8ca+dD8puPnplTXoGH4fTPpVGuIbt36G3qvNlkvfD0lEAZSxaly3KX8TS/L1A1gsCEmvKmBcVbkQ==",
++      "version": "8.5.29",
++      "resolved": "https://registry.npmjs.org/postcss/-/postcss-8.5.29.tgz",
++      "integrity": "sha512-49cGhUbXj8Qenv0iTMxA1cFBzxXoctpC9Ujd77t1WcbJIr6nF/eI7g/8MgxrYldFRuAXvja7xQRwavoW7kgrxQ==",
+       "dev": true,
+       "funding": [
+         {
+@@ -3177,9 +2966,9 @@
+       ],
+       "license": "MIT",
+       "dependencies": {
+-        "nanoid": "^3.3.17",
++        "nanoid": "^3.3.19",
+         "picocolors": "^1.1.1",
+-        "source-map-js": "^1.2.1"
++        "source-map-js": "^1.2.2"
+       },
+       "engines": {
+         "node": "^10 || ^12 || >=14"
+@@ -3212,9 +3001,9 @@
+       "license": "MIT"
+     },
+     "node_modules/proxy-addr": {
+-      "version": "2.0.7",
+-      "resolved": "https://registry.npmjs.org/proxy-addr/-/proxy-addr-2.0.7.tgz",
+-      "integrity": "sha512-llQsMLSUDUPT44jdrU/O37qlnifitDP+ZwrmmZcoSKyLKvtZxpyV0n2/bD/N4tBAAZ/gJEdZU7KMraoK1+XYAg==",
++      "version": "2.0.8",
++      "resolved": "https://registry.npmjs.org/proxy-addr/-/proxy-addr-2.0.8.tgz",
++      "integrity": "sha512-5nnx0yGyVUcY6t9RnWcARWtwT9F1D8O9rt08htPvnd49W1IgZtmLkhu9WfMzQj1cFxjHIO6connUNVW5k7AVyQ==",
+       "license": "MIT",
+       "dependencies": {
+         "forwarded": "0.2.0",
+@@ -3222,6 +3011,10 @@
+       },
+       "engines": {
+         "node": ">= 0.10"
++      },
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/express"
+       }
+     },
+     "node_modules/qs": {
+@@ -3295,9 +3088,9 @@
+       }
+     },
+     "node_modules/readdir-glob/node_modules/brace-expansion": {
+-      "version": "2.1.4",
+-      "resolved": "https://registry.npmjs.org/brace-expansion/-/brace-expansion-2.1.4.tgz",
+-      "integrity": "sha512-hGfVzPxthbf3+2yjg/RBs60cB0FhqBS/zvdV/4wn4/BmN0bNMMHPc4V/BbFieqf1TKAGGAHnY4eSjajCl0f2Xg==",
++      "version": "2.1.7",
++      "resolved": "https://registry.npmjs.org/brace-expansion/-/brace-expansion-2.1.7.tgz",
++      "integrity": "sha512-uZbew1NqdmPDTMJ8ah1y+b+9QEJrfkXFk3RcTQw3X0jW/xRUvFKsg1CfQdSYGdTbXZWExtU3J3ccxtnfw1Fi0g==",
+       "license": "MIT",
+       "dependencies": {
+         "balanced-match": "^1.0.0"
+@@ -3315,41 +3108,6 @@
+         "node": ">=10"
+       }
+     },
+-    "node_modules/readdirp": {
+-      "version": "3.6.0",
+-      "resolved": "https://registry.npmjs.org/readdirp/-/readdirp-3.6.0.tgz",
+-      "integrity": "sha512-hOS089on8RduqdbhvQ5Z37A0ESjsqz6qnRcffsMU3495FuTdqSm+7bhJ29JvIOsBDEEnan5DPu9t3To9VRlMzA==",
+-      "dev": true,
+-      "license": "MIT",
+-      "dependencies": {
+-        "picomatch": "^2.2.1"
+-      },
+-      "engines": {
+-        "node": ">=8.10.0"
+-      }
+-    },
+-    "node_modules/resolve": {
+-      "version": "1.22.12",
+-      "resolved": "https://registry.npmjs.org/resolve/-/resolve-1.22.12.tgz",
+-      "integrity": "sha512-TyeJ1zif53BPfHootBGwPRYT1RUt6oGWsaQr8UyZW/eAm9bKoijtvruSDEmZHm92CwS9nj7/fWttqPCgzep8CA==",
+-      "dev": true,
+-      "license": "MIT",
+-      "dependencies": {
+-        "es-errors": "^1.3.0",
+-        "is-core-module": "^2.16.1",
+-        "path-parse": "^1.0.7",
+-        "supports-preserve-symlinks-flag": "^1.0.0"
+-      },
+-      "bin": {
+-        "resolve": "bin/resolve"
+-      },
+-      "engines": {
+-        "node": ">= 0.4"
+-      },
+-      "funding": {
+-        "url": "https://github.com/sponsors/ljharb"
+-      }
+-    },
+     "node_modules/rimraf": {
+       "version": "2.7.1",
+       "resolved": "https://registry.npmjs.org/rimraf/-/rimraf-2.7.1.tgz",
+@@ -3364,13 +3122,13 @@
+       }
+     },
+     "node_modules/rolldown": {
+-      "version": "1.2.4",
+-      "resolved": "https://registry.npmjs.org/rolldown/-/rolldown-1.2.4.tgz",
+-      "integrity": "sha512-rSr7irW0K7QRWzjdJXqZowkcRdDtjRduh43rBltnVKd0VFq839l1lJoDvGJb6gl7+4rTTCrPWu+YfujUL8Ug7w==",
++      "version": "1.2.12",
++      "resolved": "https://registry.npmjs.org/rolldown/-/rolldown-1.2.12.tgz",
++      "integrity": "sha512-8wafseiaG80xmXSfqidUNqZcylTlhmPZZt+za2m+js2sFZ8dTNlhIOV2WcbIPx2hgwPBJpEUGFAMZ9bgBBLTSQ==",
+       "dev": true,
+       "license": "MIT",
+       "dependencies": {
+-        "@oxc-project/types": "=0.144.0",
++        "@oxc-project/types": "=0.152.0",
+         "@rolldown/pluginutils": "^1.0.0"
+       },
+       "bin": {
+@@ -3380,20 +3138,21 @@
+         "node": "^20.19.0 || >=22.12.0"
+       },
+       "optionalDependencies": {
+-        "@rolldown/binding-android-arm64": "1.2.4",
+-        "@rolldown/binding-darwin-arm64": "1.2.4",
+-        "@rolldown/binding-darwin-x64": "1.2.4",
+-        "@rolldown/binding-freebsd-x64": "1.2.4",
+-        "@rolldown/binding-linux-arm-gnueabihf": "1.2.4",
+-        "@rolldown/binding-linux-arm64-gnu": "1.2.4",
+-        "@rolldown/binding-linux-arm64-musl": "1.2.4",
+-        "@rolldown/binding-linux-ppc64-gnu": "1.2.4",
+-        "@rolldown/binding-linux-s390x-gnu": "1.2.4",
+-        "@rolldown/binding-linux-x64-gnu": "1.2.4",
+-        "@rolldown/binding-linux-x64-musl": "1.2.4",
+-        "@rolldown/binding-openharmony-arm64": "1.2.4",
+-        "@rolldown/binding-win32-arm64-msvc": "1.2.4",
+-        "@rolldown/binding-win32-x64-msvc": "1.2.4"
++        "@rolldown/binding-android-arm-eabi": "1.2.12",
++        "@rolldown/binding-android-arm64": "1.2.12",
++        "@rolldown/binding-darwin-arm64": "1.2.12",
++        "@rolldown/binding-darwin-x64": "1.2.12",
++        "@rolldown/binding-freebsd-x64": "1.2.12",
++        "@rolldown/binding-linux-arm-gnueabihf": "1.2.12",
++        "@rolldown/binding-linux-arm64-gnu": "1.2.12",
++        "@rolldown/binding-linux-arm64-musl": "1.2.12",
++        "@rolldown/binding-linux-ppc64-gnu": "1.2.12",
++        "@rolldown/binding-linux-s390x-gnu": "1.2.12",
++        "@rolldown/binding-linux-x64-gnu": "1.2.12",
++        "@rolldown/binding-linux-x64-musl": "1.2.12",
++        "@rolldown/binding-openharmony-arm64": "1.2.12",
++        "@rolldown/binding-win32-arm64-msvc": "1.2.12",
++        "@rolldown/binding-win32-x64-msvc": "1.2.12"
+       }
+     },
+     "node_modules/safe-buffer": {
+@@ -3582,37 +3341,16 @@
+       "dev": true,
+       "license": "ISC"
+     },
+-    "node_modules/source-map": {
+-      "version": "0.6.1",
+-      "resolved": "https://registry.npmjs.org/source-map/-/source-map-0.6.1.tgz",
+-      "integrity": "sha512-UjgapumWlbMhkBgzT7Ykc5YXUT46F0iKu8SGXq0bcwP5dz/h0Plj6enJqjz1Zbq2l5WaqYnrVbwWOWMyF3F47g==",
+-      "dev": true,
+-      "license": "BSD-3-Clause",
+-      "engines": {
+-        "node": ">=0.10.0"
+-      }
+-    },
+     "node_modules/source-map-js": {
+-      "version": "1.2.1",
+-      "resolved": "https://registry.npmjs.org/source-map-js/-/source-map-js-1.2.1.tgz",
+-      "integrity": "sha512-UXWMKhLOwVKb728IUtQPXxfYU+usdybtUrK/8uGE8CQMvrhOpwvzDBwj0QhSL7MQc7vIsISBG8VQ8+IDQxpfQA==",
++      "version": "1.2.2",
++      "resolved": "https://registry.npmjs.org/source-map-js/-/source-map-js-1.2.2.tgz",
++      "integrity": "sha512-KGj/8Y43x35aZVDtt+J4mK1hoLGHULMYfSkODJNQjNDC3oW1PqPoxMwo0pLUsWM/UEGzON/NxeHywEfNXNP3Vw==",
+       "dev": true,
+       "license": "BSD-3-Clause",
+       "engines": {
+         "node": ">=0.10.0"
+       }
+     },
+-    "node_modules/source-map-support": {
+-      "version": "0.5.21",
+-      "resolved": "https://registry.npmjs.org/source-map-support/-/source-map-support-0.5.21.tgz",
+-      "integrity": "sha512-uBHU3L3czsIyYXKX88fdrGovxdSCoTGDRZ6SYXtSRxLZUzHg5P/66Ht6uoUlHu9EZod+inXhKo3qQgwXUT/y1w==",
+-      "dev": true,
+-      "license": "MIT",
+-      "dependencies": {
+-        "buffer-from": "^1.0.0",
+-        "source-map": "^0.6.0"
+-      }
+-    },
+     "node_modules/stackback": {
+       "version": "0.0.2",
+       "resolved": "https://registry.npmjs.org/stackback/-/stackback-0.0.2.tgz",
+@@ -3659,26 +3397,6 @@
+       "integrity": "sha512-Gd2UZBJDkXlY7GbJxfsE8/nvKkUEU1G38c1siN6QP6a9PT9MmHB8GnpscSmMJSoF8LOIrt8ud/wPtojys4G6+g==",
+       "license": "MIT"
+     },
+-    "node_modules/strip-bom": {
+-      "version": "3.0.0",
+-      "resolved": "https://registry.npmjs.org/strip-bom/-/strip-bom-3.0.0.tgz",
+-      "integrity": "sha512-vavAMRXOgBVNF6nyEEmL3DBK19iRpDcoIwW+swQ+CbGiu7lju6t+JklA1MHweoWtadgt4ISVUsXLyDq34ddcwA==",
+-      "dev": true,
+-      "license": "MIT",
+-      "engines": {
+-        "node": ">=4"
+-      }
+-    },
+-    "node_modules/strip-json-comments": {
+-      "version": "2.0.1",
+-      "resolved": "https://registry.npmjs.org/strip-json-comments/-/strip-json-comments-2.0.1.tgz",
+-      "integrity": "sha512-4gB8na07fecVVkOI6Rs4e7T6NOTki5EmL7TUduTs6bu3EdnSycntVJ4re8kgZA+wx9IueI2Y11bfbgwtzuE0KQ==",
+-      "dev": true,
+-      "license": "MIT",
+-      "engines": {
+-        "node": ">=0.10.0"
+-      }
+-    },
+     "node_modules/superagent": {
+       "version": "10.3.0",
+       "resolved": "https://registry.npmjs.org/superagent/-/superagent-10.3.0.tgz",
+@@ -3763,19 +3481,6 @@
+         "node": ">=6.6.0"
+       }
+     },
+-    "node_modules/supports-preserve-symlinks-flag": {
+-      "version": "1.0.0",
+-      "resolved": "https://registry.npmjs.org/supports-preserve-symlinks-flag/-/supports-preserve-symlinks-flag-1.0.0.tgz",
+-      "integrity": "sha512-ot0WnXS9fgdkgIcePe6RHNk1WA8+muPa6cSjeR3V8K27q9BB1rTE3R1p7Hv0z1ZyAc8s6Vvv8DIyWf681MAt0w==",
+-      "dev": true,
+-      "license": "MIT",
+-      "engines": {
+-        "node": ">= 0.4"
+-      },
+-      "funding": {
+-        "url": "https://github.com/sponsors/ljharb"
+-      }
+-    },
+     "node_modules/tar-stream": {
+       "version": "2.2.0",
+       "resolved": "https://registry.npmjs.org/tar-stream/-/tar-stream-2.2.0.tgz",
+@@ -3859,9 +3564,9 @@
+       }
+     },
+     "node_modules/tinyglobby/node_modules/picomatch": {
+-      "version": "4.0.5",
+-      "resolved": "https://registry.npmjs.org/picomatch/-/picomatch-4.0.5.tgz",
+-      "integrity": "sha512-RvwwcruNjI1ncT5xRakeyS9Lf8lcItv34KD+aif+VH9kduAyfYBipGh12274xtenIPZ119/R9BdTBa8gAwSh0A==",
++      "version": "4.0.7",
++      "resolved": "https://registry.npmjs.org/picomatch/-/picomatch-4.0.7.tgz",
++      "integrity": "sha512-qcJu88Q2IWqJsDD529JKMdwGm/dvInW4HvQnRwiH9JtihJvzGOscDtHE3x1pBKeUOTysQ8kVmLnJ2kJu7yhcGA==",
+       "dev": true,
+       "license": "MIT",
+       "engines": {
+@@ -3872,9 +3577,9 @@
+       }
+     },
+     "node_modules/tinyrainbow": {
+-      "version": "3.1.1",
+-      "resolved": "https://registry.npmjs.org/tinyrainbow/-/tinyrainbow-3.1.1.tgz",
+-      "integrity": "sha512-yau8yJdTt989Mm0Bd/236QnzEiPf2xLLTqUZRUJOo/3CB078LSwzei343DgtJVmfJKJE3TMINY1u42SQsP6mXw==",
++      "version": "3.2.0",
++      "resolved": "https://registry.npmjs.org/tinyrainbow/-/tinyrainbow-3.2.0.tgz",
++      "integrity": "sha512-LgO3D9yZJjApUiuUfl9iFAwrtaX4+lok3wJIqttGoKCHlWUqHqbQpnxCf82L8FjgKsh4iGo78hqJwgL8F6To2A==",
+       "dev": true,
+       "license": "MIT",
+       "engines": {
+@@ -3890,19 +3595,6 @@
+         "node": ">=14.14"
+       }
+     },
+-    "node_modules/to-regex-range": {
+-      "version": "5.0.1",
+-      "resolved": "https://registry.npmjs.org/to-regex-range/-/to-regex-range-5.0.1.tgz",
+-      "integrity": "sha512-65P7iz6X5yEr1cwcgvQxbbIw7Uk3gOy5dIdtZ4rDveLqhrdJP+Li/Hx6tyK0NEb+2GCyneCMJiGqrADCSNk8sQ==",
+-      "dev": true,
+-      "license": "MIT",
+-      "dependencies": {
+-        "is-number": "^7.0.0"
+-      },
+-      "engines": {
+-        "node": ">=8.0"
+-      }
+-    },
+     "node_modules/toidentifier": {
+       "version": "1.0.1",
+       "resolved": "https://registry.npmjs.org/toidentifier/-/toidentifier-1.0.1.tgz",
+@@ -3921,16 +3613,6 @@
+         "node": "*"
+       }
+     },
+-    "node_modules/tree-kill": {
+-      "version": "1.2.2",
+-      "resolved": "https://registry.npmjs.org/tree-kill/-/tree-kill-1.2.2.tgz",
+-      "integrity": "sha512-L0Orpi8qGpRG//Nd+H90vFB+3iHnue1zSSGmNOOCh1GLJ7rUKVwV2HvijphGQS2UmhUZewS9VgvxYIdgr+fG1A==",
+-      "dev": true,
+-      "license": "MIT",
+-      "bin": {
+-        "tree-kill": "cli.js"
+-      }
+-    },
+     "node_modules/ts-node": {
+       "version": "10.9.2",
+       "resolved": "https://registry.npmjs.org/ts-node/-/ts-node-10.9.2.tgz",
+@@ -3975,67 +3657,6 @@
+         }
+       }
+     },
+-    "node_modules/ts-node-dev": {
+-      "version": "2.0.0",
+-      "resolved": "https://registry.npmjs.org/ts-node-dev/-/ts-node-dev-2.0.0.tgz",
+-      "integrity": "sha512-ywMrhCfH6M75yftYvrvNarLEY+SUXtUvU8/0Z6llrHQVBx12GiFk5sStF8UdfE/yfzk9IAq7O5EEbTQsxlBI8w==",
+-      "dev": true,
+-      "license": "MIT",
+-      "dependencies": {
+-        "chokidar": "^3.5.1",
+-        "dynamic-dedupe": "^0.3.0",
+-        "minimist": "^1.2.6",
+-        "mkdirp": "^1.0.4",
+-        "resolve": "^1.0.0",
+-        "rimraf": "^2.6.1",
+-        "source-map-support": "^0.5.12",
+-        "tree-kill": "^1.2.2",
+-        "ts-node": "^10.4.0",
+-        "tsconfig": "^7.0.0"
+-      },
+-      "bin": {
+-        "ts-node-dev": "lib/bin.js",
+-        "tsnd": "lib/bin.js"
+-      },
+-      "engines": {
+-        "node": ">=0.8.0"
+-      },
+-      "peerDependencies": {
+-        "node-notifier": "*",
+-        "typescript": "*"
+-      },
+-      "peerDependenciesMeta": {
+-        "node-notifier": {
+-          "optional": true
+-        }
+-      }
+-    },
+-    "node_modules/ts-node-dev/node_modules/mkdirp": {
+-      "version": "1.0.4",
+-      "resolved": "https://registry.npmjs.org/mkdirp/-/mkdirp-1.0.4.tgz",
+-      "integrity": "sha512-vVqVZQyf3WLx2Shd0qJ9xuvqgAyKPLAiqITEtqW0oIUjzo3PePDd6fW9iFz30ef7Ysp/oiWqbhszeGWW2T6Gzw==",
+-      "dev": true,
+-      "license": "MIT",
+-      "bin": {
+-        "mkdirp": "bin/cmd.js"
+-      },
+-      "engines": {
+-        "node": ">=10"
+-      }
+-    },
+-    "node_modules/tsconfig": {
+-      "version": "7.0.0",
+-      "resolved": "https://registry.npmjs.org/tsconfig/-/tsconfig-7.0.0.tgz",
+-      "integrity": "sha512-vZXmzPrL+EmC4T/4rVlT2jNVMWCi/O4DIiSj3UHg1OE5kCKbk4mfrXc6dZksLgRM/TZlKnousKH9bbTazUWRRw==",
+-      "dev": true,
+-      "license": "MIT",
+-      "dependencies": {
+-        "@types/strip-bom": "^3.0.0",
+-        "@types/strip-json-comments": "0.0.30",
+-        "strip-bom": "^3.0.0",
+-        "strip-json-comments": "^2.0.0"
+-      }
+-    },
+     "node_modules/type-is": {
+       "version": "1.6.18",
+       "resolved": "https://registry.npmjs.org/type-is/-/type-is-1.6.18.tgz",
+@@ -4119,13 +3740,16 @@
+       }
+     },
+     "node_modules/uuid": {
+-      "version": "8.3.2",
+-      "resolved": "https://registry.npmjs.org/uuid/-/uuid-8.3.2.tgz",
+-      "integrity": "sha512-+NYs2QeMWy+GWFOEm9xnn6HCDp0l7QBD7ml8zLUmJ+93Q5NF0NocErnwkTkXVFNiX3/fpC6afS8Dhb/gz7R7eg==",
+-      "deprecated": "uuid@10 and below is no longer supported.  For ESM codebases, update to uuid@latest.  For CommonJS codebases, use uuid@11 (but be aware this version will likely be deprecated in 2028).",
++      "version": "11.1.1",
++      "resolved": "https://registry.npmjs.org/uuid/-/uuid-11.1.1.tgz",
++      "integrity": "sha512-vIYxrBCC/N/K+Js3qSN88go7kIfNPssr/hHCesKCQNAjmgvYS2oqr69kIufEG+O4+PfezOH4EbIeHCfFov8ZgQ==",
++      "funding": [
++        "https://github.com/sponsors/broofa",
++        "https://github.com/sponsors/ctavan"
++      ],
+       "license": "MIT",
+       "bin": {
+-        "uuid": "dist/bin/uuid"
++        "uuid": "dist/esm/bin/uuid"
+       }
+     },
+     "node_modules/v8-compile-cache-lib": {
+@@ -4145,16 +3769,16 @@
+       }
+     },
+     "node_modules/vite": {
+-      "version": "8.2.1",
+-      "resolved": "https://registry.npmjs.org/vite/-/vite-8.2.1.tgz",
+-      "integrity": "sha512-EU/eS7BH3XROHh2YnBefjM6DBKA6ZeMZEYQbj7NLWg5wHYlhB8B/Mayd5XsgWq+NFYccDOTemRpdETWR6Ka/lw==",
++      "version": "8.3.3",
++      "resolved": "https://registry.npmjs.org/vite/-/vite-8.3.3.tgz",
++      "integrity": "sha512-cTAldKPImjg6c+gk48U19POPn3GCBzZwpdsN8ZMEEcbpes+6/wvfqUd0C2y3qYY4wsj8PwgFwrZ/1jBPVttMSg==",
+       "dev": true,
+       "license": "MIT",
+       "dependencies": {
+         "lightningcss": "^1.33.0",
+-        "picomatch": "^4.0.5",
+-        "postcss": "^8.5.25",
+-        "rolldown": "~1.2.1",
++        "picomatch": "^4.0.7",
++        "postcss": "^8.5.28",
++        "rolldown": "~1.2.11",
+         "tinyglobby": "^0.2.17"
+       },
+       "bin": {
+@@ -4171,7 +3795,7 @@
+       },
+       "peerDependencies": {
+         "@types/node": "^20.19.0 || >=22.12.0",
+-        "@vitejs/devtools": "^0.4.0",
++        "@vitejs/devtools": "^0.7.1",
+         "esbuild": "^0.27.0 || ^0.28.0",
+         "jiti": ">=1.21.0",
+         "less": "^4.0.0",
+@@ -4223,9 +3847,9 @@
+       }
+     },
+     "node_modules/vite/node_modules/picomatch": {
+-      "version": "4.0.5",
+-      "resolved": "https://registry.npmjs.org/picomatch/-/picomatch-4.0.5.tgz",
+-      "integrity": "sha512-RvwwcruNjI1ncT5xRakeyS9Lf8lcItv34KD+aif+VH9kduAyfYBipGh12274xtenIPZ119/R9BdTBa8gAwSh0A==",
++      "version": "4.0.7",
++      "resolved": "https://registry.npmjs.org/picomatch/-/picomatch-4.0.7.tgz",
++      "integrity": "sha512-qcJu88Q2IWqJsDD529JKMdwGm/dvInW4HvQnRwiH9JtihJvzGOscDtHE3x1pBKeUOTysQ8kVmLnJ2kJu7yhcGA==",
+       "dev": true,
+       "license": "MIT",
+       "engines": {
+@@ -4236,19 +3860,19 @@
+       }
+     },
+     "node_modules/vitest": {
+-      "version": "4.1.10",
+-      "resolved": "https://registry.npmjs.org/vitest/-/vitest-4.1.10.tgz",
+-      "integrity": "sha512-R9jUTe5S4Qb0HCd4TNqpC7oGcrMssMRGXLW80ubjWsW9VH5GF8y1Y0SFLY9AbqSk6nt0PnOx4H4WNJYZ13GUPw==",
++      "version": "4.1.11",
++      "resolved": "https://registry.npmjs.org/vitest/-/vitest-4.1.11.tgz",
++      "integrity": "sha512-fhACrNXUidIbGSBr5FlbuBkO7VWC1ZyLl0DO4CU2DrQoAPxX84Ysxs+HeGQpii5lZWV1Q4gBZTTu49mF+A6Edw==",
+       "dev": true,
+       "license": "MIT",
+       "dependencies": {
+-        "@vitest/expect": "4.1.10",
+-        "@vitest/mocker": "4.1.10",
+-        "@vitest/pretty-format": "4.1.10",
+-        "@vitest/runner": "4.1.10",
+-        "@vitest/snapshot": "4.1.10",
+-        "@vitest/spy": "4.1.10",
+-        "@vitest/utils": "4.1.10",
++        "@vitest/expect": "4.1.11",
++        "@vitest/mocker": "4.1.11",
++        "@vitest/pretty-format": "4.1.11",
++        "@vitest/runner": "4.1.11",
++        "@vitest/snapshot": "4.1.11",
++        "@vitest/spy": "4.1.11",
++        "@vitest/utils": "4.1.11",
+         "es-module-lexer": "^2.0.0",
+         "expect-type": "^1.3.0",
+         "magic-string": "^0.30.21",
+@@ -4276,12 +3900,12 @@
+         "@edge-runtime/vm": "*",
+         "@opentelemetry/api": "^1.9.0",
+         "@types/node": "^20.0.0 || ^22.0.0 || >=24.0.0",
+-        "@vitest/browser-playwright": "4.1.10",
+-        "@vitest/browser-preview": "4.1.10",
+-        "@vitest/browser-webdriverio": "4.1.10",
+-        "@vitest/coverage-istanbul": "4.1.10",
+-        "@vitest/coverage-v8": "4.1.10",
+-        "@vitest/ui": "4.1.10",
++        "@vitest/browser-playwright": "4.1.11",
++        "@vitest/browser-preview": "4.1.11",
++        "@vitest/browser-webdriverio": "4.1.11",
++        "@vitest/coverage-istanbul": "4.1.11",
++        "@vitest/coverage-v8": "4.1.11",
++        "@vitest/ui": "4.1.11",
+         "happy-dom": "*",
+         "jsdom": "*",
+         "vite": "^6.0.0 || ^7.0.0 || ^8.0.0"
+diff --git a/package.json b/package.json
+index 8330f25..a55eb2f 100644
+--- a/package.json
++++ b/package.json
+@@ -5,7 +5,7 @@
+   "description": "REST API backend for CEA (متابعة السرايكي) — replaces Supabase with MySQL + Express",
+   "main": "dist/server.js",
+   "scripts": {
+-    "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
++    "dev": "node --watch --require ts-node/register/transpile-only src/server.ts",
+     "build": "tsc -p tsconfig.json",
+     "start": "node dist/server.js",
+     "prisma:generate": "prisma generate",
+@@ -27,7 +27,7 @@
+     "express-rate-limit": "^7.4.0",
+     "helmet": "^7.1.0",
+     "jsonwebtoken": "^9.0.2",
+-    "morgan": "^1.10.0",
++    "morgan": "^1.12.1",
+     "multer": "^1.4.5-lts.2",
+     "zod": "^3.23.8"
+   },
+@@ -44,12 +44,14 @@
+     "prisma": "^5.20.0",
+     "supertest": "^7.2.2",
+     "ts-node": "^10.9.2",
+-    "ts-node-dev": "^2.0.0",
+     "typescript": "^5.5.3",
+     "vitest": "^4.1.10"
+   },
+   "overrides": {
+     "qs": "^6.16.0",
+-    "body-parser": "^1.20.6"
++    "body-parser": "^1.20.6",
++    "exceljs": {
++      "uuid": "^11.1.1"
++    }
+   }
+ }
+diff --git a/prisma/seed.ts b/prisma/seed.ts
+index a1c707d..89ef7c1 100644
+--- a/prisma/seed.ts
++++ b/prisma/seed.ts
+@@ -4,8 +4,8 @@
+ // آمن للإعادة: يتخطى أي عنصر موجود بالفعل بنفس الاسم.
+ import { PrismaClient, RateType } from '@prisma/client';
+ import * as readline from 'readline';
+-import * as crypto from 'crypto';
+ import bcrypt from 'bcryptjs';
++import { newPasswordSchema } from '../src/schema/auth.schema';
+ 
+ const prisma = new PrismaClient();
+ 
+@@ -135,19 +135,17 @@ function ask(question: string): Promise<string> {
+ }
+ 
+ async function main() {
+-  // مستخدم الأدمن: من env أو إدخال تفاعلي — كلمة سر عشوائية تُطبع مرة واحدة لو لم تُحدد
++  // الإيميل من env أو إدخال تفاعلي؛ كلمة السر من env فقط حتى لا تُطبع في السجلات.
+   let admin = await prisma.user.findFirst({ where: { role: 'ADMIN' }, orderBy: { id: 'asc' } });
+   if (!admin) {
+     const email = process.env.SEED_ADMIN_EMAIL || (await ask('إيميل الأدمن: '));
+     if (!email) throw new Error('لا يمكن إنشاء أدمن بدون إيميل — مرر SEED_ADMIN_EMAIL أو أدخله تفاعليًا');
+-    const password = process.env.SEED_ADMIN_PASSWORD || crypto.randomBytes(9).toString('base64url');
++    if (!process.env.SEED_ADMIN_PASSWORD) throw new Error('حدد SEED_ADMIN_PASSWORD لإنشاء الأدمن؛ لن تُولَّد أو تُطبع كلمة مرور');
++    const password = newPasswordSchema.parse(process.env.SEED_ADMIN_PASSWORD);
+     admin = await prisma.user.create({
+       data: { email: email.toLowerCase(), passwordHash: await bcrypt.hash(password, 12), role: 'ADMIN' },
+     });
+     console.log(`✅ تم إنشاء الأدمن: ${admin.email}`);
+-    if (!process.env.SEED_ADMIN_PASSWORD) {
+-      console.log(`🔑 كلمة المرور (تُعرض مرة واحدة فقط — خزّنها الآن): ${password}`);
+-    }
+   } else {
+     console.log(`ℹ الأدمن موجود بالفعل: ${admin.email}`);
+   }
+diff --git a/src/config/env.ts b/src/config/env.ts
+index b1deb2b..f922110 100644
+--- a/src/config/env.ts
++++ b/src/config/env.ts
+@@ -49,4 +49,12 @@ if (env.nodeEnv === 'production') {
+   if (env.jwtAccessSecret.length < 32 || env.jwtRefreshSecret.length < 32) {
+     throw new Error('JWT secrets must be at least 32 characters in production');
+   }
++  // قيم المثال طويلة لكنها منشورة، فلا تصلح للتوقيع حتى لو اجتازت شرط الطول.
++  const exampleSecrets = new Set([
++    'change-this-access-secret-before-production',
++    'change-this-refresh-secret-before-production',
++  ]);
++  if (exampleSecrets.has(env.jwtAccessSecret) || exampleSecrets.has(env.jwtRefreshSecret)) {
++    throw new Error('Replace example JWT secrets before starting production');
++  }
+ }
+diff --git a/src/middlewares/errorHandler.ts b/src/middlewares/errorHandler.ts
+index ec27a75..91e3dcf 100644
+--- a/src/middlewares/errorHandler.ts
++++ b/src/middlewares/errorHandler.ts
+@@ -4,6 +4,7 @@ import { ZodError } from 'zod';
+ import multer from 'multer';
+ import { AppError } from '../utils/AppError';
+ import { logActivity } from '../services/activityLog';
++import { errorDiagnostics } from '../utils/errorDiagnostics';
+ 
+ // أخطاء ما تتسجلش في سجل النشاط: تجديد التوكن العادي (401 متكرر بطبيعته)،
+ // وفشل الدخول (متسجل أصلًا كـ LOGIN_FAIL بتفصيل أوضح — تسجيله هنا كمان بيكرره)
+@@ -12,8 +13,27 @@ const NOISY = (status: number, path: string) =>
+ 
+ // صيغة استجابة أخطاء موحدة للـ API كله — بدون تسريب stack traces أو تفاصيل DB للمستخدم
+ export function errorHandler(err: unknown, _req: Request, res: Response, _next: NextFunction) {
++  // body-parser قد يضع جسم الطلب (بما فيه كلمة المرور) في الخطأ أو رسالته.
++  // الأنواع والحالات المعروفة فقط؛ لا نطبع الخطأ الخام أو أي مقتطف من المدخلات.
++  if (err instanceof Error) {
++    const bodyError = err as Error & { type?: string; status?: number };
++    const invalidJson = bodyError.type === 'entity.parse.failed' && bodyError.status === 400;
++    const tooLarge = bodyError.type === 'entity.too.large' && bodyError.status === 413;
++    if (invalidJson || tooLarge) {
++      const status = tooLarge ? 413 : 400;
++      const message = tooLarge ? 'حجم الطلب أكبر من المسموح' : 'صيغة JSON غير صحيحة';
++      console.warn('Request body rejected:', { type: bodyError.type, status });
++      logActivity(_req, 'API_ERR', { status, detail: message });
++      return res.status(status).json({
++        success: false,
++        message,
++        code: tooLarge ? 'PAYLOAD_TOO_LARGE' : 'VALIDATION_ERROR',
++      });
++    }
++  }
++
+   if (err instanceof AppError) {
+-    if (err.status >= 500) console.error(err);
++    if (err.status >= 500) console.error('Application error:', { code: err.code, status: err.status });
+     // سجل النشاط: عشان الأدمن يعرف سبب مشكلة عند حساب معيّن من كارت الحساب
+     if (err.status >= 400 && !NOISY(err.status, _req.originalUrl)) {
+       logActivity(_req, 'API_ERR', { status: err.status, detail: err.message });
+@@ -52,8 +72,8 @@ export function errorHandler(err: unknown, _req: Request, res: Response, _next:
+     }
+   }
+ 
+-  console.error('Unhandled error:', err);
+-  logActivity(_req, 'API_ERR', { status: 500, detail: (err as Error)?.message ?? 'خطأ غير متوقع' });
++  console.error('Unhandled error:', errorDiagnostics(err, _req));
++  logActivity(_req, 'API_ERR', { status: 500, detail: 'خطأ غير متوقع' });
+   return res.status(500).json({ success: false, message: 'حدث خطأ غير متوقع في السيرفر', code: 'INTERNAL_ERROR' });
+ }
+ 
+diff --git a/src/routes/admin.routes.ts b/src/routes/admin.routes.ts
+index 84134b6..354c596 100644
+--- a/src/routes/admin.routes.ts
++++ b/src/routes/admin.routes.ts
+@@ -10,6 +10,7 @@ import { validate } from '../middlewares/validate';
+ import { accountSettingsSchema, upsertSettings, serializeSettings } from '../controllers/account.controller';
+ import { ALL_MODULES, DEFAULT_MODULES, MODULE_LABELS, ALL_FEATURES, DEFAULT_FEATURES } from '../utils/modules';
+ import { authService } from '../services/auth.service';
++import { newPasswordSchema } from '../schema/auth.schema';
+ import { placeCreateSchema, contractorCreateSchema, contractorUpdateSchema } from '../schema/entities.schema';
+ import { checkAndSyncPlaceSite, assertProjectExists, readSiteNames, listProjects, SITE_NAME_DEFAULTS } from '../services/placeSite';
+ export { readSiteNames };
+@@ -596,7 +597,7 @@ adminRoutes.get(
+ // ── إنشاء حساب مهندس (بديل register بتوكن الأدمن — نفس المنطق، مسار أوضح للواجهة) ──
+ adminRoutes.post(
+   '/users',
+-  validate({ body: z.object({ email: z.string().email().max(190), password: z.string().min(8).max(128), enabledModules: z.array(z.enum(ALL_MODULES)).optional(), enabledFeatures: z.array(z.string()).optional(), role: z.enum(['ADMIN','ENGINEER']).optional(), title: z.string().trim().max(100).optional(), project: z.enum(['سكني', 'تجاري']).optional(), site: z.coerce.number().int().min(1).max(999).optional() }) }),
++  validate({ body: z.object({ email: z.string().email().max(190), password: newPasswordSchema, enabledModules: z.array(z.enum(ALL_MODULES)).optional(), enabledFeatures: z.array(z.string()).optional(), role: z.enum(['ADMIN','ENGINEER']).optional(), title: z.string().trim().max(100).optional(), project: z.enum(['سكني', 'تجاري']).optional(), site: z.coerce.number().int().min(1).max(999).optional() }) }),
+   asyncHandler(async (req: Request, res: Response) => {
+     const result = await authService.register(req.body.email, req.body.password, req.user, req.body.role, req.body.title);
+     const userId = BigInt(result.user.id);
+@@ -692,7 +693,7 @@ adminRoutes.delete(
+ // ── إعادة تعيين كلمة سر مهندس (الأدمن يحدد كلمة جديدة ويسلّمها له) ──
+ adminRoutes.post(
+   '/users/:userId/reset-password',
+-  validate({ params: userIdParam, body: z.object({ newPassword: z.string().min(8).max(128) }) }),
++  validate({ params: userIdParam, body: z.object({ newPassword: newPasswordSchema }) }),
+   asyncHandler(async (req: Request, res: Response) => {
+     const userId = BigInt(req.params.userId);
+     await assertUserExists(userId);
+diff --git a/src/schema/auth.schema.ts b/src/schema/auth.schema.ts
+index 37a6b8d..539d9c4 100644
+--- a/src/schema/auth.schema.ts
++++ b/src/schema/auth.schema.ts
+@@ -1,8 +1,15 @@
+ import { z } from 'zod';
+ 
++// bcrypt يحسب أول 72 بايت فقط؛ UTF-8 قد يستخدم أكثر من بايت للحرف الواحد.
++// يُطبَّق على التعيين الجديد فقط، مع الحفاظ على توافق الدخول وكلمة السر الحالية.
++export const newPasswordSchema = z.string()
++  .min(8, 'كلمة المرور يجب ألا تقل عن 8 أحرف')
++  .max(128)
++  .refine((value) => Buffer.byteLength(value, 'utf8') <= 72, 'كلمة المرور يجب ألا تتجاوز 72 بايت UTF-8');
++
+ export const registerSchema = z.object({
+   email: z.string().email('صيغة الإيميل غير صحيحة').max(190),
+-  password: z.string().min(8, 'كلمة المرور يجب ألا تقل عن 8 أحرف').max(128),
++  password: newPasswordSchema,
+   role: z.enum(['ADMIN', 'ENGINEER']).optional(), // تُقبل فقط من أدمن — تُتجاهل في التسجيل الذاتي
+ });
+ 
+@@ -21,10 +28,10 @@ export const passwordResetRequestSchema = z.object({
+ 
+ export const passwordResetConfirmSchema = z.object({
+   token: z.string().min(20).max(200),
+-  newPassword: z.string().min(8, 'كلمة المرور يجب ألا تقل عن 8 أحرف').max(128),
++  newPassword: newPasswordSchema,
+ });
+ 
+ export const changePasswordSchema = z.object({
+   currentPassword: z.string().min(1).max(128),
+-  newPassword: z.string().min(8, 'كلمة المرور يجب ألا تقل عن 8 أحرف').max(128),
++  newPassword: newPasswordSchema,
+ });
+diff --git a/src/services/storage.ts b/src/services/storage.ts
+index c2c87f1..817e548 100644
+--- a/src/services/storage.ts
++++ b/src/services/storage.ts
+@@ -11,6 +11,16 @@ export interface StorageAdapter {
+   remove(storedPath: string): Promise<void>;
+ }
+ 
++function resolveStoredPath(storedPath: string): string {
++  const root = path.resolve(env.uploadDir);
++  const full = path.resolve(root, storedPath);
++  const relative = path.relative(root, full);
++  if (!relative || relative === '..' || relative.startsWith('..' + path.sep) || path.isAbsolute(relative)) {
++    throw new Error('Invalid storage path');
++  }
++  return full;
++}
++
+ class LocalDiskStorage implements StorageAdapter {
+   async save(buffer: Buffer, originalName: string): Promise<{ storedPath: string }> {
+     const ext = path.extname(originalName).toLowerCase().slice(0, 10);
+@@ -25,14 +35,12 @@ class LocalDiskStorage implements StorageAdapter {
+ 
+   async read(storedPath: string): Promise<Buffer> {
+     // منع path traversal — المسار المخزّن لازم يظل داخل uploadDir
+-    const full = path.resolve(env.uploadDir, storedPath);
+-    if (!full.startsWith(path.resolve(env.uploadDir))) throw new Error('Invalid storage path');
++    const full = resolveStoredPath(storedPath);
+     return fs.promises.readFile(full);
+   }
+ 
+   async remove(storedPath: string): Promise<void> {
+-    const full = path.resolve(env.uploadDir, storedPath);
+-    if (!full.startsWith(path.resolve(env.uploadDir))) throw new Error('Invalid storage path');
++    const full = resolveStoredPath(storedPath);
+     await fs.promises.unlink(full).catch(() => undefined); // حذف صامت لو الملف غير موجود أصلًا
+   }
+ }
+diff --git a/src/utils/password.ts b/src/utils/password.ts
+index 3ee7928..4f868b9 100644
+--- a/src/utils/password.ts
++++ b/src/utils/password.ts
+@@ -1,8 +1,9 @@
+ import bcrypt from 'bcryptjs';
+ import { env } from '../config/env';
++import { newPasswordSchema } from '../schema/auth.schema';
+ 
+ export function hashPassword(plain: string): Promise<string> {
+-  return bcrypt.hash(plain, env.bcryptRounds);
++  return bcrypt.hash(newPasswordSchema.parse(plain), env.bcryptRounds);
+ }
+ 
+ export function verifyPassword(plain: string, hash: string): Promise<boolean> {
+diff --git a/tests/productionEnv.test.ts b/tests/productionEnv.test.ts
+new file mode 100644
+index 0000000..0299540
+--- /dev/null
++++ b/tests/productionEnv.test.ts
+@@ -0,0 +1,61 @@
++import crypto from 'crypto';
++import fs from 'fs';
++import path from 'path';
++import { spawnSync } from 'child_process';
++import dotenv from 'dotenv';
++import { describe, expect, it } from 'vitest';
++
++const example = dotenv.parse(fs.readFileSync(path.resolve('.env.example')));
++type SecretName = 'JWT_ACCESS_SECRET' | 'JWT_REFRESH_SECRET';
++
++function loadEnv(overrides: Record<string, string> = {}) {
++  return spawnSync(process.execPath, ['-r', 'ts-node/register/transpile-only', '-e', 'require("./src/config/env")'], {
++    cwd: process.cwd(),
++    encoding: 'utf8',
++    env: {
++      ...process.env,
++      NODE_ENV: 'production',
++      JWT_ACCESS_SECRET: crypto.randomBytes(48).toString('hex'),
++      JWT_REFRESH_SECRET: crypto.randomBytes(48).toString('hex'),
++      ...overrides,
++    },
++  });
++}
++
++describe('Production JWT configuration', () => {
++  it.each<SecretName>(['JWT_ACCESS_SECRET', 'JWT_REFRESH_SECRET'])('rejects a short %s without disclosing it', (name) => {
++    const value = crypto.randomBytes(8).toString('hex');
++    const result = loadEnv({ [name]: value });
++    expect(result.status).not.toBe(0);
++    expect(result.stderr).toContain('JWT secrets must be at least 32 characters');
++    expect(result.stderr).not.toContain(value);
++  });
++
++  it.each<SecretName>(['JWT_ACCESS_SECRET', 'JWT_REFRESH_SECRET'])('rejects the example %s', (name) => {
++    const result = loadEnv({ [name]: example[name] });
++    expect(result.status).not.toBe(0);
++    expect(result.stderr).toContain('Replace example JWT secrets');
++    expect(result.stderr).not.toContain(example[name]);
++  });
++
++  it('also rejects the example secrets when swapped', () => {
++    const result = loadEnv({
++      JWT_ACCESS_SECRET: example.JWT_REFRESH_SECRET,
++      JWT_REFRESH_SECRET: example.JWT_ACCESS_SECRET,
++    });
++    expect(result.status).not.toBe(0);
++    expect(result.stderr).toContain('Replace example JWT secrets');
++  });
++
++  it('accepts independently generated long production secrets', () => {
++    expect(loadEnv().status).toBe(0);
++  });
++
++  it('keeps example secrets usable for development only', () => {
++    expect(loadEnv({
++      NODE_ENV: 'development',
++      JWT_ACCESS_SECRET: example.JWT_ACCESS_SECRET,
++      JWT_REFRESH_SECRET: example.JWT_REFRESH_SECRET,
++    }).status).toBe(0);
++  });
++});
+diff --git a/tests/requestSecurity.test.ts b/tests/requestSecurity.test.ts
+new file mode 100644
+index 0000000..2ab0356
+--- /dev/null
++++ b/tests/requestSecurity.test.ts
+@@ -0,0 +1,141 @@
++import express from 'express';
++import type { Request } from 'express';
++import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
++import { app, prisma, request, resetDb, createAdmin, auth, TestUser } from './helpers';
++import { errorHandler } from '../src/middlewares/errorHandler';
++import * as activity from '../src/services/activityLog';
++import { errorDiagnostics } from '../src/utils/errorDiagnostics';
++
++const fakeReq = (body: unknown = {}) =>
++  ({ body, query: {}, get: () => undefined }) as unknown as Request;
++
++describe('Request error security', () => {
++  let admin: TestUser;
++  const canary = 'request-security-sensitive-field-canary';
++
++  beforeAll(async () => {
++    await resetDb();
++    admin = await createAdmin();
++  });
++  afterAll(async () => { await prisma.$disconnect(); });
++  beforeEach(() => {
++    vi.spyOn(console, 'error').mockImplementation(() => undefined);
++    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
++    vi.spyOn(activity, 'logActivity').mockImplementation(() => undefined);
++  });
++  afterEach(() => { vi.restoreAllMocks(); });
++
++  it('does not redact short non-secret values from env or request', () => {
++    const prev = process.env.ACCESS_TOKEN_TTL_MIN;
++    process.env.ACCESS_TOKEN_TTL_MIN = '15';
++    try {
++      const msg = 'Timed out after 15000ms reading undefined';
++      const d = errorDiagnostics(new Error(msg), fakeReq({ token: 'e' }));
++      expect(d.message).toBe(msg);
++    } finally {
++      if (prev === undefined) delete process.env.ACCESS_TOKEN_TTL_MIN;
++      else process.env.ACCESS_TOKEN_TTL_MIN = prev;
++    }
++  });
++
++  it('redacts both encoded and decoded database passwords', () => {
++    const prev = process.env.TEST_DATABASE_URL;
++    process.env.TEST_DATABASE_URL = 'mysql://u:p%40ss%2Fw0rd-canary@127.0.0.1:3306/cea_test';
++    try {
++      const d = errorDiagnostics(
++        new Error('failed for p%40ss%2Fw0rd-canary and p@ss/w0rd-canary'), fakeReq());
++      expect(d.message).not.toContain('w0rd-canary');
++    } finally {
++      if (prev === undefined) delete process.env.TEST_DATABASE_URL;
++      else process.env.TEST_DATABASE_URL = prev;
++    }
++  });
++
++  function expectNoSensitiveLogging(body: unknown) {
++    expect(JSON.stringify(vi.mocked(console.error).mock.calls)).not.toContain(canary);
++    expect(JSON.stringify(vi.mocked(console.warn).mock.calls)).not.toContain(canary);
++    const details = vi.mocked(activity.logActivity).mock.calls.map(([, event, opts]) => ({ event, opts }));
++    expect(JSON.stringify(details)).not.toContain(canary);
++    expect(JSON.stringify(body)).not.toContain(canary);
++  }
++
++  it('returns 400 for malformed login JSON without logging its password field', async () => {
++    const res = await request(app).post('/api/auth/login')
++      .set('Content-Type', 'application/json')
++      .send(`{"email":"unused@test.com","password":"${canary}",`);
++    expect(res.status).toBe(400);
++    expect(res.body.code).toBe('VALIDATION_ERROR');
++    expect(console.warn).toHaveBeenCalledWith('Request body rejected:', { type: 'entity.parse.failed', status: 400 });
++    expectNoSensitiveLogging(res.body);
++  });
++
++  it('returns 413 for oversized JSON without logging request contents', async () => {
++    const res = await request(app).post('/api/auth/login')
++      .send({ email: 'unused@test.com', password: canary + 'x'.repeat(2 * 1024 * 1024) });
++    expect(res.status).toBe(413);
++    expect(res.body.code).toBe('PAYLOAD_TOO_LARGE');
++    expect(console.warn).toHaveBeenCalledWith('Request body rejected:', { type: 'entity.too.large', status: 413 });
++    expectNoSensitiveLogging(res.body);
++  });
++
++  it.each(['/api/records/not-a-number', '/api/files/not-a-number/content', '/api/admin/users/not-a-number/settings'])
++    ('rejects invalid identifiers at %s with 400', async (url) => {
++      const res = await request(app).get(url).set(auth(admin.token));
++      expect(res.status).toBe(400);
++      expect(res.body.code).toBe('VALIDATION_ERROR');
++      expect(console.error).not.toHaveBeenCalled();
++    });
++
++  it('keeps unrelated SyntaxError failures as 500 without exposing their message or body', async () => {
++    const failureApp = express();
++    failureApp.get('/failure', (_req, _res, next) => {
++      next(Object.assign(new SyntaxError(canary), { body: { password: canary } }));
++    });
++    failureApp.use(errorHandler);
++    const res = await request(failureApp).get('/failure');
++    expect(res.status).toBe(500);
++    expect(res.body.code).toBe('INTERNAL_ERROR');
++    expect(console.error).toHaveBeenCalledWith('Unhandled error:', expect.objectContaining({
++      name: 'SyntaxError', message: '[REDACTED]', stack: expect.stringContaining('at '),
++    }));
++    expect(activity.logActivity).toHaveBeenCalledWith(expect.anything(), 'API_ERR', { status: 500, detail: 'خطأ غير متوقع' });
++    expectNoSensitiveLogging(res.body);
++  });
++
++  it('preserves useful server failure messages and stack frames in logs only', async () => {
++    const failureApp = express();
++    failureApp.get('/failure', (_req, _res, next) => next(new Error('Cannot reach database server')));
++    failureApp.use(errorHandler);
++    const res = await request(failureApp).get('/failure');
++    expect(res.status).toBe(500);
++    expect(console.error).toHaveBeenCalledWith('Unhandled error:', expect.objectContaining({
++      message: 'Cannot reach database server', stack: expect.stringContaining('at '),
++    }));
++    expect(JSON.stringify(res.body)).not.toContain('Cannot reach database server');
++    expect(JSON.stringify(res.body)).not.toContain('stack');
++  });
++
++  it('redacts configured secrets, database credentials and request tokens from error diagnostics', async () => {
++    const failureApp = express();
++    const previousUrl = process.env.TEST_DATABASE_URL;
++    const dbPassword = 'database-credential-canary';
++    process.env.TEST_DATABASE_URL = `mysql://local:${dbPassword}@127.0.0.1:3306/cea_test`;
++    try {
++      failureApp.use(express.json());
++      failureApp.post('/failure', (req, _res, next) => {
++        next(new Error(`Database unavailable: ${dbPassword}; request token: ${req.body.refreshToken}`));
++      });
++      failureApp.use(errorHandler);
++      const res = await request(failureApp).post('/failure').send({ refreshToken: canary });
++      expect(res.status).toBe(500);
++      const diagnostics = vi.mocked(console.error).mock.calls[0][1] as { message: string; stack: string };
++      expect(diagnostics.message).toContain('Database unavailable');
++      expect(diagnostics.stack).toContain('at ');
++      expect(JSON.stringify(diagnostics)).not.toContain(dbPassword);
++      expectNoSensitiveLogging(res.body);
++    } finally {
++      if (previousUrl === undefined) delete process.env.TEST_DATABASE_URL;
++      else process.env.TEST_DATABASE_URL = previousUrl;
++    }
++  });
++});
+diff --git a/tests/requestLogging.test.ts b/tests/requestLogging.test.ts
+new file mode 100644
+index 0000000..4fc7ea9
+--- /dev/null
++++ b/tests/requestLogging.test.ts
+@@ -0,0 +1,25 @@
++import express from 'express';
++import morgan from 'morgan';
++import request from 'supertest';
++import { describe, expect, it } from 'vitest';
++
++describe('Production request log field escaping', () => {
++  it.each([
++    ['quotes', 'security-agent" fabricated-status="200'],
++    ['Unicode separators', 'security-agent\u2028fabricated-entry\u2029tail'],
++  ])('escapes %s in attacker-controlled headers', async (_name, userAgent) => {
++    const entries: string[] = [];
++    const app = express();
++    app.use(morgan('combined', { stream: { write: (line: string) => { entries.push(line); } } }));
++    // Inject the header inside the test: Node rejects Unicode separators in real HTTP headers.
++    app.use((req, _res, next) => { req.headers['user-agent'] = userAgent; next(); });
++    app.get('/logging-check', (_req, res) => { res.status(418).end('logging test'); });
++    const res = await request(app).get('/logging-check');
++    expect(res.status).toBe(418);
++    expect(entries).toHaveLength(1);
++    expect(entries[0]).toContain('"GET /logging-check HTTP/1.1" 418');
++    expect(entries[0]).toContain(JSON.stringify(userAgent).replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029'));
++    expect(entries[0].trimEnd()).not.toContain('\u2028');
++    expect(entries[0].trimEnd()).not.toContain('\u2029');
++  });
++});
+diff --git a/tests/passwordPolicy.test.ts b/tests/passwordPolicy.test.ts
+new file mode 100644
+index 0000000..8f6fba5
+--- /dev/null
++++ b/tests/passwordPolicy.test.ts
+@@ -0,0 +1,65 @@
++import bcrypt from 'bcryptjs';
++import { beforeAll, afterAll, describe, expect, it } from 'vitest';
++import { app, prisma, request, resetDb, createAdmin, auth, TestUser } from './helpers';
++import { newPasswordSchema, passwordResetConfirmSchema } from '../src/schema/auth.schema';
++import { hashPassword } from '../src/utils/password';
++
++describe('New password byte limits and legacy compatibility', () => {
++  let admin: TestUser;
++  beforeAll(async () => { await resetDb(); admin = await createAdmin(); });
++  afterAll(async () => { await prisma.$disconnect(); });
++
++  it.each([
++    ['ASCII at limit', 'a'.repeat(72), true],
++    ['ASCII over limit', 'a'.repeat(73), false],
++    ['Arabic at limit', 'ع'.repeat(36), true],
++    ['Arabic over limit', 'ع'.repeat(37), false],
++    ['emoji at limit', '🔐'.repeat(18), true],
++    ['emoji over limit', '🔐'.repeat(19), false],
++  ])('checks UTF-8 bytes: %s', (_label, password, accepted) => {
++    expect(newPasswordSchema.safeParse(password).success).toBe(accepted);
++  });
++
++  it('rejects overlong passwords even if hashing is called outside a route', () => {
++    expect(() => hashPassword('ع'.repeat(37))).toThrow();
++  });
++
++  it('uses the same limit for the currently disabled user reset schema', () => {
++    expect(passwordResetConfirmSchema.safeParse({ token: 'x'.repeat(30), newPassword: 'ع'.repeat(37) }).success).toBe(false);
++  });
++
++  it.each(['register', 'admin create', 'admin reset', 'change password'])('rejects overlong values in %s without changing the account', async (route) => {
++    const before = await prisma.user.findUniqueOrThrow({ where: { id: BigInt(admin.id) } });
++    const password = 'ع'.repeat(37);
++    let res;
++    if (route === 'register') res = await request(app).post('/api/auth/register').set(auth(admin.token)).send({ email: 'over-register@test.com', password });
++    else if (route === 'admin create') res = await request(app).post('/api/admin/users').set(auth(admin.token)).send({ email: 'over-admin@test.com', password });
++    else if (route === 'admin reset') res = await request(app).post(`/api/admin/users/${admin.id}/reset-password`).set(auth(admin.token)).send({ newPassword: password });
++    else res = await request(app).post('/api/auth/change-password').set(auth(admin.token)).send({ currentPassword: 'password123', newPassword: password });
++    expect(res.status).toBe(400);
++    expect(res.body.code).toBe('VALIDATION_ERROR');
++    expect((await prisma.user.findUniqueOrThrow({ where: { id: BigInt(admin.id) } })).passwordHash).toBe(before.passwordHash);
++    expect(await prisma.user.count({ where: { email: { startsWith: 'over-' } } })).toBe(0);
++  });
++
++  it('accepts a 72-byte Arabic password through registration and login', async () => {
++    const email = 'boundary@test.com';
++    const password = 'ع'.repeat(36);
++    const created = await request(app).post('/api/auth/register').set(auth(admin.token)).send({ email, password });
++    expect(created.status).toBe(201);
++    expect((await request(app).post('/api/auth/login').send({ email, password })).status).toBe(200);
++  });
++
++  it('allows an existing long-password account to log in and change its password', async () => {
++    const email = 'legacy-long@test.com';
++    const password = 'ع'.repeat(50);
++    // Existing hashes intentionally bypass the NEW-password policy in this fixture.
++    await prisma.user.create({ data: { email, role: 'ENGINEER', passwordHash: await bcrypt.hash(password, 12) } });
++    const login = await request(app).post('/api/auth/login').send({ email, password });
++    expect(login.status).toBe(200);
++    const changed = await request(app).post('/api/auth/change-password').set(auth(login.body.data.accessToken))
++      .send({ currentPassword: password, newPassword: 'replacement-valid-password' });
++    expect(changed.status).toBe(200);
++    expect((await request(app).post('/api/auth/login').send({ email, password: 'replacement-valid-password' })).status).toBe(200);
++  });
++});
+diff --git a/tests/storageSecurity.test.ts b/tests/storageSecurity.test.ts
+new file mode 100644
+index 0000000..a3fdff3
+--- /dev/null
++++ b/tests/storageSecurity.test.ts
+@@ -0,0 +1,50 @@
++import fs from 'fs';
++import os from 'os';
++import path from 'path';
++import { afterAll, beforeAll, describe, expect, it } from 'vitest';
++import { env } from '../src/config/env';
++import { storage } from '../src/services/storage';
++
++describe('Local storage containment', () => {
++  const originalRoot = env.uploadDir;
++  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'cea-storage-security-'));
++  const root = path.join(fixture, 'uploads');
++  const sibling = path.join(fixture, 'uploads-evil');
++  const outside = path.join(fixture, 'outside');
++  beforeAll(() => {
++    env.uploadDir = root;
++    for (const dir of [root, sibling, outside]) {
++      fs.mkdirSync(dir, { recursive: true });
++      fs.writeFileSync(path.join(dir, 'canary.txt'), 'storage-security-canary');
++    }
++  });
++  afterAll(() => { env.uploadDir = originalRoot; fs.rmSync(fixture, { recursive: true, force: true }); });
++
++  it.each([
++    ['prefix sibling', '../uploads-evil/canary.txt'],
++    ['parent traversal', '../outside/canary.txt'],
++    ['absolute outside', path.join(outside, 'canary.txt')],
++    ['upload root', ''],
++    ['parent directory', '..'],
++  ])('rejects %s for both reads and deletion', async (_label, storedPath) => {
++    await expect(storage.read(storedPath)).rejects.toThrow('Invalid storage path');
++    await expect(storage.remove(storedPath)).rejects.toThrow('Invalid storage path');
++    expect(fs.existsSync(path.join(sibling, 'canary.txt'))).toBe(true);
++    expect(fs.existsSync(path.join(outside, 'canary.txt'))).toBe(true);
++  });
++
++  it('round-trips and deletes generated storage paths', async () => {
++    const data = Buffer.from('local-storage-roundtrip');
++    const saved = await storage.save(data, 'test.png');
++    expect(await storage.read(saved.storedPath)).toEqual(data);
++    await storage.remove(saved.storedPath);
++    await expect(storage.read(saved.storedPath)).rejects.toThrow();
++    await expect(storage.remove(saved.storedPath)).resolves.toBeUndefined();
++  });
++
++  it('allows contained filenames beginning with two dots', async () => {
++    fs.writeFileSync(path.join(root, '..contained.txt'), 'contained');
++    expect((await storage.read('..contained.txt')).toString()).toBe('contained');
++    await storage.remove('..contained.txt');
++  });
++});
+diff --git a/tests/excelDependency.test.ts b/tests/excelDependency.test.ts
+new file mode 100644
+index 0000000..7294ba4
+--- /dev/null
++++ b/tests/excelDependency.test.ts
+@@ -0,0 +1,23 @@
++import ExcelJS from 'exceljs';
++import JSZip from 'jszip';
++import { describe, expect, it } from 'vitest';
++
++describe('ExcelJS UUID override compatibility', () => {
++  it('writes and reads extended conditional formatting using UUID v4', async () => {
++    const workbook = new ExcelJS.Workbook();
++    const sheet = workbook.addWorksheet('UUID compatibility');
++    sheet.addRows([[1], [2], [3]]);
++    sheet.addConditionalFormatting({
++      ref: 'A1:A3',
++      rules: [{ type: 'iconSet', iconSet: '3Stars', priority: 1, cfvo: [{ type: 'percent', value: 0 }, { type: 'percent', value: 33 }, { type: 'percent', value: 67 }] }],
++    });
++    const buffer = await workbook.xlsx.writeBuffer();
++    const zip = await JSZip.loadAsync(buffer);
++    const xml = await zip.file('xl/worksheets/sheet1.xml')!.async('string');
++    expect(xml).toMatch(/\{[0-9A-F]{8}-[0-9A-F]{4}-4[0-9A-F]{3}-[89AB][0-9A-F]{3}-[0-9A-F]{12}\}/);
++    const loaded = new ExcelJS.Workbook();
++    await loaded.xlsx.load(buffer);
++    expect(loaded.getWorksheet('UUID compatibility')!.getCell('A2').value).toBe(2);
++    expect(loaded.getWorksheet('UUID compatibility')!.conditionalFormattings).toHaveLength(1);
++  });
++});
+diff --git a/tests/seedSecurity.test.ts b/tests/seedSecurity.test.ts
+new file mode 100644
+index 0000000..d0e651a
+--- /dev/null
++++ b/tests/seedSecurity.test.ts
+@@ -0,0 +1,44 @@
++import crypto from 'crypto';
++import { spawnSync } from 'child_process';
++import bcrypt from 'bcryptjs';
++import { afterAll, beforeAll, describe, expect, it } from 'vitest';
++import { prisma, resetDb } from './helpers';
++
++function runSeed(password: string) {
++  return spawnSync(process.execPath, ['-r', 'ts-node/register/transpile-only', 'prisma/seed.ts'], {
++    cwd: process.cwd(),
++    encoding: 'utf8',
++    timeout: 25000,
++    env: { ...process.env, SEED_ADMIN_EMAIL: 'seed-security@test.com', SEED_ADMIN_PASSWORD: password },
++  });
++}
++
++describe('Secure first-admin seeding', () => {
++  beforeAll(async () => { await resetDb(); });
++  afterAll(async () => { await prisma.$disconnect(); });
++
++  it('requires a supplied password instead of generating and printing one', async () => {
++    const result = runSeed('');
++    expect(result.status).toBe(1);
++    expect(result.stderr).toContain('SEED_ADMIN_PASSWORD');
++    expect(await prisma.user.count()).toBe(0);
++  });
++
++  it('rejects an overlong password without printing its value', async () => {
++    const password = crypto.randomBytes(40).toString('hex');
++    const result = runSeed(password);
++    expect(result.status).toBe(1);
++    expect(result.stdout + result.stderr).not.toContain(password);
++    expect(await prisma.user.count()).toBe(0);
++  });
++
++  it('creates an admin with a valid supplied password without echoing it', async () => {
++    const password = crypto.randomBytes(20).toString('hex');
++    const result = runSeed(password);
++    expect(result.status).toBe(0);
++    expect(result.stdout + result.stderr).not.toContain(password);
++    const admin = await prisma.user.findUniqueOrThrow({ where: { email: 'seed-security@test.com' } });
++    expect(admin.role).toBe('ADMIN');
++    expect(await bcrypt.compare(password, admin.passwordHash)).toBe(true);
++  });
++});
+diff --git a/src/utils/errorDiagnostics.ts b/src/utils/errorDiagnostics.ts
+new file mode 100644
+index 0000000..f6e7493
+--- /dev/null
++++ b/src/utils/errorDiagnostics.ts
+@@ -0,0 +1,43 @@
++import { Request } from 'express';
++
++// نحتفظ بالرسالة والـstack للتشخيص دون تسلسل كائن الخطأ أو جسم الطلب.
++// نحجب بيانات الاعتماد المعروفة من البيئة ومن حقول الطلب الحساسة.
++export function errorDiagnostics(err: unknown, req: Request) {
++  if (!(err instanceof Error)) return { name: 'UnknownError', kind: typeof err };
++
++  const secrets = new Set<string>();
++  function add(value: unknown) {
++    if (typeof value === 'string' && value.length >= 8) secrets.add(value);
++  }
++  for (const [name, value] of Object.entries(process.env)) {
++    if (/SECRET|TOKEN|PASSWORD|DATABASE_URL|API_KEY/i.test(name)) add(value);
++    if (/DATABASE_URL/i.test(name) && value) {
++      try {
++        const pw = new URL(value).password;
++        add(pw);
++        add(decodeURIComponent(pw));
++      } catch { /* ليس URL صالحًا */ }
++    }
++  }
++  const authorization = req.get('authorization');
++  add(authorization);
++  if (authorization?.startsWith('Bearer ')) add(authorization.slice(7));
++
++  const seen = new WeakSet<object>();
++  const pending: unknown[] = [req.body, req.query, (err as Error & { body?: unknown }).body];
++  while (pending.length) {
++    const value = pending.pop();
++    if (!value || typeof value !== 'object' || seen.has(value)) continue;
++    seen.add(value);
++    for (const [key, entry] of Object.entries(value)) {
++      if (/password|token|secret|authorization|api.?key/i.test(key)) add(entry);
++      if (entry && typeof entry === 'object') pending.push(entry);
++    }
++  }
++
++  const values = [...secrets].sort((a, b) => b.length - a.length);
++  function redact(text: string) {
++    return values.reduce((safe, secret) => safe.split(secret).join('[REDACTED]'), text);
++  }
++  return { name: redact(err.name), message: redact(err.message), stack: redact(err.stack || `${err.name}: ${err.message}`) };
++}
