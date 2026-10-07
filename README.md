@@ -6,7 +6,7 @@
 
 ## التشغيل في التطوير (Development)
 
-المتطلبات: Node.js 18+، Docker Desktop.
+المتطلبات: Node.js 20.13+ (يدعم watch المدمج)، Docker Desktop.
 
 ```bash
 # 1. شغّل MySQL (+ Adminer على http://localhost:8080 لتصفح البيانات)
@@ -22,7 +22,8 @@ npm install
 npm run prisma:migrate
 
 # 5. (اختياري) ازرع البيانات الافتراضية + أول مستخدم أدمن
-#    مرر SEED_ADMIN_EMAIL و SEED_ADMIN_PASSWORD أو أدخلهما تفاعليًا
+#    مرر SEED_ADMIN_PASSWORD بأمان في البيئة (8 أحرف على الأقل و72 بايت UTF-8 كحد أقصى).
+#    مرر SEED_ADMIN_EMAIL أو أدخل الإيميل تفاعليًا؛ كلمة المرور لا تُطبع.
 npm run db:seed
 
 # 6. شغّل السيرفر

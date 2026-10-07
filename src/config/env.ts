@@ -49,4 +49,12 @@ if (env.nodeEnv === 'production') {
   if (env.jwtAccessSecret.length < 32 || env.jwtRefreshSecret.length < 32) {
     throw new Error('JWT secrets must be at least 32 characters in production');
   }
+  // قيم المثال طويلة لكنها منشورة، فلا تصلح للتوقيع حتى لو اجتازت شرط الطول.
+  const exampleSecrets = new Set([
+    'change-this-access-secret-before-production',
+    'change-this-refresh-secret-before-production',
+  ]);
+  if (exampleSecrets.has(env.jwtAccessSecret) || exampleSecrets.has(env.jwtRefreshSecret)) {
+    throw new Error('Replace example JWT secrets before starting production');
+  }
 }

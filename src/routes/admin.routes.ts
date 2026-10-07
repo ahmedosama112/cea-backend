@@ -10,6 +10,7 @@ import { validate } from '../middlewares/validate';
 import { accountSettingsSchema, upsertSettings, serializeSettings } from '../controllers/account.controller';
 import { ALL_MODULES, DEFAULT_MODULES, MODULE_LABELS, ALL_FEATURES, DEFAULT_FEATURES } from '../utils/modules';
 import { authService } from '../services/auth.service';
+import { newPasswordSchema } from '../schema/auth.schema';
 import { placeCreateSchema, contractorCreateSchema, contractorUpdateSchema } from '../schema/entities.schema';
 import { checkAndSyncPlaceSite, assertProjectExists, readSiteNames, listProjects, SITE_NAME_DEFAULTS } from '../services/placeSite';
 export { readSiteNames };
@@ -596,7 +597,7 @@ adminRoutes.get(
 // ── إنشاء حساب مهندس (بديل register بتوكن الأدمن — نفس المنطق، مسار أوضح للواجهة) ──
 adminRoutes.post(
   '/users',
-  validate({ body: z.object({ email: z.string().email().max(190), password: z.string().min(8).max(128), enabledModules: z.array(z.enum(ALL_MODULES)).optional(), enabledFeatures: z.array(z.string()).optional(), role: z.enum(['ADMIN','ENGINEER']).optional(), title: z.string().trim().max(100).optional(), project: z.enum(['سكني', 'تجاري']).optional(), site: z.coerce.number().int().min(1).max(999).optional() }) }),
+  validate({ body: z.object({ email: z.string().email().max(190), password: newPasswordSchema, enabledModules: z.array(z.enum(ALL_MODULES)).optional(), enabledFeatures: z.array(z.string()).optional(), role: z.enum(['ADMIN','ENGINEER']).optional(), title: z.string().trim().max(100).optional(), project: z.enum(['سكني', 'تجاري']).optional(), site: z.coerce.number().int().min(1).max(999).optional() }) }),
   asyncHandler(async (req: Request, res: Response) => {
     const result = await authService.register(req.body.email, req.body.password, req.user, req.body.role, req.body.title);
     const userId = BigInt(result.user.id);
@@ -692,7 +693,7 @@ adminRoutes.delete(
 // ── إعادة تعيين كلمة سر مهندس (الأدمن يحدد كلمة جديدة ويسلّمها له) ──
 adminRoutes.post(
   '/users/:userId/reset-password',
-  validate({ params: userIdParam, body: z.object({ newPassword: z.string().min(8).max(128) }) }),
+  validate({ params: userIdParam, body: z.object({ newPassword: newPasswordSchema }) }),
   asyncHandler(async (req: Request, res: Response) => {
     const userId = BigInt(req.params.userId);
     await assertUserExists(userId);
