@@ -117,6 +117,24 @@ describe('Backup (النسخة الاحتياطية)', () => {
     expect(result).toMatchObject({ ok: false, kind: 'content-redirect-failed', retryable: true });
   });
 
+  it('تحويل تاني من content host (عطل جوجل متقطع) يتصنف retryable', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(null, {
+        status: 302,
+        headers: { location: 'https://script.googleusercontent.com/macros/echo?token=hidden' },
+      }))
+      .mockResolvedValueOnce(new Response(null, {
+        status: 302,
+        headers: { location: 'https://accounts.google.com/somewhere' },
+      }));
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    const result = await __backupTest.uploadBackup('{}', 'backup.json');
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result).toMatchObject({ ok: false, kind: 'content-redirect-failed', retryable: true });
+  });
+
   it('يقبل JSON success بعد 303 من content host', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(new Response(null, {
