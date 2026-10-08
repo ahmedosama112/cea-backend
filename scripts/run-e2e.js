@@ -65,7 +65,13 @@ async function waitForHealth(timeoutMs) {
 
 async function main() {
   console.log('> resetting e2e database schema (cea_e2e)');
-  execSync('npx prisma db push --force-reset --skip-generate --accept-data-loss', { stdio: 'inherit', env: serverEnv });
+  try {
+    execSync('npx prisma db push --force-reset --skip-generate --accept-data-loss', { stdio: 'inherit', env: serverEnv });
+  } catch {
+    // prisma طبع السبب فوق — هنا بس رسالة واضحة بدل stack trace
+    console.error('\nفشل تجهيز قاعدة e2e — اتأكد إن MySQL شغال وإن E2E_DATABASE_URL في .env صح');
+    process.exit(1);
+  }
 
   // المشروعين 1 و2 بيتزرعوا بالـmigration في الإنتاج — db push ما بيزرعهمش (نفس tests/helpers.ts)
   const { PrismaClient } = require('@prisma/client');
