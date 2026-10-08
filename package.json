@@ -14,6 +14,7 @@
     "prisma:studio": "prisma studio",
     "db:seed": "ts-node --transpile-only prisma/seed.ts",
     "test": "node scripts/run-tests.js",
+    "test:e2e": "node scripts/run-e2e.js",
     "backup:local": "ts-node --transpile-only scripts/backup-local.ts"
   },
   "dependencies": {
@@ -41,6 +42,7 @@
     "@types/multer": "^1.4.11",
     "@types/node": "^20.14.9",
     "@types/supertest": "^7.2.1",
+    "e2e": "^0.18.0",
     "prisma": "^5.20.0",
     "supertest": "^7.2.2",
     "ts-node": "^10.9.2",

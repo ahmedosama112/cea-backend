@@ -30,6 +30,20 @@ npm run dev
 # → http://localhost:4000  (فحص سريع: GET /health)
 ```
 
+## اختبارات e2e
+
+اختبارات API حقيقية عبر HTTP بإطار [e2e](https://github.com/tester-army/e2e) — بدون متصفح وبدون موديل AI.
+السكربت بيمسح قاعدة `E2E_DATABASE_URL` ويبنيها، يشغّل السيرفر على `E2E_PORT` (افتراضي 4100)، يسجّل أدمن، ويشغّل `e2e/**/*.e2e.ts`.
+
+المتطلبات: Node.js **22.22.3+ أو 24.8+** (على ويندوز: من جوّه WSL)، وقاعدة منفصلة (مثلاً `cea_e2e`) في `E2E_DATABASE_URL`.
+
+```bash
+npm run test:e2e                         # كل الاختبارات
+npm run test:e2e -- e2e/records.e2e.ts   # ملف واحد
+```
+
+التقرير والنتايج في `.e2e/` (متجاهَل في git). لإيقاف إحصاءات الاستخدام المجهولة اللي بيبعتها e2e: `E2E_TELEMETRY_DISABLED=1`.
+
 ## صيغة الاستجابة الموحدة
 
 ```json
