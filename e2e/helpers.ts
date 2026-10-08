@@ -24,6 +24,40 @@ export async function api<T = any>(
   return { status: res.status, body: text ? JSON.parse(text) : undefined };
 }
 
+// رفع multipart (ملف + حقول) — نفس اللي الواجهة بتبعته
+export async function upload<T = any>(
+  method: string,
+  path: string,
+  opts: { token: string; file?: { name: string; type: string; bytes: Uint8Array }; fields?: Record<string, string> },
+): Promise<ApiResponse<T>> {
+  const form = new FormData();
+  for (const [k, v] of Object.entries(opts.fields ?? {})) form.append(k, v);
+  if (opts.file) form.append('file', new Blob([opts.file.bytes], { type: opts.file.type }), opts.file.name);
+  const res = await fetch(new URL(path, APP_URL), { method, headers: { authorization: `Bearer ${opts.token}` }, body: form });
+  const text = await res.text();
+  return { status: res.status, body: text ? JSON.parse(text) : undefined };
+}
+
+// تنزيل ملف — بيرجّع الـ Response نفسه (المحتوى مش JSON)
+export function download(path: string, token: string): Promise<Response> {
+  return fetch(new URL(path, APP_URL), { headers: { authorization: `Bearer ${token}` } });
+}
+
+// بايتات بأقل توقيع يقبله السيرفر (بيفحص أول البايتات مش الامتداد)
+export const PNG_BYTES = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0x0d, 0x49, 0x48, 0x44, 0x52]);
+export const XLSX_BYTES = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0x74, 0x65, 0x73, 0x74, 0x2d, 0x65, 0x32, 0x65]);
+
+export async function setModules(adminToken: string, userId: string, modules: string[]): Promise<void> {
+  const s = await api('PUT', `/api/admin/users/${userId}/settings`, { token: adminToken, body: { enabledModules: modules } });
+  if (s.status !== 200) throw new Error(`enable modules failed: ${s.status} ${JSON.stringify(s.body)}`);
+}
+
+// تعديل حساب من الأدمن (الدرجة، المعتمدين المسندين، ...)
+export async function patchUser(adminToken: string, userId: string, body: Record<string, unknown>): Promise<void> {
+  const r = await api('PATCH', `/api/admin/users/${userId}`, { token: adminToken, body });
+  if (r.status !== 200) throw new Error(`patch user failed: ${r.status} ${JSON.stringify(r.body)}`);
+}
+
 export interface Session {
   token: string;
   refreshToken: string;
@@ -54,9 +88,6 @@ export async function createEngineer(adminToken: string, prefix = 'eng', modules
   const res = await api('POST', '/api/auth/register', { token: adminToken, body: { email, password } });
   if (res.status !== 201) throw new Error(`createEngineer failed: ${res.status} ${JSON.stringify(res.body)}`);
   const d = res.body.data;
-  if (modules) {
-    const s = await api('PUT', `/api/admin/users/${d.user.id}/settings`, { token: adminToken, body: { enabledModules: modules } });
-    if (s.status !== 200) throw new Error(`enable modules failed: ${s.status} ${JSON.stringify(s.body)}`);
-  }
+  if (modules) await setModules(adminToken, String(d.user.id), modules);
   return { token: d.accessToken, refreshToken: d.refreshToken, id: String(d.user.id), email };
 }
