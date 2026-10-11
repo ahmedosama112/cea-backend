@@ -7,7 +7,7 @@ import { asyncHandler } from '../utils/asyncHandler';
 import { validate } from '../middlewares/validate';
 import { requireWindow } from '../middlewares/windowGuard';
 import { idParamSchema } from '../utils/crudFactory';
-import { getApprovalLevels, APPROVING_GRADES, buildChain, nextLevel, resolveChainForUser, soleProjectManagerId, pushSubmissionToSheet, signedFileBuffer, ChainUser } from '../services/approvalChain';
+import { getApprovalLevels, CHAIN_LEVELS, SENIOR_LEVEL, isApproverGrade, buildChain, nextLevel, resolveChainForUser, soleProjectManagerId, pushSubmissionToSheet, signedFileBuffer, ChainUser } from '../services/approvalChain';
 import { countDataRows, readLaborRow } from '../services/rowReject';
 import { storage } from '../services/storage';
 import { listProjects } from '../services/placeSite';
@@ -19,13 +19,13 @@ export const approvalsRoutes = Router();
 
 const SUB_INCLUDE = {
   file: { select: { id: true, fileName: true, fileSize: true } },
-  user: { select: { id: true, email: true, displayName: true, title: true, grade: true, approverTlId: true, approverCmId: true, approverPmId: true,
+  user: { select: { id: true, email: true, displayName: true, title: true, grade: true, approverTlId: true, approverCmId: true, approverPmId: true, approverSrId: true,
     // أسماء المعتمدين المسندين — بتتعرض في الجدول تحت "دورك/منتظر" (مين المفروض يعتمد المستوى ده)
-    approverTl: { select: { email: true, displayName: true, title: true } }, approverCm: { select: { email: true, displayName: true, title: true } }, approverPm: { select: { email: true, displayName: true, title: true } },
+    approverTl: { select: { email: true, displayName: true, title: true } }, approverCm: { select: { email: true, displayName: true, title: true } }, approverPm: { select: { email: true, displayName: true, title: true } }, approverSr: { select: { email: true, displayName: true, title: true } },
     // المشاريع المحمّلة على الحساب بمعتمديها الخاصين — لكشف مربوط بمشروع، السلسلة بتاخد المعتمد من هنا بدل الأعمدة فوق
     userProjects: { select: {
-      projectId: true, approverTlId: true, approverCmId: true, approverPmId: true,
-      approverTl: { select: { email: true, displayName: true, title: true } }, approverCm: { select: { email: true, displayName: true, title: true } }, approverPm: { select: { email: true, displayName: true, title: true } },
+      projectId: true, approverTlId: true, approverCmId: true, approverPmId: true, approverSrId: true,
+      approverTl: { select: { email: true, displayName: true, title: true } }, approverCm: { select: { email: true, displayName: true, title: true } }, approverPm: { select: { email: true, displayName: true, title: true } }, approverSr: { select: { email: true, displayName: true, title: true } },
     } } } },
   reviews: { orderBy: { createdAt: 'asc' as const }, include: { byUser: { select: { email: true, displayName: true, title: true } } } },
   rowRejections: { orderBy: { createdAt: 'asc' as const }, include: { byUser: { select: { email: true, displayName: true, title: true } } } },
@@ -87,7 +87,7 @@ approvalsRoutes.get(
     const myId = req.user!.id;
     const me = await prisma.user.findUnique({ where: { id: myId }, select: { grade: true } });
     const myLevel = me?.grade ?? null;
-    const isApprover = myLevel != null && (APPROVING_GRADES as readonly string[]).includes(myLevel);
+    const isApprover = isApproverGrade(myLevel);
     const isAdmin = req.user!.role === 'ADMIN';
     // بنعرض كل اللي في المراجعة + اللي اتبعت/اترفض خلال آخر 7 أيام بس (للسياق) — عشان الطابور مايتمليش بالتاريخ
     // (19 سبتمبر 2026) ?weeks=N من زرار "📜 عرض الأقدم" — كل ضغطة بترجّع أسبوع كمان (حد أقصى سنة)
@@ -116,7 +116,7 @@ approvalsRoutes.get(
     const projects = await listProjects();
     const projectNameOf = (id: number | null) => (id == null ? null : (projects.find((p) => p.id === id)?.name ?? 'مشروع ' + id));
     type P = { email: string; displayName?: string | null; title: string | null } | null;
-    type UP = { projectId: number; approverTlId: bigint | null; approverCmId: bigint | null; approverPmId: bigint | null; approverTl: P; approverCm: P; approverPm: P };
+    type UP = { projectId: number; approverTlId: bigint | null; approverCmId: bigint | null; approverPmId: bigint | null; approverSrId: bigint | null; approverTl: P; approverCm: P; approverPm: P; approverSr: P };
     res.json({
       success: true,
       myLevel,
@@ -125,15 +125,15 @@ approvalsRoutes.get(
       // مشاهد = بيشوف الكل بلا إجراء — الواجهة بتخفي التحميل وبتعرض "مشاهدة" على كشوفه هو بس (myId للمقارنة)
       viewer: isViewer,
       myId: myId.toString(),
-      // المستويات المعتمِدة بالترتيب (أعمدة الجدول)
-      activeLevels: [...APPROVING_GRADES],
+      // المستويات المعتمِدة بالترتيب (أعمدة الجدول) — السينيور أولها (خطوة اختيارية لكشوف الجونيور)
+      activeLevels: [...CHAIN_LEVELS],
       data: rows.map((r) => {
-        const u = r.user as unknown as { id: bigint; grade: string; approverTlId: bigint | null; approverCmId: bigint | null; approverPmId: bigint | null; approverTl: P; approverCm: P; approverPm: P; userProjects: UP[] };
+        const u = r.user as unknown as { id: bigint; grade: string; approverTlId: bigint | null; approverCmId: bigint | null; approverPmId: bigint | null; approverSrId: bigint | null; approverTl: P; approverCm: P; approverPm: P; approverSr: P; userProjects: UP[] };
         // الكشف مربوط بمشروع، وعند صاحبه المشروع ده محمّل → السلسلة والأسماء من معتمدي المشروع بدل الأعمدة الافتراضية
         const up = r.projectId != null ? u.userProjects.find((x) => x.projectId === r.projectId) : undefined;
         const chainUser: ChainUser = up
-          ? { id: u.id, grade: u.grade, approverTlId: up.approverTlId, approverCmId: up.approverCmId, approverPmId: up.approverPmId }
-          : { id: u.id, grade: u.grade, approverTlId: u.approverTlId, approverCmId: u.approverCmId, approverPmId: u.approverPmId };
+          ? { id: u.id, grade: u.grade, approverTlId: up.approverTlId, approverCmId: up.approverCmId, approverPmId: up.approverPmId, approverSrId: up.approverSrId }
+          : { id: u.id, grade: u.grade, approverTlId: u.approverTlId, approverCmId: u.approverCmId, approverPmId: u.approverPmId, approverSrId: u.approverSrId };
         const namesSrc = up ?? u;
         // مشروع بدون اعتماد → سلسلة فاضية (نفس resolveChainForUser) — كشف قديم IN_REVIEW عليه بيبان معلّق والأدمن يحرّكه للشيت
         const noApproval = r.projectId != null && !!projects.find((p) => p.id === r.projectId)?.noApproval;
@@ -150,7 +150,7 @@ approvalsRoutes.get(
           chain: chain.map((c) => c.level),
           // مين المسند لكل مستوى في سلسلة الكشف ده (بالاسم) — الواجهة بتعرضه تحت حالة المستوى
           approverNames: Object.fromEntries(chain.map((c) => {
-            const who = c.level === 'team leader' ? namesSrc.approverTl : c.level === 'construction manager' ? namesSrc.approverCm : (namesSrc.approverPm ?? solePm);
+            const who = c.level === SENIOR_LEVEL ? namesSrc.approverSr : c.level === 'team leader' ? namesSrc.approverTl : c.level === 'construction manager' ? namesSrc.approverCm : (namesSrc.approverPm ?? solePm);
             return [c.level, nameOf(who)];
           })),
           // آخر مستوى في سلسلته → رسالة "بعد اعتمادك الكشف هيتبعت للتوقيع"
@@ -182,7 +182,7 @@ approvalsRoutes.get(
     // (12 سبتمبر 2026) درجة 'viewer' الصريحة استثناء: بتفتح أي كشف — الرؤية الكاملة هي بيت القصيد من الدرجة دي.
     if (req.user!.role !== 'ADMIN') {
       const me = await prisma.user.findUnique({ where: { id: req.user!.id }, select: { grade: true } });
-      const isApprover = !!me?.grade && (APPROVING_GRADES as readonly string[]).includes(me.grade);
+      const isApprover = isApproverGrade(me?.grade);
       const isExplicitViewer = me?.grade === 'viewer';
       if (!isApprover && !isExplicitViewer && sub.userId !== req.user!.id) throw AppError.notFound('الكشف غير موجود');
     }
@@ -245,7 +245,7 @@ approvalsRoutes.post(
     // درجة 'viewer' ممنوعة من أي إجراء اعتماد/رفض — قبل أي فحص تاني، حتى لو كان مسند أو مستوى قديم
     if (me?.grade === 'viewer') throw AppError.forbidden('حساب مشاهد — مالوش صلاحية اعتماد أو رفض');
     const isAdmin = req.user!.role === 'ADMIN';
-    const isApprover = !!me?.grade && (APPROVING_GRADES as readonly string[]).includes(me.grade);
+    const isApprover = isApproverGrade(me?.grade);
     const mine = sub.currentApproverId === req.user!.id || (sub.currentApproverId === null && isApprover && me!.grade === sub.currentLevel);
     if (!isAdmin && !mine) throw AppError.forbidden('مش دورك في الاعتماد على الكشف ده دلوقتي');
     if (sub.rowRejections.some((r) => r.revision === sub.revision && r.sheetIndex === sheetIndex && r.row === row)) throw AppError.validation('السطر ده مشطوب بالفعل');
@@ -305,7 +305,7 @@ approvalsRoutes.post(
     const isAdmin = req.user!.role === 'ADMIN';
     if (!isAdmin) {
       if (me?.grade !== 'project manager') throw AppError.forbidden('تعديل السطور لمدير المشروع أو مدير النظام بس');
-      const isApprover = (APPROVING_GRADES as readonly string[]).includes(me.grade);
+      const isApprover = isApproverGrade(me.grade);
       const mine = sub.currentApproverId === req.user!.id || (sub.currentApproverId === null && isApprover && me.grade === sub.currentLevel);
       if (!mine) throw AppError.forbidden('مش دورك في الاعتماد على الكشف ده دلوقتي');
     }
@@ -381,7 +381,7 @@ approvalsRoutes.post(
     // درجة 'viewer' ممنوعة من أي إجراء اعتماد/رفض — قبل أي فحص تاني، حتى لو كان مسند أو مستوى قديم
     if (me?.grade === 'viewer') throw AppError.forbidden('حساب مشاهد — مالوش صلاحية اعتماد أو رفض');
     const isAdmin = req.user!.role === 'ADMIN';
-    const isApprover = !!me?.grade && (APPROVING_GRADES as readonly string[]).includes(me.grade);
+    const isApprover = isApproverGrade(me?.grade);
     const mine = sub.currentApproverId === req.user!.id
       // كشف قديم من قبل نظام الإسناد: أي معتمد درجته = المستوى الحالي (السلوك القديم)
       || (sub.currentApproverId === null && isApprover && me!.grade === sub.currentLevel);

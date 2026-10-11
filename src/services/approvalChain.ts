@@ -12,6 +12,8 @@ import { saveLaborDays, isLaborSubmission } from './laborContractors';
 //   1) درجته (grade) بتحدد المستويات المطلوبة (المصفوفة تحت)
 //   2) الأعمدة approver_tl_id / approver_cm_id / approver_pm_id بتحدد الشخص نفسه في كل مستوى
 // مستوى من غير شخص مسند بيتخطى (والأدمن بيشوف تحذير في كارت الحساب).
+//   3) (أكتوبر 2026) approver_sr_id: سينيور مسند للجونيور → خطوة زيادة في **أول** السلسلة قبل مدير الفريق.
+//      السلسلة نفسها (المصفوفة وTL/CM/PM) مابتتغيرش؛ من غير سينيور مسند مفيش خطوة (السلوك القديم).
 
 // الدرجات الخمس بالترتيب — ثابتة في الكود بقرار صاحب المشروع (بدل التعديل من app_config)
 // 'viewer' مش رتبة في السلم — حساب بيشوف كل الكشوف وملفاتها بس مايعتمدش ولا يترفض أبدًا (مقصود آخر القائمة)
@@ -20,6 +22,18 @@ export type Grade = (typeof GRADES)[number];
 
 // الدرجات اللي بتعتمد (بترتيب السلسلة) — أعمدة جدول الاعتمادات في الواجهة هي دي. 'viewer' متعمّد مش موجود هنا.
 export const APPROVING_GRADES = ['team leader', 'construction manager', 'project manager'] as const;
+
+// (أكتوبر 2026) خطوة السينيور: برّه المصفوفة عن قصد (تعديل "مين يعتمد لمين" مايلمسهاش) —
+// بتتحدد بالإسناد بس (approver_sr_id) ولدرجات SENIOR_STEP_FOR بس
+export const SENIOR_LEVEL = 'senior';
+const SENIOR_STEP_FOR = new Set(['junior']);
+// كل المستويات اللي الكشف ممكن يقف عندها (بالترتيب) — أعمدة طابور الاعتمادات
+export const CHAIN_LEVELS = [SENIOR_LEVEL, ...APPROVING_GRADES] as const;
+
+// درجة بتعتمد لحد (بتشوف ملفات الكشوف ونطاق فريقها): الدرجات المعتمِدة + السينيور
+export function isApproverGrade(grade: string | null | undefined): boolean {
+  return !!grade && (CHAIN_LEVELS as readonly string[]).includes(grade);
+}
 
 // مين بيعتمد لمين — حسب درجة المرسِل. الافتراضي تحت، والأدمن يقدر يعدّله من شاشة الإدارة
 // (بيتخزن في app_config تحت مفتاح approvalMatrix).
@@ -89,9 +103,9 @@ export function requiredLevelsFor(grade: string): readonly string[] {
   return matrixCache[grade] ?? matrixCache.junior ?? DEFAULT_MATRIX.junior;
 }
 
-// قائمة المستويات المعرّفة (بالترتيب) — أعمدة الجدول في تاب الاعتمادات
+// قائمة المستويات المعرّفة (بالترتيب) — أعمدة الجدول في تاب الاعتمادات (السينيور أولها)
 export async function getApprovalLevels(): Promise<string[]> {
-  return [...APPROVING_GRADES];
+  return [...CHAIN_LEVELS];
 }
 
 // مدير المشروع واحد ثابت في المشروع — لو مفيش إسناد صريح وفيه حساب واحد بس بدرجة project manager
@@ -103,11 +117,13 @@ async function soleProjectManagerId(): Promise<bigint | null> {
 
 // خانة واحدة في السلسلة: المستوى + الشخص المسند له
 export type ChainSlot = { level: string; approverId: bigint };
-export type ChainUser = { id: bigint; grade: string; approverTlId: bigint | null; approverCmId: bigint | null; approverPmId: bigint | null };
+export type ChainUser = { id: bigint; grade: string; approverTlId: bigint | null; approverCmId: bigint | null; approverPmId: bigint | null; approverSrId?: bigint | null };
 
 // بناء السلسلة من بيانات المستخدم (بلا استعلام) — عشان الطابور يحسب سلاسل كتير باستعلام واحد
 export function buildChain(u: ChainUser, solePmId: bigint | null): ChainSlot[] {
   const slots: ChainSlot[] = [];
+  // خطوة السينيور (لو مسند) قبل باقي السلسلة — مستقلة عن المصفوفة
+  if (SENIOR_STEP_FOR.has(u.grade) && u.approverSrId && u.approverSrId !== u.id) slots.push({ level: SENIOR_LEVEL, approverId: u.approverSrId });
   for (const level of requiredLevelsFor(u.grade)) {
     let approverId = u[APPROVER_FIELD[level]] ?? null;
     if (!approverId && level === 'project manager') approverId = solePmId;
@@ -128,14 +144,14 @@ export async function resolveChainForUser(userId: bigint, projectId?: number | n
   }
   const u = await prisma.user.findUnique({
     where: { id: userId },
-    select: { id: true, grade: true, approverTlId: true, approverCmId: true, approverPmId: true },
+    select: { id: true, grade: true, approverTlId: true, approverCmId: true, approverPmId: true, approverSrId: true },
   });
   if (!u) return [];
   if (projectId != null) {
     const up = await prisma.userProject.findUnique({ where: { userId_projectId: { userId, projectId } } });
     if (up) {
       return buildChain(
-        { id: u.id, grade: u.grade, approverTlId: up.approverTlId, approverCmId: up.approverCmId, approverPmId: up.approverPmId },
+        { id: u.id, grade: u.grade, approverTlId: up.approverTlId, approverCmId: up.approverCmId, approverPmId: up.approverPmId, approverSrId: up.approverSrId },
         await soleProjectManagerId(),
       );
     }

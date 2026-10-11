@@ -7,7 +7,7 @@ import { asyncHandler } from '../utils/asyncHandler';
 import { validate } from '../middlewares/validate';
 import { idParamSchema } from '../utils/crudFactory';
 import { enabledModulesFor } from '../middlewares/moduleGuard';
-import { APPROVING_GRADES, GRADES } from '../services/approvalChain';
+import { isApproverGrade, GRADES } from '../services/approvalChain';
 
 // ═══════════ التنبيهات الداخلية (جرس الهيدر + تاب "التنبيهات" للأدمن) ═══════════
 // السيرفر بيخزّن **تعريف** التنبيه بس (العنوان + الجدولة + المستقبلين) — مش كل ظهور على حدة.
@@ -152,7 +152,7 @@ async function autoAlerts(req: Request) {
   // 1) كشوف مستنية اعتمادي (نفس شرط canAct في طابور الاعتمادات)
   if (has('approvals')) {
     const me = await prisma.user.findUnique({ where: { id: myId }, select: { grade: true } });
-    const isApprover = !!me?.grade && (APPROVING_GRADES as readonly string[]).includes(me.grade);
+    const isApprover = isApproverGrade(me?.grade);
     const where: Prisma.SubmissionWhereInput = {
       reviewState: 'IN_REVIEW',
       queueHiddenAt: null,

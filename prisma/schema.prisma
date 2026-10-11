@@ -36,6 +36,8 @@ model UserProject {
   approverTlId BigInt?   @map("approver_tl_id")
   approverCmId BigInt?   @map("approver_cm_id")
   approverPmId BigInt?   @map("approver_pm_id")
+  // (أكتوبر 2026) السينيور المسند للجونيور في المشروع ده — خطوة اختيارية قبل مدير الفريق
+  approverSrId BigInt?   @map("approver_sr_id")
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
 
@@ -44,6 +46,7 @@ model UserProject {
   approverTl User?   @relation("UserProjectApproverTl", fields: [approverTlId], references: [id], onDelete: SetNull)
   approverCm User?   @relation("UserProjectApproverCm", fields: [approverCmId], references: [id], onDelete: SetNull)
   approverPm User?   @relation("UserProjectApproverPm", fields: [approverPmId], references: [id], onDelete: SetNull)
+  approverSr User?   @relation("UserProjectApproverSr", fields: [approverSrId], references: [id], onDelete: SetNull)
 
   @@unique([userId, projectId])
   @@map("user_projects")
@@ -84,6 +87,9 @@ model User {
   approverTlId  BigInt?   @map("approver_tl_id")
   approverCmId  BigInt?   @map("approver_cm_id")
   approverPmId  BigInt?   @map("approver_pm_id")
+  // (أكتوبر 2026) السينيور المسند للجونيور — خطوة اعتماد زيادة **قبل** مدير الفريق (السلسلة نفسها TL→CM→PM مابتتغيرش).
+  // فاضي = مفيش خطوة سينيور (السلوك القديم بالظبط). بيتطبق على درجة junior بس.
+  approverSrId  BigInt?   @map("approver_sr_id")
   // آخر مرة التطبيق تواصل فيها مع السيرفر (فتح/مزامنة) — لمؤشر النشاط في إدارة الحسابات
   lastSeenAt    DateTime? @map("last_seen_at")
   // إحصاءات مزامنة الجهاز — بيبلّغها التطبيق بعد كل مزامنة (POST /account/sync-stats):
@@ -127,15 +133,18 @@ model User {
   approverTl          User?  @relation("ApproverTl", fields: [approverTlId], references: [id], onDelete: SetNull)
   approverCm          User?  @relation("ApproverCm", fields: [approverCmId], references: [id], onDelete: SetNull)
   approverPm          User?  @relation("ApproverPm", fields: [approverPmId], references: [id], onDelete: SetNull)
+  approverSr          User?  @relation("ApproverSr", fields: [approverSrId], references: [id], onDelete: SetNull)
   approvesTlFor       User[] @relation("ApproverTl")
   approvesCmFor       User[] @relation("ApproverCm")
   approvesPmFor       User[] @relation("ApproverPm")
+  approvesSrFor       User[] @relation("ApproverSr")
 
   // المشاريع المحمّلة على الحساب — معتمدون مختلفون لكل مشروع (بديل approverTl/Cm/PmId العام لو المشروع محمّل)
   userProjects            UserProject[]
   userProjectApproverTlOf UserProject[] @relation("UserProjectApproverTl")
   userProjectApproverCmOf UserProject[] @relation("UserProjectApproverCm")
   userProjectApproverPmOf UserProject[] @relation("UserProjectApproverPm")
+  userProjectApproverSrOf UserProject[] @relation("UserProjectApproverSr")
 
   @@map("users")
 }
