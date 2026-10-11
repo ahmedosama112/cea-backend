@@ -132,8 +132,8 @@ async function main(): Promise<void> {
   const CHUNK = 500;
   // users بتشاور على نفسها (معتمد الـTL/CM/PM مستخدم تاني) — مفيش ترتيب إدراج بيحل ده،
   // فبندرجهم من غير المعتمدين وبنرجّع الربط في مرحلة تانية بعد ما كلهم يبقوا موجودين.
-  const USER_SELF_REFS = ['approverTlId', 'approverCmId', 'approverPmId'] as const;
-  const userApprovers: Array<{ id: bigint; tl: bigint | null; cm: bigint | null; pm: bigint | null }> = [];
+  const USER_SELF_REFS = ['approverTlId', 'approverCmId', 'approverPmId', 'approverSrId'] as const;
+  const userApprovers: Array<{ id: bigint; tl: bigint | null; cm: bigint | null; pm: bigint | null; sr: bigint | null }> = [];
   for (const key of INSERT_ORDER) {
     const rows = (dump.tables[key] ?? []).map((r) => toRow(r, key));
     if (key === 'users') {
@@ -144,7 +144,7 @@ async function main(): Promise<void> {
           held[f] = (row[f] as bigint | undefined) ?? null;
           if (row[f] !== undefined) { delete row[f]; any = true; }
         }
-        if (any) userApprovers.push({ id: row.id as bigint, tl: held.approverTlId, cm: held.approverCmId, pm: held.approverPmId });
+        if (any) userApprovers.push({ id: row.id as bigint, tl: held.approverTlId, cm: held.approverCmId, pm: held.approverPmId, sr: held.approverSrId });
       }
     }
     // accountSettings بيشاور على files بتوقيعه — files بتتدرج قبله في الترتيب فمفيش مشكلة
@@ -157,7 +157,7 @@ async function main(): Promise<void> {
   if (userApprovers.length) {
     // SQL خام عن قصد: prisma.user.update كان هيحدّث updated_at (@updatedAt) ويضيّع تاريخ النسخة الأصلي
     for (const u of userApprovers) {
-      await prisma.$executeRaw`UPDATE users SET approver_tl_id = ${u.tl}, approver_cm_id = ${u.cm}, approver_pm_id = ${u.pm} WHERE id = ${u.id}`;
+      await prisma.$executeRaw`UPDATE users SET approver_tl_id = ${u.tl}, approver_cm_id = ${u.cm}, approver_pm_id = ${u.pm}, approver_sr_id = ${u.sr} WHERE id = ${u.id}`;
     }
     console.log(`   ↩ ربط معتمدي المستخدمين: ${userApprovers.length}`);
   }

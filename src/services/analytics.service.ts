@@ -1,6 +1,6 @@
 import { prisma } from '../config/prisma';
 import { AuthUser } from '../middlewares/auth';
-import { APPROVING_GRADES } from './approvalChain';
+import { isApproverGrade } from './approvalChain';
 import { ENUM_TO_AR } from '../utils/rateType';
 
 // ═══════════ تحليلات الأماكن والمقاولين (للمديرين) ═══════════
@@ -58,7 +58,7 @@ export async function resolveScope(
 ): Promise<AnalyticsScope> {
   const meRow = await prisma.user.findUnique({ where: { id: me.id }, select: { grade: true } });
   const isAdmin = me.role === 'ADMIN';
-  const isApprover = !!meRow && (APPROVING_GRADES as readonly string[]).includes(meRow.grade);
+  const isApprover = isApproverGrade(meRow?.grade);
   const level: AnalyticsScope['level'] = isAdmin ? 'all' : isApprover ? 'team' : 'self';
 
   const where = isAdmin
@@ -66,8 +66,8 @@ export async function resolveScope(
     : isApprover
       ? {
           OR: [
-            { approverTlId: me.id }, { approverCmId: me.id }, { approverPmId: me.id },
-            { userProjects: { some: { OR: [{ approverTlId: me.id }, { approverCmId: me.id }, { approverPmId: me.id }] } } },
+            { approverTlId: me.id }, { approverCmId: me.id }, { approverPmId: me.id }, { approverSrId: me.id },
+            { userProjects: { some: { OR: [{ approverTlId: me.id }, { approverCmId: me.id }, { approverPmId: me.id }, { approverSrId: me.id }] } } },
             { id: me.id },
           ],
         }
