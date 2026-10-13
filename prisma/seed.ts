@@ -4,8 +4,8 @@
 // آمن للإعادة: يتخطى أي عنصر موجود بالفعل بنفس الاسم.
 import { PrismaClient, RateType } from '@prisma/client';
 import * as readline from 'readline';
-import * as crypto from 'crypto';
 import bcrypt from 'bcryptjs';
+import { newPasswordSchema } from '../src/schema/auth.schema';
 
 const prisma = new PrismaClient();
 
@@ -135,19 +135,17 @@ function ask(question: string): Promise<string> {
 }
 
 async function main() {
-  // مستخدم الأدمن: من env أو إدخال تفاعلي — كلمة سر عشوائية تُطبع مرة واحدة لو لم تُحدد
+  // الإيميل من env أو إدخال تفاعلي؛ كلمة السر من env فقط حتى لا تُطبع في السجلات.
   let admin = await prisma.user.findFirst({ where: { role: 'ADMIN' }, orderBy: { id: 'asc' } });
   if (!admin) {
     const email = process.env.SEED_ADMIN_EMAIL || (await ask('إيميل الأدمن: '));
     if (!email) throw new Error('لا يمكن إنشاء أدمن بدون إيميل — مرر SEED_ADMIN_EMAIL أو أدخله تفاعليًا');
-    const password = process.env.SEED_ADMIN_PASSWORD || crypto.randomBytes(9).toString('base64url');
+    if (!process.env.SEED_ADMIN_PASSWORD) throw new Error('حدد SEED_ADMIN_PASSWORD لإنشاء الأدمن؛ لن تُولَّد أو تُطبع كلمة مرور');
+    const password = newPasswordSchema.parse(process.env.SEED_ADMIN_PASSWORD);
     admin = await prisma.user.create({
       data: { email: email.toLowerCase(), passwordHash: await bcrypt.hash(password, 12), role: 'ADMIN' },
     });
     console.log(`✅ تم إنشاء الأدمن: ${admin.email}`);
-    if (!process.env.SEED_ADMIN_PASSWORD) {
-      console.log(`🔑 كلمة المرور (تُعرض مرة واحدة فقط — خزّنها الآن): ${password}`);
-    }
   } else {
     console.log(`ℹ الأدمن موجود بالفعل: ${admin.email}`);
   }

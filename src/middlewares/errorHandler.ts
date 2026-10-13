@@ -4,6 +4,7 @@ import { ZodError } from 'zod';
 import multer from 'multer';
 import { AppError } from '../utils/AppError';
 import { logActivity } from '../services/activityLog';
+import { errorDiagnostics } from '../utils/errorDiagnostics';
 
 // أخطاء ما تتسجلش في سجل النشاط: تجديد التوكن العادي (401 متكرر بطبيعته)،
 // وفشل الدخول (متسجل أصلًا كـ LOGIN_FAIL بتفصيل أوضح — تسجيله هنا كمان بيكرره)
@@ -12,8 +13,27 @@ const NOISY = (status: number, path: string) =>
 
 // صيغة استجابة أخطاء موحدة للـ API كله — بدون تسريب stack traces أو تفاصيل DB للمستخدم
 export function errorHandler(err: unknown, _req: Request, res: Response, _next: NextFunction) {
+  // body-parser قد يضع جسم الطلب (بما فيه كلمة المرور) في الخطأ أو رسالته.
+  // الأنواع والحالات المعروفة فقط؛ لا نطبع الخطأ الخام أو أي مقتطف من المدخلات.
+  if (err instanceof Error) {
+    const bodyError = err as Error & { type?: string; status?: number };
+    const invalidJson = bodyError.type === 'entity.parse.failed' && bodyError.status === 400;
+    const tooLarge = bodyError.type === 'entity.too.large' && bodyError.status === 413;
+    if (invalidJson || tooLarge) {
+      const status = tooLarge ? 413 : 400;
+      const message = tooLarge ? 'حجم الطلب أكبر من المسموح' : 'صيغة JSON غير صحيحة';
+      console.warn('Request body rejected:', { type: bodyError.type, status });
+      logActivity(_req, 'API_ERR', { status, detail: message });
+      return res.status(status).json({
+        success: false,
+        message,
+        code: tooLarge ? 'PAYLOAD_TOO_LARGE' : 'VALIDATION_ERROR',
+      });
+    }
+  }
+
   if (err instanceof AppError) {
-    if (err.status >= 500) console.error(err);
+    if (err.status >= 500) console.error('Application error:', { code: err.code, status: err.status });
     // سجل النشاط: عشان الأدمن يعرف سبب مشكلة عند حساب معيّن من كارت الحساب
     if (err.status >= 400 && !NOISY(err.status, _req.originalUrl)) {
       logActivity(_req, 'API_ERR', { status: err.status, detail: err.message });
@@ -52,8 +72,8 @@ export function errorHandler(err: unknown, _req: Request, res: Response, _next: 
     }
   }
 
-  console.error('Unhandled error:', err);
-  logActivity(_req, 'API_ERR', { status: 500, detail: (err as Error)?.message ?? 'خطأ غير متوقع' });
+  console.error('Unhandled error:', errorDiagnostics(err, _req));
+  logActivity(_req, 'API_ERR', { status: 500, detail: 'خطأ غير متوقع' });
   return res.status(500).json({ success: false, message: 'حدث خطأ غير متوقع في السيرفر', code: 'INTERNAL_ERROR' });
 }
 

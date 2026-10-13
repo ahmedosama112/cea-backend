@@ -11,6 +11,16 @@ export interface StorageAdapter {
   remove(storedPath: string): Promise<void>;
 }
 
+function resolveStoredPath(storedPath: string): string {
+  const root = path.resolve(env.uploadDir);
+  const full = path.resolve(root, storedPath);
+  const relative = path.relative(root, full);
+  if (!relative || relative === '..' || relative.startsWith('..' + path.sep) || path.isAbsolute(relative)) {
+    throw new Error('Invalid storage path');
+  }
+  return full;
+}
+
 class LocalDiskStorage implements StorageAdapter {
   async save(buffer: Buffer, originalName: string): Promise<{ storedPath: string }> {
     const ext = path.extname(originalName).toLowerCase().slice(0, 10);
@@ -25,14 +35,12 @@ class LocalDiskStorage implements StorageAdapter {
 
   async read(storedPath: string): Promise<Buffer> {
     // منع path traversal — المسار المخزّن لازم يظل داخل uploadDir
-    const full = path.resolve(env.uploadDir, storedPath);
-    if (!full.startsWith(path.resolve(env.uploadDir))) throw new Error('Invalid storage path');
+    const full = resolveStoredPath(storedPath);
     return fs.promises.readFile(full);
   }
 
   async remove(storedPath: string): Promise<void> {
-    const full = path.resolve(env.uploadDir, storedPath);
-    if (!full.startsWith(path.resolve(env.uploadDir))) throw new Error('Invalid storage path');
+    const full = resolveStoredPath(storedPath);
     await fs.promises.unlink(full).catch(() => undefined); // حذف صامت لو الملف غير موجود أصلًا
   }
 }
