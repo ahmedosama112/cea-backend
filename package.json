@@ -14,7 +14,9 @@
     "prisma:studio": "prisma studio",
     "db:seed": "ts-node --transpile-only prisma/seed.ts",
     "test": "node scripts/run-tests.js",
-    "backup:local": "ts-node --transpile-only scripts/backup-local.ts"
+    "backup:local": "ts-node --transpile-only scripts/backup-local.ts",
+    "backup:complete": "ts-node --transpile-only scripts/backup-complete.ts",
+    "storage:audit": "ts-node --transpile-only scripts/storage-audit.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.20.0",

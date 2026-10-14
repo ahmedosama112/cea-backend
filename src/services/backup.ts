@@ -1,13 +1,14 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../config/prisma';
 import { googleSyncEnabled } from './googleSheet';
+import { backupFiles } from './backupFiles';
 
 // ── نسخة احتياطية كاملة لقاعدة البيانات → Google Drive (فولدر "CEA Backups") ──
 // بتتبعت يوميًا عبر نفس Web App بتاع الشيت (action: backup). الملف JSON واحد فيه كل الجداول —
-// كافي لإعادة بناء النظام بالكامل على أي سيرفر لو Railway ضاع نهائيًا.
+// يعيد قاعدة البيانات؛ محتويات uploads تحتاج نسخة ملفات مستقلة.
 
-const WEBAPP_URL = process.env.GOOGLE_WEBAPP_URL || '';
-const WEBAPP_SECRET = process.env.GOOGLE_WEBAPP_SECRET || '';
+const WEBAPP_URL = process.env.GOOGLE_WEBAPP_URL || process.env.GOOGLE_WEBAPP_URL_1 || '';
+const WEBAPP_SECRET = process.env.GOOGLE_WEBAPP_SECRET || process.env.GOOGLE_WEBAPP_SECRET_1 || '';
 
 // جداول مستثناة **عمدًا** من النسخة (مالهاش قيمة بعد الاستعادة):
 // الجلسات وتوكنات إعادة التعيين بتنتهي بطبيعتها، وسجل النشاط بيتمسح بعد 14 يوم أصلًا.
@@ -18,7 +19,7 @@ const BACKUP_SKIP = new Set(['RefreshToken', 'PasswordResetToken', 'ActivityLog'
 // scripts/restore-backup.ts يقدر يمشي عليه كما هو.
 // ⚠ (8 سبتمبر 2026) equipmentRecords وsubmissionReviews وsubmissionRowRejections كانوا ناقصين
 // من النسخة شهور — والاستعادة كانت بتقول "اكتملت" وهي مضيّعاهم.
-const BACKUP_TABLES: Array<{ key: string; model: string; rows: () => Promise<unknown[]> }> = [
+const BACKUP_TABLES: Array<{ key: string; model: string; rows: () => Prisma.PrismaPromise<unknown[]> }> = [
   // passwordHash ضمن users — مطلوب للاستعادة الكاملة، والملف في Drive الخاص بالأدمن
   { key: 'users', model: 'User', rows: () => prisma.user.findMany() },
   { key: 'files', model: 'File', rows: () => prisma.file.findMany() },
@@ -70,7 +71,7 @@ export function missingBackupModels(): string[] {
 }
 
 export async function dumpDatabase(): Promise<Record<string, unknown>> {
-  const results = await Promise.all(BACKUP_TABLES.map((t) => t.rows()));
+  const results = await prisma.$transaction(BACKUP_TABLES.map((t) => t.rows()), { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
   const tables: Record<string, unknown[]> = {};
   BACKUP_TABLES.forEach((t, i) => { tables[t.key] = results[i]; });
   const count = (k: string) => (tables[k] ? tables[k].length : 0);
@@ -135,6 +136,7 @@ async function recordBackupStatus(ok: boolean, rawDetail: string): Promise<void>
       value = JSON.stringify(payload);
     }
     await prisma.appConfig.upsert({ where: { key: 'lastBackupStatus' }, update: { value }, create: { key: 'lastBackupStatus', value } });
+    if (ok) await prisma.appConfig.upsert({ where: { key: 'lastBackupSuccess' }, update: { value: payload.at }, create: { key: 'lastBackupSuccess', value: payload.at } });
   } catch { /* تسجيل الحالة best-effort */ }
 }
 
@@ -149,8 +151,8 @@ function parseJson(text: string): { ok?: boolean; fileUrl?: string; error?: stri
   }
 }
 
-async function uploadBackup(json: string, fileName: string): Promise<UploadResult> {
-  const body = JSON.stringify({ secret: WEBAPP_SECRET, action: 'backup', fileName, fileBase64: Buffer.from(json, 'utf8').toString('base64') });
+async function uploadBackup(json: string, fileName: string, action: 'backup' | 'backup-file' = 'backup'): Promise<UploadResult> {
+  const body = JSON.stringify({ secret: WEBAPP_SECRET, action, fileName, fileBase64: Buffer.from(json, 'utf8').toString('base64') });
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 120_000);
   const startedAt = Date.now();
@@ -258,6 +260,11 @@ async function performBackupAttempt(): Promise<UploadResult> {
   }
   try {
     const dump = await dumpDatabase();
+    dump.fileManifest = await backupFiles((dump.tables as { files: Array<{ filePath: string }> }).files, async (name, contents) => {
+      const uploaded = await uploadBackup(contents, name, 'backup-file');
+      if (!uploaded.ok) throw new Error(`File backup failed: ${uploaded.detail}`);
+    });
+    dump.version = 2;
     const json = JSON.stringify(dump);
     const fileName = `cea-db-backup-${new Date().toISOString().slice(0, 10)}.json`;
     const result = await uploadBackup(json, fileName);
@@ -415,7 +422,13 @@ export function scheduleDailyBackup(): void {
   const tick = async () => {
     const now = new Date();
     const today = now.toISOString().slice(0, 10);
-    if (now.getUTCHours() >= 3 && lastBackupDate !== today) await runBackupToDrive('scheduled');
+    try {
+      if (lastBackupDate !== today) {
+        const saved = await prisma.appConfig.findUnique({ where: { key: 'lastBackupSuccess' } });
+        if (saved?.value.slice(0, 10) === today) lastBackupDate = today;
+      }
+      if (now.getUTCHours() >= 3 && lastBackupDate !== today) await runBackupToDrive('scheduled');
+    } catch { console.error('[backup] scheduled backup check failed'); }
   };
   setInterval(tick, 60 * 60 * 1000);
   // نسخة عند الإقلاع لو لسه مفيش نسخة النهاردة (بعد دقيقة من التشغيل عشان الإقلاع يخلص)

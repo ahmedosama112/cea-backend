@@ -409,7 +409,10 @@ adminRoutes.get(
         data = { at: null, ok: false, detail: 'حالة نسخة احتياطية قديمة غير مكتملة' };
       }
     }
-    res.json({ success: true, data });
+    const lastSuccess = await prisma.appConfig.findUnique({ where: { key: 'lastBackupSuccess' } });
+    const lastSuccessAt = lastSuccess?.value || null;
+    const timestamp = lastSuccessAt ? Date.parse(lastSuccessAt) : NaN;
+    res.json({ success: true, data, lastSuccessAt, stale: !Number.isFinite(timestamp) || Date.now() - timestamp > 36 * 60 * 60 * 1000 });
   }),
 );
 
