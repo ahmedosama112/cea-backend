@@ -1,3 +1,4 @@
+import { validateWorkbook } from '../services/workbookSafety';
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import ExcelJS from 'exceljs';
@@ -316,6 +317,7 @@ approvalsRoutes.post(
     let wb: ExcelJS.Workbook;
     try {
       wb = new ExcelJS.Workbook();
+      await validateWorkbook(original);
       await wb.xlsx.load(original as unknown as ArrayBuffer);
     } catch {
       throw AppError.validation('تعذّرت قراءة ملف الكشف');

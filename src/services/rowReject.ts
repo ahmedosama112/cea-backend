@@ -1,3 +1,4 @@
+import { validateWorkbook } from './workbookSafety';
 import ExcelJS from 'exceljs';
 
 // ═══════════ شطب سطر من الكشف (رفض جزئي) ═══════════
@@ -61,6 +62,7 @@ export function dataRowsOf(ws: ExcelJS.Worksheet, kind: Kind): number[] {
 export async function countDataRows(buffer: Buffer, kind: Kind): Promise<number | null> {
   try {
     const wb = new ExcelJS.Workbook();
+    await validateWorkbook(buffer);
     await wb.xlsx.load(buffer as unknown as ArrayBuffer);
     return wb.worksheets.reduce((a, ws) => a + dataRowsOf(ws, kind).length, 0);
   } catch {
@@ -75,6 +77,7 @@ export async function workbookLaborTotal(buffer: Buffer): Promise<number | null>
   let wb: ExcelJS.Workbook;
   try {
     wb = new ExcelJS.Workbook();
+    await validateWorkbook(buffer);
     await wb.xlsx.load(buffer as unknown as ArrayBuffer);
   } catch {
     return null;
@@ -104,6 +107,7 @@ export async function workbookLaborDaysDetail(buffer: Buffer): Promise<Map<strin
   let wb: ExcelJS.Workbook;
   try {
     wb = new ExcelJS.Workbook();
+    await validateWorkbook(buffer);
     await wb.xlsx.load(buffer as unknown as ArrayBuffer);
   } catch {
     return null;
@@ -160,6 +164,7 @@ export async function applyRowRejections(buffer: Buffer, rejections: RowRejectio
   let wb: ExcelJS.Workbook;
   try {
     wb = new ExcelJS.Workbook();
+    await validateWorkbook(buffer);
     await wb.xlsx.load(buffer as unknown as ArrayBuffer);
   } catch {
     return buffer;
@@ -240,6 +245,7 @@ export async function applyRowEdits(buffer: Buffer, edits: RowEdit[], mode: Reje
   let wb: ExcelJS.Workbook;
   try {
     wb = new ExcelJS.Workbook();
+    await validateWorkbook(buffer);
     await wb.xlsx.load(buffer as unknown as ArrayBuffer);
   } catch {
     return buffer;

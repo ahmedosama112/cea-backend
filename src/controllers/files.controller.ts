@@ -45,6 +45,7 @@ export const filesController = {
     if (!looksLikeImage(f.buffer)) throw AppError.validation('محتوى الملف ليس صورة حقيقية');
 
     const originalName = (()=>{ try { const x = Buffer.from(f.originalname, 'latin1').toString('utf8'); return x.includes('�') ? f.originalname : x; } catch { return f.originalname; } })();
+    if (Array.from(originalName).length > 255) throw AppError.validation('اسم الملف أطول من الحد المسموح (255 حرفًا)');
     const { storedPath } = await storage.save(f.buffer, originalName);
     const row = await prisma.file.create({
       data: {
@@ -54,6 +55,9 @@ export const filesController = {
         mimeType: f.mimetype,
         fileSize: f.size,
       },
+    }).catch(async (error) => {
+      await storage.remove(storedPath);
+      throw error;
     });
     res.status(201).json({ success: true, data: row });
   }),
@@ -79,9 +83,15 @@ export const filesController = {
     // مسار التسليمات هو الوحيد الذي يقرر متى يُسمح بالحذف (قبل المراجعة فقط)
     const linkedSubmission = await prisma.submission.findFirst({ where: { fileId: file.id }, select: { id: true } });
     if (linkedSubmission) throw AppError.forbidden('هذا الملف مرتبط بتسليم كشف — احذفه من شاشة الاعتمادات');
+    const archived = await prisma.submissionRevision.findFirst({ where: { fileId: file.id }, select: { id: true } });
+    if (archived) throw AppError.forbidden('هذا الملف مرتبط بنسخة مؤرشفة ولا يمكن حذفه');
     const usedAsSignature = await prisma.accountSettings.findFirst({ where: { signatureFileId: file.id }, select: { userId: true } });
     if (usedAsSignature) throw AppError.forbidden('هذا الملف مستخدم كتوقيع — امسح التوقيع أولًا');
-    await prisma.file.delete({ where: { id: file.id } });
+    const deleted = await prisma.file.deleteMany({ where: {
+      id: file.id, userId: req.user!.id,
+      submissions: { none: {} }, submissionRevisions: { none: {} }, accountSettings: { is: null },
+    } });
+    if (!deleted.count) throw AppError.forbidden('الملف مرتبط ببيانات محفوظة ولا يمكن حذفه');
     await storage.remove(file.filePath);
     res.json({ success: true, data: null });
   }),

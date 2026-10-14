@@ -30,7 +30,7 @@ function touchLastSeen(userId: bigint) {
 
 // كل route كتابة/قراءة على بيانات المستخدم لازم يمر من هنا أولاً — التحقق على مستوى الـ API
 // وليس فقط إخفاء أزرار في الواجهة
-export function authenticate(req: Request, _res: Response, next: NextFunction) {
+export async function authenticate(req: Request, _res: Response, next: NextFunction) {
   const header = req.headers.authorization;
   if (!header || !header.startsWith('Bearer ')) {
     return next(AppError.unauthorized());
@@ -38,7 +38,9 @@ export function authenticate(req: Request, _res: Response, next: NextFunction) {
   const token = header.slice('Bearer '.length);
   try {
     const payload = verifyAccessToken(token);
-    req.user = { id: BigInt(payload.sub), email: payload.email, role: payload.role };
+    const user = await prisma.user.findUnique({ where: { id: BigInt(payload.sub) }, select: { id: true, email: true, role: true } });
+    if (!user) return next(AppError.unauthorized());
+    req.user = user;
     touchLastSeen(req.user.id);
     next();
   } catch {
@@ -48,12 +50,14 @@ export function authenticate(req: Request, _res: Response, next: NextFunction) {
 
 // يقرأ التوكن لو موجود بدون ما يرفض الطلب لو غايب — للمسارات اللي سلوكها بيختلف حسب الدور
 // (مثل register: مسموح بدون توكن فقط لتمهيد أول حساب في نظام فاضي)
-export function optionalAuthenticate(req: Request, _res: Response, next: NextFunction) {
+export async function optionalAuthenticate(req: Request, _res: Response, next: NextFunction) {
   const header = req.headers.authorization;
   if (header && header.startsWith('Bearer ')) {
     try {
       const payload = verifyAccessToken(header.slice('Bearer '.length));
-      req.user = { id: BigInt(payload.sub), email: payload.email, role: payload.role };
+      const user = await prisma.user.findUnique({ where: { id: BigInt(payload.sub) }, select: { id: true, email: true, role: true } });
+      if (!user) return next(AppError.unauthorized());
+      req.user = user;
     } catch {
       // توكن غير صالح في مسار اختياري = زائر بدون توكن
     }
