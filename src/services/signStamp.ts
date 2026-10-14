@@ -1,3 +1,4 @@
+import { validateWorkbook } from './workbookSafety';
 import ExcelJS from 'exceljs';
 
 // ═══════════ ختم توقيعات المعتمدين على ملف الكشف ═══════════
@@ -149,6 +150,7 @@ export async function stampSignatures(fileBuffer: Buffer, signatures: LevelSigna
   if (!usable.length) return fileBuffer;
 
   const wb = new ExcelJS.Workbook();
+  await validateWorkbook(fileBuffer);
   await wb.xlsx.load(fileBuffer as unknown as ArrayBuffer);
   if (wb.worksheets.length > MAX_SHEETS) throw new StampLimitError(`المصنّف فيه ${wb.worksheets.length} ورقة — أكبر من الحد ${MAX_SHEETS}`);
   const big = wb.worksheets.find((ws) => ws.rowCount > MAX_ROWS_PER_SHEET);

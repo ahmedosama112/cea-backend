@@ -26,13 +26,13 @@ class LocalDiskStorage implements StorageAdapter {
   async read(storedPath: string): Promise<Buffer> {
     // منع path traversal — المسار المخزّن لازم يظل داخل uploadDir
     const full = path.resolve(env.uploadDir, storedPath);
-    if (!full.startsWith(path.resolve(env.uploadDir))) throw new Error('Invalid storage path');
+    if (!full.startsWith(path.resolve(env.uploadDir) + path.sep)) throw new Error('Invalid storage path');
     return fs.promises.readFile(full);
   }
 
   async remove(storedPath: string): Promise<void> {
     const full = path.resolve(env.uploadDir, storedPath);
-    if (!full.startsWith(path.resolve(env.uploadDir))) throw new Error('Invalid storage path');
+    if (!full.startsWith(path.resolve(env.uploadDir) + path.sep)) throw new Error('Invalid storage path');
     await fs.promises.unlink(full).catch(() => undefined); // حذف صامت لو الملف غير موجود أصلًا
   }
 }

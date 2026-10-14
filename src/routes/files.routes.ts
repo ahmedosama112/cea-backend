@@ -8,7 +8,7 @@ import { idParamSchema } from '../utils/crudFactory';
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: env.maxUploadMb * 1024 * 1024, files: 1 },
+  limits: { fileSize: env.maxUploadMb * 1024 * 1024, files: 1, fields: 20, parts: 21, fieldSize: 64 * 1024 },
 });
 
 export const filesRoutes = Router();
