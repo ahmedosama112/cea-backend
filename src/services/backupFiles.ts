@@ -7,11 +7,17 @@ export interface BackupFileEntry { filePath: string; sha256: string; size: numbe
 export async function backupFiles(
   rows: Array<{ filePath: string }>,
   write: (name: string, json: string) => Promise<void>,
+  onMissing?: (filePath: string) => void,
 ): Promise<BackupFileEntry[]> {
   const { storage } = await import('./storage');
   const manifest: BackupFileEntry[] = [];
   for (const filePath of new Set(rows.map((row) => row.filePath))) {
-    const data = await storage.read(filePath); // Missing files must fail the backup, never report full coverage.
+    let data: Buffer;
+    try { data = await storage.read(filePath); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT' && onMissing) { onMissing(filePath); continue; }
+      throw error;
+    }
     const sha256 = crypto.createHash('sha256').update(data).digest('hex');
     const objectName = `${sha256}.json`;
     await write(objectName, JSON.stringify({ version: 1, sha256, size: data.length, base64: data.toString('base64') }));

@@ -412,7 +412,10 @@ adminRoutes.get(
     const lastSuccess = await prisma.appConfig.findUnique({ where: { key: 'lastBackupSuccess' } });
     const lastSuccessAt = lastSuccess?.value || null;
     const timestamp = lastSuccessAt ? Date.parse(lastSuccessAt) : NaN;
-    res.json({ success: true, data, lastSuccessAt, stale: !Number.isFinite(timestamp) || Date.now() - timestamp > 36 * 60 * 60 * 1000 });
+    const saved = await prisma.appConfig.findUnique({ where: { key: 'lastBackupSaved' } });
+    let coverage: unknown = null;
+    try { coverage = saved ? JSON.parse(saved.value) : null; } catch { /* invalid legacy value */ }
+    res.json({ success: true, data, lastSuccessAt, coverage, stale: !Number.isFinite(timestamp) || Date.now() - timestamp > 36 * 60 * 60 * 1000 });
   }),
 );
 

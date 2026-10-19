@@ -97,7 +97,7 @@ async function main(): Promise<void> {
   if (!filePath) { console.error('الاستخدام: npx ts-node --transpile-only scripts/restore-backup.ts "<مسار الملف>" [--wipe]'); process.exit(1); }
   if (!fs.existsSync(filePath)) { console.error(`الملف غير موجود: ${filePath}`); process.exit(1); }
 
-  const dump = JSON.parse(fs.readFileSync(filePath, 'utf8')) as { fileManifest?: BackupFileEntry[]; version?: number; createdAt?: string; tables?: Record<string, Array<Record<string, unknown>>> };
+  const dump = JSON.parse(fs.readFileSync(filePath, 'utf8')) as { missingFiles?: string[]; fileManifest?: BackupFileEntry[]; version?: number; createdAt?: string; tables?: Record<string, Array<Record<string, unknown>>> };
   if (!dump.tables || !Array.isArray(dump.tables.users)) { console.error('صيغة الملف غير متوقعة — ده مش ملف cea-db-backup-*.json (بتاع الباك اب اليومي)'); process.exit(1); }
   console.log(`📦 ملف باك اب بتاريخ: ${dump.createdAt ?? '؟'} — مستخدمين: ${dump.tables.users.length}`);
 
@@ -120,6 +120,11 @@ async function main(): Promise<void> {
   if (dump.version === 2) {
     if (!Array.isArray(dump.fileManifest)) throw new Error('Missing file manifest');
     const expected = new Set((dump.tables.files || []).map((row) => row.filePath));
+    if (dump.missingFiles?.length && !flags.includes('--allow-missing-files')) throw new Error('Backup explicitly reports missing files; full restore is impossible. Recover originals, or explicitly use --allow-missing-files for a partial recovery.');
+    for (const missing of dump.missingFiles || []) {
+      if (!expected.delete(missing)) throw new Error('Invalid missingFiles manifest');
+    }
+    if (dump.missingFiles?.length) console.warn(`PARTIAL RECOVERY: ${dump.missingFiles.length} files are unavailable; database references will remain.`);
     for (const entry of dump.fileManifest) {
       if (!expected.delete(entry.filePath) || !/^[a-f0-9]{64}\.json$/.test(entry.objectName) || entry.objectName !== `${entry.sha256}.json`) throw new Error('Invalid file manifest');
       if (!sourceDir) throw new Error('Full restore requires --files-dir=<downloaded CEA Backup Files directory>');
@@ -211,7 +216,8 @@ async function main(): Promise<void> {
     for (const target of createdFiles) fs.unlinkSync(target);
     throw error;
   }
-  console.log('\n✅ الاستعادة اكتملت — كل الحسابات وبياناتها رجعت بنفس الأرقام. المستخدمون يسجلون دخولهم من جديد فقط.');
+  if (dump.missingFiles?.length) console.log(`\n⚠ اكتملت الاستعادة الجزئية — ${dump.missingFiles.length} ملفات ما زالت مفقودة، ومراجعها محفوظة في قاعدة البيانات.`);
+  else console.log('\n✅ الاستعادة اكتملت — كل الحسابات وبياناتها رجعت بنفس الأرقام. المستخدمون يسجلون دخولهم من جديد فقط.');
 }
 
 main()

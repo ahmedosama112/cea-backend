@@ -13,4 +13,21 @@ describe('Backup file integrity', () => {
     vi.spyOn(storage, 'read').mockRejectedValueOnce(new Error('missing'));
     await expect(backupFiles([{ filePath: 'missing' }], async () => {})).rejects.toThrow('missing');
   });
+  it('records missing paths explicitly while preserving all available files', async () => {
+    vi.spyOn(storage, 'read').mockRejectedValueOnce(Object.assign(new Error('missing'), { code: 'ENOENT' })).mockResolvedValue(png);
+    const missing: string[] = [];
+    const write = vi.fn().mockResolvedValue(undefined);
+    const manifest = await backupFiles([{ filePath: 'lost.png' }, { filePath: 'present.png' }], write, p => missing.push(p));
+    expect(missing).toEqual(['lost.png']);
+    expect(manifest.map(f => f.filePath)).toEqual(['present.png']);
+    expect(write).toHaveBeenCalledOnce();
+  });
+  it('never hides permission errors or failed uploads as missing files', async () => {
+    vi.spyOn(storage, 'read').mockRejectedValueOnce(Object.assign(new Error('denied'), { code: 'EACCES' }));
+    const missing = vi.fn();
+    await expect(backupFiles([{ filePath: 'protected' }], async () => {}, missing)).rejects.toThrow('denied');
+    expect(missing).not.toHaveBeenCalled();
+    vi.spyOn(storage, 'read').mockResolvedValue(png);
+    await expect(backupFiles([{ filePath: 'present' }], async () => { throw new Error('Drive unavailable'); }, missing)).rejects.toThrow('Drive unavailable');
+  });
 });

@@ -259,11 +259,20 @@ async function performBackupAttempt(): Promise<UploadResult> {
     return { ok: false, detail: 'ربط جوجل غير مفعّل (GOOGLE_WEBAPP_URL/SECRET)', kind: 'http-json-error', retryable: false };
   }
   try {
+    const missingModels = missingBackupModels();
+    if (missingModels.length) throw new Error(`Incomplete backup table coverage: ${missingModels.join(', ')}`);
     const dump = await dumpDatabase();
+    const missingFiles: string[] = [];
     dump.fileManifest = await backupFiles((dump.tables as { files: Array<{ filePath: string }> }).files, async (name, contents) => {
-      const uploaded = await uploadBackup(contents, name, 'backup-file');
-      if (!uploaded.ok) throw new Error(`File backup failed: ${uploaded.detail}`);
-    });
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const uploaded = await uploadBackup(contents, name, 'backup-file');
+        if (uploaded.ok) return;
+        if (!uploaded.retryable || attempt === 2) throw new Error(`File backup failed: ${uploaded.detail}`);
+        await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
+      }
+    }, filePath => missingFiles.push(filePath));
+    dump.missingFiles = missingFiles;
+    dump.fileBackupStatus = missingFiles.length ? 'partial' : 'complete';
     dump.version = 2;
     const json = JSON.stringify(dump);
     const fileName = `cea-db-backup-${new Date().toISOString().slice(0, 10)}.json`;
@@ -273,6 +282,13 @@ async function performBackupAttempt(): Promise<UploadResult> {
       return result;
     }
 
+    const saved = JSON.stringify({ at: new Date().toISOString(), files: (dump.fileManifest as unknown[]).length, missing: missingFiles.length, complete: missingFiles.length === 0 });
+    await prisma.appConfig.upsert({ where: { key: 'lastBackupSaved' }, update: { value: saved }, create: { key: 'lastBackupSaved', value: saved } });
+    if (missingFiles.length) {
+      const detail = `تم حفظ قاعدة البيانات و${(dump.fileManifest as unknown[]).length} ملفًا — النسخة غير مكتملة: ${missingFiles.length} ملفات مفقودة من التخزين، موثقة في missingFiles`;
+      await recordBackupStatus(false, detail);
+      return { ok: false, detail, kind: 'http-json-error', retryable: false };
+    }
     const size = `${Math.round(Buffer.byteLength(json, 'utf8') / 1024)}KB`;
     const missing = missingBackupModels();
     if (missing.length) {
