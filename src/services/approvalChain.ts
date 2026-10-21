@@ -1,9 +1,10 @@
+import { normName } from './analytics.service';
 import { prisma } from '../config/prisma';
 import { storage } from './storage';
 import { pushSubmissionToGoogle } from './googleSheet';
 import { stampSignatures, hasSignatureBox, LevelSignature } from './signStamp';
 import { applyRowRejections, applyRowEdits, workbookLaborTotal, workbookLaborDaysDetail, Kind, RejectMode, RowEdit } from './rowReject';
-import { saveLaborDays, isLaborSubmission } from './laborContractors';
+import { saveLaborDays, isLaborSubmission, laborNameSet } from './laborContractors';
 
 // ═══════════ سلسلة اعتمادات المديرين (داخل التطبيق قبل جوجل شيت) ═══════════
 // الكشف بيعدّي على المعتمدين المسندين لصاحبه بالترتيب؛ وبس بعد ما يخلص كلهم بيتبعت لجوجل شيت.
@@ -189,22 +190,25 @@ export async function pushSubmissionToSheet(submissionId: bigint): Promise<void>
       rowEdits: { orderBy: { createdAt: 'asc' } },
     },
   });
-  if (!sub) return;
-  const toSend = await signedFileBuffer(submissionId);
+  if (!sub || sub.reviewState !== 'SENT') return;
+  const toSend = await signedFileBuffer(submissionId, 'clear', sub.revision);
   if (!toSend) { console.error('[approval] ملف التسليم غير موجود عند الدفع لجوجل', submissionId.toString()); return; }
   // ده الرقم اللي وصل الشيت فعلًا بعد أي شطب — Submission.total بيفضل زي ما هو كسجل لما المهندس بعته.
   // بيتحفظ في كل دفعة (مش بس لما فيه شطب) عشان العمود يفضل دايمًا فيه اللي اتبعت فعلًا. فشل هنا ما بيوقفش الدفع.
   if (sub.kind === 'labor') {
     try {
       const real = await workbookLaborTotal(toSend);
-      if (real != null) await prisma.submission.update({ where: { id: submissionId }, data: { approvedTotal: real } });
+      if (real != null) {
+        const updated = await prisma.submission.updateMany({ where: { id: submissionId, revision: sub.revision, reviewState: 'SENT' }, data: { approvedTotal: real } });
+        if (!updated.count) return;
+      }
     } catch (e) {
       console.error('[approval] فشل حساب الإجمالي الفعلي', submissionId.toString(), (e as Error).message);
     }
     // أيام العمالة المعتمدة فعليًا لكل مقاول عمالة — لتقرير "مقاولين العمالة" (قبل/بعد الاعتماد). فشل هنا مايوقفش الدفع.
     try {
       const days = await workbookLaborDaysDetail(toSend);
-      if (days) await saveLaborDays(submissionId, days);
+      if (days) await saveLaborDays(submissionId, days, sub.revision);
     } catch (e) {
       console.error('[approval] فشل حساب أيام العمالة المعتمدة', submissionId.toString(), (e as Error).message);
     }
@@ -212,7 +216,25 @@ export async function pushSubmissionToSheet(submissionId: bigint): Promise<void>
   // نوع الكشف لجوجل: كشف مقاولين عمالة بياخد 'labor_contractor' (اسم الشيت المعتمد فيه "مقاول_عمالة") — فشل هنا يرجع 'labor'
   const googleKind = sub.kind === 'labor' && (await isLaborSubmission(sub.contractorName).catch(() => false)) ? 'labor_contractor' : sub.kind;
   // اسم المهندس في الشيت: الاسم بالعربي لو محدد، وإلا أول الإيميل (زي زمان)
-  await pushSubmissionToGoogle(sub.id, toSend, sub.file.fileName, sub.user.displayName || sub.user.email.split('@')[0], sub.user.project ?? null, sub.site, approvalSummary(sub.reviews, sub.revision, sub.rowRejections, sub.rowEdits), googleKind);
+  if (!await prisma.submission.findFirst({ where: { id: sub.id, revision: sub.revision, reviewState: 'SENT' }, select: { id: true } })) return;
+  await pushSubmissionToGoogle(sub.id, toSend, sub.file.fileName, sub.user.displayName || sub.user.email.split('@')[0], sub.user.project ?? null, sub.site, approvalSummary(sub.reviews, sub.revision, sub.rowRejections, sub.rowEdits), googleKind, sub.revision);
+}
+
+// Prepare accounting outside the approval transaction; persist it with the real approval.
+// Google latency/failure cannot leave a newly approved correction counted at its gross value.
+export async function prepareApprovalAccounting(submissionId: bigint) {
+  const sub = await prisma.submission.findUnique({ where: { id: submissionId }, include: { file: true, rowRejections: true, rowEdits: true } });
+  if (!sub || sub.kind !== 'labor') return null;
+  const original = await storage.read(sub.file.filePath).catch(() => null);
+  if (!original) return null;
+  const cleared = await rejectedFileBuffer(original, sub.rowRejections, sub.revision, 'labor', 'clear', sub.rowEdits);
+  const total = await workbookLaborTotal(cleared);
+  const days = await workbookLaborDaysDetail(cleared);
+  if (total == null || !days) return null;
+  const labor = await laborNameSet();
+  return { total, days: [...days.entries()].filter(([name]) => labor.has(normName(name))).map(([name, detail]) => ({
+    contractorName: name, days: detail.days, dates: Object.keys(detail.dates).length ? JSON.stringify(detail.dates) : null,
+  })) };
 }
 
 // ملف الكشف **موقّعًا** بتوقيعات معتمدي النسخة الحالية — نفس النسخة اللي بتتبعت لجوجل.
@@ -374,7 +396,7 @@ export async function startChain(submissionId: bigint): Promise<{ sentToSheet: b
   const first = chain[0];
   if (!first) {
     await prisma.submission.update({ where: { id: submissionId }, data: { reviewState: 'SENT', currentLevel: null, currentApproverId: null } });
-    void pushSubmissionToSheet(submissionId);
+    void pushSubmissionToSheet(submissionId).catch(() => console.error('[approval] Google sync failed; approval remains recorded'));
     return { sentToSheet: true, firstLevel: null };
   }
   await prisma.submission.update({

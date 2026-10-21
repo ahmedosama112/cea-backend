@@ -120,7 +120,8 @@ export async function workbookLaborDaysDetail(buffer: Buffer): Promise<Map<strin
     let sum = 0;
     const dates: Record<string, number> = {};
     for (const row of dataRowsOf(ws, 'labor')) {
-      const dateRaw = text(ws.getCell(row, 12).value).trim().slice(0, 10);
+      const candidate = text(ws.getCell(row, 13).value).trim().slice(0, 10);
+      const dateRaw = /^\d{4}-\d{2}-\d{2}$/.test(candidate) ? candidate : text(ws.getCell(row, 12).value).trim().slice(0, 10);
       const validDate = /^\d{4}-\d{2}-\d{2}$/.test(dateRaw) ? dateRaw : null;
       // اليوم ممكن يبقى فيه أكتر من سجل (سطر لكل سجل في نفس الخانة) — readLaborRow بيقرا أول سطر بس، فبنجمع السطور كلها هنا
       for (const line of readLaborRow(ws, row).qtyText.split('\n')) {

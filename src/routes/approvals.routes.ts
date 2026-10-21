@@ -1,3 +1,5 @@
+import { correctionList } from './corrections.routes';
+import { classified, returned, completed, lockSubmission, workbook } from '../services/corrections';
 import { validateWorkbook } from '../services/workbookSafety';
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
@@ -8,8 +10,8 @@ import { asyncHandler } from '../utils/asyncHandler';
 import { validate } from '../middlewares/validate';
 import { requireWindow } from '../middlewares/windowGuard';
 import { idParamSchema } from '../utils/crudFactory';
-import { getApprovalLevels, CHAIN_LEVELS, SENIOR_LEVEL, isApproverGrade, buildChain, nextLevel, resolveChainForUser, soleProjectManagerId, pushSubmissionToSheet, signedFileBuffer, ChainUser } from '../services/approvalChain';
-import { countDataRows, readLaborRow } from '../services/rowReject';
+import { getApprovalLevels, CHAIN_LEVELS, SENIOR_LEVEL, isApproverGrade, buildChain, nextLevel, resolveChainForUser, soleProjectManagerId, pushSubmissionToSheet, prepareApprovalAccounting, signedFileBuffer, ChainUser } from '../services/approvalChain';
+import { countDataRows, dataRowsOf, readLaborRow } from '../services/rowReject';
 import { storage } from '../services/storage';
 import { listProjects } from '../services/placeSite';
 
@@ -17,6 +19,7 @@ import { listProjects } from '../services/placeSite';
 // (authenticate + requireModule('approvals') مطبّقين في routes/index.ts)
 
 export const approvalsRoutes = Router();
+approvalsRoutes.get('/corrections', ...correctionList(true));
 
 const SUB_INCLUDE = {
   file: { select: { id: true, fileName: true, fileSize: true } },
@@ -33,7 +36,7 @@ const SUB_INCLUDE = {
   rowEdits: { orderBy: { createdAt: 'asc' as const }, include: { byUser: { select: { email: true, displayName: true, title: true } } } },
   comments: { orderBy: { createdAt: 'asc' as const }, include: { user: { select: { id: true, email: true, displayName: true, title: true } } } },
   // النسخ القديمة اللي اتبدّلت بإعادة إرسال — الواجهة بتعرض كل واحدة سطر باهت مشطوب "تم إرسال rev NN"
-  revisions: { orderBy: { revision: 'asc' as const }, select: { revision: true, submittedAt: true, replacedAt: true, file: { select: { id: true, fileName: true, fileSize: true } } } },
+  revisions: { orderBy: { revision: 'asc' as const }, select: { revision: true, submittedAt: true, replacedAt: true, gsheetRow: true, gdriveFileId: true, file: { select: { id: true, fileName: true, fileSize: true } } } },
 } as const;
 
 // إيموجيهات الريأكشن المسموحة — قائمة مغلقة، السيرفر بيرفض أي حاجة غيرها
@@ -161,6 +164,7 @@ approvalsRoutes.get(
           // دور المعتمد ده دلوقتي: الكشف مسند له، أو كشف قديم واقف عند مستوى درجته
           // درجة 'viewer' ممنوعة من أي إجراء دايمًا (myLevel !== 'viewer') حتى لو كان مسند فعليًا بالغلط
           canAct,
+          canClassify: myLevel !== 'viewer' && (isAdmin || chain.some((c) => c.approverId === myId)),
           // تعديل سطر: لمدير المشروع بس، وقت دوره، وكشوف العمالة بس (المعدات مالهاش تخطيط أعمدة العدد/السعر ده)
           canEdit: canAct && (isAdmin || myLevel === 'project manager') && r.kind !== 'equipment',
         };
@@ -235,10 +239,11 @@ approvalsRoutes.post(
     row: z.coerce.number().int().min(1).max(100),
     label: z.string().trim().min(1).max(190),
     note: z.string().trim().min(1, 'اكتب سبب الشطب').max(500),
+    disposition: z.enum(['CORRECTION', 'FINAL']),
   }) }),
   asyncHandler(async (req: Request, res: Response) => {
     const id = BigInt(req.params.id);
-    const { sheetIndex, row, label, note } = req.body as { sheetIndex: number; row: number; label: string; note: string };
+    const { sheetIndex, row, label, note, disposition } = req.body as { sheetIndex: number; row: number; label: string; note: string; disposition: string };
     const sub = await prisma.submission.findUnique({ where: { id }, include: { file: true, rowRejections: true } });
     if (!sub) throw AppError.notFound('الكشف غير موجود');
     if (sub.reviewState !== 'IN_REVIEW') throw AppError.validation('الكشف مش في مرحلة مراجعة');
@@ -251,24 +256,61 @@ approvalsRoutes.post(
     if (!isAdmin && !mine) throw AppError.forbidden('مش دورك في الاعتماد على الكشف ده دلوقتي');
     if (sub.rowRejections.some((r) => r.revision === sub.revision && r.sheetIndex === sheetIndex && r.row === row)) throw AppError.validation('السطر ده مشطوب بالفعل');
     const level = isAdmin && !sub.currentLevel ? 'admin' : (sub.currentLevel ?? 'admin');
-    const rejection = await prisma.submissionRowRejection.create({
-      data: { submissionId: id, revision: sub.revision, sheetIndex, row, label, note, level, byUserId: req.user!.id },
-    });
-    // كل السطور اتشطبت؟ → رفض كامل
-    let fullyRejected = false;
     const original = await storage.read(sub.file.filePath).catch(() => null);
-    const total = original ? await countDataRows(original, sub.kind === 'equipment' ? 'equipment' : 'labor') : null;
-    const struck = new Set(sub.rowRejections.filter((r) => r.revision === sub.revision).map((r) => r.sheetIndex + ':' + r.row)).add(sheetIndex + ':' + row).size;
-    if (total !== null && total > 0 && struck >= total) {
-      fullyRejected = true;
-      await prisma.submissionReview.create({
-        data: { submissionId: id, level: sub.currentLevel ?? '', decision: 'REJECTED', note: 'كل سطور الكشف اتشطبت — آخر سبب: ' + note, revision: sub.revision, byUserId: req.user!.id },
-      });
-      await prisma.submission.update({ where: { id }, data: { reviewState: 'RETURNED', currentLevel: null, currentApproverId: null } });
-    }
+    if (!original) throw AppError.notFound('ملف المصدر غير موجود');
+    const wb = await workbook(original);
+    const ws = wb.worksheets[sheetIndex];
+    if (!ws || !dataRowsOf(ws, sub.kind === 'equipment' ? 'equipment' : 'labor').includes(row)) throw AppError.validation('الصف ليس يوم بيانات في الكشف');
+    const total = (await countDataRows(original, sub.kind === 'equipment' ? 'equipment' : 'labor'))!;
+    const result = await prisma.$transaction(async (tx) => {
+      await lockSubmission(tx, id);
+      const current = await tx.submission.findUnique({ where: { id } });
+      if (!current || current.revision !== sub.revision || current.reviewState !== 'IN_REVIEW' || current.currentLevel !== sub.currentLevel || current.currentApproverId !== sub.currentApproverId) throw AppError.conflict('حالة الكشف اتغيّرت — حدّث القائمة');
+      if (disposition === 'FINAL' && await tx.correctionLink.count({ where: { replacementId: id, revision: sub.revision, sheetIndex, row, activeTaskId: { not: null } } })) throw AppError.validation('اليوم يعالج طلب تصحيح قائم — استخدم مطلوب تصحيح للإبقاء على المتابعة');
+      const rejection = await tx.submissionRowRejection.create({ data: { submissionId: id, revision: sub.revision, sheetIndex, row, label, note, disposition, classifiedById: req.user!.id, classifiedAt: new Date(), classificationNote: note, level, byUserId: req.user!.id } });
+      await tx.submission.update({ where: { id }, data: { updatedAt: new Date() } });
+      if (disposition === 'CORRECTION') await classified(tx, current, req.user!.id, sheetIndex, row, note);
+      // FINAL is audited too, without creating a correction obligation.
+      await tx.submissionComment.create({ data: { submissionId: id, userId: req.user!.id, kind: 'comment', body: `تصنيف شطب ${sheetIndex}:${row} — ${disposition}: ${note}`.slice(0, 500) } });
+      const struck = await tx.submissionRowRejection.count({ where: { submissionId: id, revision: sub.revision } });
+      const fullyRejected = total > 0 && struck >= total;
+      if (fullyRejected) {
+        await tx.submissionReview.create({ data: { submissionId: id, level: sub.currentLevel ?? '', decision: 'REJECTED', note: 'كل سطور الكشف اتشطبت — آخر سبب: ' + note, revision: sub.revision, byUserId: req.user!.id } });
+        await tx.submission.update({ where: { id }, data: { reviewState: 'RETURNED', currentLevel: null, currentApproverId: null } });
+        // If every row is FINAL, keep its financial rejection but create no correction task.
+        if (await tx.submissionRowRejection.count({ where: { submissionId: id, revision: sub.revision, disposition: { not: 'FINAL' } } })) await returned(tx, current, req.user!.id, note);
+      }
+      return { rejection, struck, fullyRejected };
+    });
+    const { rejection, struck, fullyRejected } = result;
     res.status(201).json({ success: true, data: { ...rejection, id: rejection.id.toString(), submissionId: rejection.submissionId.toString(), byUserId: rejection.byUserId?.toString() ?? null }, fullyRejected, struck, total });
   }),
 );
+
+// Legacy rows remain unclassified until an assigned approver explicitly chooses.
+approvalsRoutes.post('/:id/rows/classify', requireWindow('approve'), validate({ params: idParamSchema, body: z.object({
+  revision: z.number().int().min(0), sheetIndex: z.number().int().min(0), row: z.number().int().min(1),
+  disposition: z.enum(['CORRECTION', 'FINAL']), note: z.string().trim().min(1).max(500),
+}) }), asyncHandler(async (req, res) => {
+  const id = BigInt(req.params.id);
+  const sub = await prisma.submission.findUnique({ where: { id } });
+  if (!sub) throw AppError.notFound('الكشف غير موجود');
+  const me = await prisma.user.findUnique({ where: { id: req.user!.id }, select: { grade: true } });
+  const chain = await resolveChainForUser(sub.userId, sub.projectId);
+  if (me?.grade === 'viewer' || (req.user!.role !== 'ADMIN' && !chain.some((c) => c.approverId === req.user!.id))) throw AppError.forbidden();
+  if (req.body.revision !== sub.revision) throw AppError.conflict('لا يمكن تغيير تصنيف نسخة قديمة بعد إعادة إرسالها');
+  await prisma.$transaction(async (tx) => {
+    await lockSubmission(tx, id);
+    const fresh = await tx.submission.findUnique({ where: { id } });
+    if (!fresh || fresh.revision !== req.body.revision) throw AppError.conflict('اتغيّرت نسخة الكشف');
+    const changed = await tx.submissionRowRejection.updateMany({ where: { submissionId: id, revision: req.body.revision, sheetIndex: req.body.sheetIndex, row: req.body.row, disposition: null }, data: { disposition: req.body.disposition, classifiedById: req.user!.id, classifiedAt: new Date(), classificationNote: req.body.note } });
+    if (!changed.count) throw AppError.conflict('السطر غير موجود أو تم تصنيفه — إعادة فتح تصنيف نهائي خارج المرحلة الأولى');
+    const strike = await tx.submissionRowRejection.findUniqueOrThrow({ where: { submissionId_revision_sheetIndex_row: { submissionId: id, revision: req.body.revision, sheetIndex: req.body.sheetIndex, row: req.body.row } } });
+    if (req.body.disposition === 'CORRECTION') await classified(tx, sub, req.user!.id, strike.sheetIndex, strike.row, strike.note, true);
+    await tx.submissionComment.create({ data: { submissionId: id, userId: req.user!.id, kind: 'comment', body: `تصنيف شطب قديم ${strike.sheetIndex}:${strike.row} — ${req.body.disposition}: ${req.body.note}`.slice(0, 500) } });
+  });
+  res.json({ success: true });
+}));
 
 function round2(n: number): number { return Math.round(n * 100) / 100; }
 
@@ -354,10 +396,17 @@ approvalsRoutes.post(
       label, level: isAdmin ? 'admin' : 'project manager', note, byUserId: req.user!.id,
       qtyFrom, qtyTo, priceFrom, priceTo, notesFrom, notesTo, deductFrom, deductTo, totalFrom, totalTo,
     };
-    const edit = await prisma.submissionRowEdit.upsert({
+    const edit = await prisma.$transaction(async (tx) => {
+      await lockSubmission(tx, id);
+      const current = await tx.submission.findUnique({ where: { id } });
+      if (!current || current.revision !== sub.revision || current.reviewState !== 'IN_REVIEW' || current.currentLevel !== sub.currentLevel || current.currentApproverId !== sub.currentApproverId || current.updatedAt.getTime() !== sub.updatedAt.getTime()) throw AppError.conflict('حالة الكشف اتغيّرت — حدّث المعاينة');
+      if (await tx.submissionRowRejection.count({ where: { submissionId: id, revision: sub.revision, sheetIndex, row } })) throw AppError.conflict('السطر اتشطب أثناء التعديل');
+      await tx.submission.update({ where: { id }, data: { updatedAt: new Date() } });
+    return tx.submissionRowEdit.upsert({
       where: { submissionId_revision_sheetIndex_row: { submissionId: id, revision: sub.revision, sheetIndex, row } },
       create: { submissionId: id, revision: sub.revision, sheetIndex, row, ...data },
       update: data,
+    });
     });
     res.status(201).json({ success: true, data: { ...edit, id: edit.id.toString(), submissionId: edit.submissionId.toString(), byUserId: edit.byUserId?.toString() ?? null } });
   }),
@@ -410,26 +459,36 @@ approvalsRoutes.post(
         // السلسلة خلصت → يتبعت لجوجل
         : { reviewState: 'SENT', currentLevel: null, currentApproverId: null };
 
+    const accounting = decision !== 'REJECTED' && step.kind === 'done' ? await prepareApprovalAccounting(id) : null;
+    if (decision !== 'REJECTED' && step.kind === 'done' && sub.kind === 'labor' && !accounting && await prisma.correctionLink.count({ where: { replacementId: id, revision: sub.revision, activeTaskId: { not: null } } })) throw AppError.notFound('ملف التصحيح غير موجود أو غير قابل للحساب — لا يمكن إغلاق الطلب');
     const fresh = await prisma.$transaction(async (tx) => {
+      await lockSubmission(tx, id);
       // compare-and-set على حالة المستوى يمنع قرارين متزامنين من إنشاء مراجعتين أو تخطي مستوى.
       const advanced = await tx.submission.updateMany({
         where: {
           id,
           reviewState: 'IN_REVIEW',
           revision: sub.revision,
+          updatedAt: sub.updatedAt,
           currentLevel: sub.currentLevel,
           currentApproverId: sub.currentApproverId,
         },
-        data: stateData,
+        data: { ...stateData, ...(accounting ? { approvedTotal: accounting.total } : {}) },
       });
-      if (advanced.count === 0) throw AppError.validation('حالة الكشف اتغيّرت أو اتاخد قرار فيه بالفعل');
+      if (advanced.count === 0) throw AppError.conflict('حالة الكشف اتغيّرت أو اتاخد قرار فيه بالفعل');
 
       await tx.submissionReview.create({
         data: { submissionId: id, level: sub.currentLevel ?? '', decision, note: note.trim() || null, revision: sub.revision, byUserId: req.user!.id },
       });
+      if (accounting) {
+        await tx.submissionLaborDays.deleteMany({ where: { submissionId: id } });
+        if (accounting.days.length) await tx.submissionLaborDays.createMany({ data: accounting.days.map((d) => ({ ...d, submissionId: id })) });
+      }
+      if (decision === 'REJECTED') await returned(tx, sub, req.user!.id, note);
+      else if (step.kind === 'done') await completed(tx, sub, req.user!.id);
       return tx.submission.findUnique({ where: { id }, include: SUB_INCLUDE });
     });
-    if (decision !== 'REJECTED' && step.kind === 'done') void pushSubmissionToSheet(id); // ☁️ مرة واحدة بعد نجاح الانتقال
+    if (decision !== 'REJECTED' && step.kind === 'done') void pushSubmissionToSheet(id).catch(() => console.error('[approval] Google sync failed; approval remains recorded')); // ☁️ مرة واحدة بعد نجاح الانتقال
     res.json({ success: true, data: shape(fresh as never) });
   }),
 );

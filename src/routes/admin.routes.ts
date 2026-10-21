@@ -698,10 +698,16 @@ adminRoutes.delete(
       const admins = await prisma.user.count({ where: { role: 'ADMIN' } });
       if (admins <= 1) throw AppError.validation('لا يمكن حذف آخر مدير نظام');
     }
-    // ملفات التخزين (صور/توقيع) تُحذف من القرص؛ صفوف DB تُحذف cascade مع المستخدم
-    const files = await prisma.file.findMany({ where: { userId }, select: { filePath: true } });
+    // Lock sources before checking history; never remove files before a rejected delete.
+    const files = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM users WHERE id = ${userId} FOR UPDATE`;
+      await tx.$queryRaw`SELECT id FROM submissions WHERE user_id = ${userId} ORDER BY id FOR UPDATE`;
+      if (await tx.correctionTask.count({ where: { ownerId: userId } })) throw AppError.conflict('الحساب مرتبط بسجل تصحيحات — احتفظ بالحساب وسجله بدل حذفه');
+      const files = await tx.file.findMany({ where: { userId }, select: { filePath: true } });
+      await tx.user.delete({ where: { id: userId } });
+      return files;
+    });
     for (const f of files) await storage.remove(f.filePath).catch(() => undefined);
-    await prisma.user.delete({ where: { id: userId } });
     res.json({ success: true, data: { deleted: user.email, filesRemoved: files.length } });
   }),
 );

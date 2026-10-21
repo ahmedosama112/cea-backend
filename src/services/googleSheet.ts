@@ -74,15 +74,16 @@ function enqueuePush(site: number | null | undefined, task: () => Promise<void>)
 // ⚠ كل شيت لازم يكون عليه نسخة google-sheet/Code.gs الحالية. النسخ القديمة (زي Code-site2.gs
 //   قبل 22 سبتمبر 2026) كانت بتترمي الـ approvalSummary ومفيهاش action=findRow، يعني ملاحظات
 //   الاعتماد مش بتظهر في الشيت والكشف اللي رده ضاع مابيتلاقاش فيتعمل صف مكرر.
-export function pushSubmissionToGoogle(submissionId: bigint, fileBuffer: Buffer, fileName: string, engineerName: string, project: string | null, site: number | null | undefined, approvalSummary?: string, kind?: string): Promise<void> {
-  return enqueuePush(site, () => doPushSubmission(submissionId, fileBuffer, fileName, engineerName, project, site, approvalSummary, kind));
+export function pushSubmissionToGoogle(submissionId: bigint, fileBuffer: Buffer, fileName: string, engineerName: string, project: string | null, site: number | null | undefined, approvalSummary?: string, kind?: string, revision?: number): Promise<void> {
+  return enqueuePush(site, () => doPushSubmission(submissionId, fileBuffer, fileName, engineerName, project, site, approvalSummary, kind, revision));
 }
 
-async function doPushSubmission(submissionId: bigint, fileBuffer: Buffer, fileName: string, engineerName: string, project: string | null, site: number | null | undefined, approvalSummary?: string, kind?: string): Promise<void> {
+async function doPushSubmission(submissionId: bigint, fileBuffer: Buffer, fileName: string, engineerName: string, project: string | null, site: number | null | undefined, approvalSummary?: string, kind?: string, revision?: number): Promise<void> {
   if (!googleSyncEnabled(site)) return;
   // (7 سبتمبر 2026) حماية من التكرار: الدفع بيتنفذ من طابور — لو كشف اتبعت مرتين (اعتماد + "إعادة الإرسال للشيت" وقت ما الأول لسه شغال)
   // التاني بيلاقي الصف اتسجل خلاص فبيتخطى بدل ما يعمل صف مكرر في الشيت
-  const already = await prisma.submission.findUnique({ where: { id: submissionId }, select: { gsheetRow: true } }).catch(() => null);
+  const already = await prisma.submission.findUnique({ where: { id: submissionId }, select: { gsheetRow: true, revision: true, reviewState: true } }).catch(() => null);
+  if (revision !== undefined && (!already || already.revision !== revision || already.reviewState !== 'SENT')) return;
   if (already?.gsheetRow) return;
   const result = await callWebApp(
     site,
@@ -98,15 +99,14 @@ async function doPushSubmission(submissionId: bigint, fileBuffer: Buffer, fileNa
     300_000, // (8 سبتمبر 2026) كان 120 ث: كشف بـ 12 ورقة بياخد أكتر في التحويل + PDF — لو قطعنا الاتصال بدري السكربت بيكمل ويعمل الصف بس إحنا مانعرفش رقمه (خطر تكرار عند إعادة الإرسال). حد Apps Script نفسه 6 دقايق
   );
   if (result && result.ok) {
-    await prisma.submission
-      .update({
-        where: { id: submissionId },
-        data: {
-          gsheetRow: Number(result.row) || null,
-          gdriveFileId: (result.fileId as string) || null,
-        },
-      })
-      .catch(() => undefined);
+    const data = { gsheetRow: Number(result.row) || null, gdriveFileId: (result.fileId as string) || null };
+    // No DB transaction spans the external call. Serialize the result with resend, and
+    // retain late results on their archived revision instead of linking a newer file.
+    await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM submissions WHERE id = ${submissionId} FOR UPDATE`;
+      const changed = await tx.submission.updateMany({ where: { id: submissionId, ...(revision !== undefined ? { revision } : {}) }, data });
+      if (!changed.count && revision !== undefined) await tx.submissionRevision.updateMany({ where: { submissionId, revision }, data });
+    }).catch(() => undefined);
   } else {
     console.error('Google sync failed for submission', submissionId.toString(), result?.error ?? '(no response)');
   }

@@ -638,6 +638,9 @@ model Submission {
   comments      SubmissionComment[]
   laborDays     SubmissionLaborDays[]
   revisions     SubmissionRevision[]
+  correctionTasks CorrectionTask[] @relation("CorrectionSource")
+  correctionLinks CorrectionLink[]
+  correctionDrafts CorrectionDraft[]
 
   @@index([userId, createdAt])
   @@index([status])
@@ -654,6 +657,10 @@ model SubmissionRowRejection {
   revision     Int      @default(0)
   sheetIndex   Int      @map("sheet_index")
   row          Int
+  disposition  String?  @db.VarChar(20) // null = legacy; CORRECTION or FINAL
+  classifiedById BigInt? @map("classified_by_id")
+  classifiedAt DateTime? @map("classified_at")
+  classificationNote String? @map("classification_note") @db.VarChar(500)
   label        String   @db.VarChar(190) // وصف السطر للعرض (اليوم/التاريخ/المقاول) كما بعتته الواجهة
   level        String   @db.VarChar(60)
   note         String   @db.VarChar(500)
@@ -711,6 +718,9 @@ model SubmissionRevision {
   fileId       BigInt?  @map("file_id")
   submittedAt  DateTime @map("submitted_at") // إمتى النسخة دي اتبعتت
   replacedAt   DateTime @default(now()) @map("replaced_at") // إمتى اتبعتت النسخة اللي بعدها
+
+  gsheetRow Int? @map("gsheet_row")
+  gdriveFileId String? @map("gdrive_file_id") @db.VarChar(120)
 
   submission Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
   file       File?      @relation(fields: [fileId], references: [id], onDelete: SetNull)
@@ -960,4 +970,74 @@ model RentRequestReview {
 
   @@index([rentRequestId])
   @@map("rent_request_reviews")
+}
+
+
+// Obligations describe corrections, never a second approval state. Coordinates are versioned.
+model CorrectionTask {
+  id BigInt @id @default(autoincrement())
+  sourceId BigInt @map("source_id")
+  sourceRevision Int @map("source_revision")
+  sheetIndex Int @map("sheet_index") // -1 / row 0 = entire returned submission
+  row Int
+  ownerId BigInt @map("owner_id") // retained for audit; source FK prevents deleting the account's history
+  reason String @db.VarChar(500)
+  requestedById BigInt? @map("requested_by_id")
+  state String @default("OPEN") @db.VarChar(20)
+  legacyReview Boolean @default(false) @map("legacy_review")
+  requestedAt DateTime @default(now()) @map("requested_at")
+  resentAt DateTime? @map("resent_at")
+  resolvedAt DateTime? @map("resolved_at")
+  source Submission @relation("CorrectionSource", fields: [sourceId], references: [id], onDelete: Restrict)
+  links CorrectionLink[]
+  events CorrectionEvent[]
+  @@unique([sourceId, sourceRevision, sheetIndex, row], map: "correction_source_row_key")
+  @@index([ownerId, state, requestedAt])
+  @@index([state, requestedAt])
+  @@map("correction_tasks")
+}
+
+model CorrectionLink {
+  id BigInt @id @default(autoincrement())
+  taskId BigInt @map("task_id")
+  // MySQL permits several NULLs; only one active replacement can reserve each task.
+  activeTaskId BigInt? @unique @map("active_task_id")
+  replacementId BigInt @map("replacement_id")
+  revision Int
+  sheetIndex Int @map("sheet_index")
+  row Int
+  createdAt DateTime @default(now()) @map("created_at")
+  task CorrectionTask @relation(fields: [taskId], references: [id], onDelete: Restrict)
+  replacement Submission @relation(fields: [replacementId], references: [id], onDelete: Restrict)
+  @@unique([taskId, replacementId, revision], map: "correction_attempt_key")
+  @@index([replacementId, revision])
+  @@map("correction_links")
+}
+
+model CorrectionDraft {
+  id BigInt @id @default(autoincrement())
+  sourceId BigInt @map("source_id")
+  sourceRevision Int @map("source_revision")
+  ownerId BigInt @map("owner_id")
+  version Int @default(0)
+  // Original task IDs and edits only; no uploaded file can add unrelated payable days.
+  taskIds Json @map("task_ids")
+  edits Json
+  submittedId BigInt? @map("submitted_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  source Submission @relation(fields: [sourceId], references: [id], onDelete: Restrict)
+  @@index([ownerId, sourceId])
+  @@map("correction_drafts")
+}
+
+model CorrectionEvent {
+  id BigInt @id @default(autoincrement())
+  taskId BigInt @map("task_id")
+  actorId BigInt? @map("actor_id")
+  action String @db.VarChar(40)
+  detail String @db.VarChar(1000)
+  createdAt DateTime @default(now()) @map("created_at")
+  task CorrectionTask @relation(fields: [taskId], references: [id], onDelete: Restrict)
+  @@index([taskId, createdAt])
+  @@map("correction_events")
 }

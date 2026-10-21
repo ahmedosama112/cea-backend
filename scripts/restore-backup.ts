@@ -33,7 +33,7 @@ const INSERT_ORDER = [
   'execRecords', 'execRecordStages', 'dailyRecords', 'equipmentRecords',
   // الكشوف قبل مراجعاتها وسطورها المشطوبة/المعدّلة وتعليقاتها
   'submissions', 'submissionReviews', 'submissionRowRejections', 'submissionRowEdits', 'submissionComments',
-  'submissionLaborDays', 'submissionRevisions', 'appConfig',
+  'submissionLaborDays', 'submissionRevisions', 'correctionTasks', 'correctionLinks', 'correctionDrafts', 'correctionEvents', 'appConfig',
   // المخازن: الأصناف قبل الطلبات، والطلبات قبل الحركات (stockMoves بتشاور على issueRequestId)
   'inventoryItems', 'issueRequests', 'issueRequestLines', 'stockMoves', 'purchaseRequests',
   // التنبيهات: التعريف قبل المستقبلين و"تم"
@@ -56,6 +56,10 @@ const makeDelegates = (prisma: Prisma.TransactionClient): Record<TableKey, { cre
   submissionRowEdits: prisma.submissionRowEdit, submissionComments: prisma.submissionComment,
   submissionLaborDays: prisma.submissionLaborDays,
   submissionRevisions: prisma.submissionRevision,
+  correctionTasks: prisma.correctionTask,
+  correctionLinks: prisma.correctionLink,
+  correctionDrafts: prisma.correctionDraft,
+  correctionEvents: prisma.correctionEvent,
   appConfig: prisma.appConfig,
   inventoryItems: prisma.inventoryItem, issueRequests: prisma.issueRequest,
   issueRequestLines: prisma.issueRequestLine, stockMoves: prisma.stockMove,

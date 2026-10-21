@@ -147,7 +147,7 @@ describe('اعتمادات المديرين', () => {
       request(app).post(`/api/approvals/${id}/decide`).set(auth(tl.token)).send({ decision: 'APPROVED' }),
       request(app).post(`/api/approvals/${id}/decide`).set(auth(tl.token)).send({ decision: 'APPROVED' }),
     ]);
-    expect(attempts.map((r) => r.status).sort()).toEqual([200, 400]);
+    expect(attempts.map((r) => r.status).sort()).toEqual([200, 409]);
 
     const after = await prisma.submission.findUnique({ where: { id: BigInt(id) }, include: { reviews: true } });
     expect(after?.currentLevel).toBe('project manager');
@@ -261,15 +261,15 @@ describe('اعتمادات المديرين', () => {
     expect(String(ws1.getCell(8, 3).value)).toContain('❌ مرفوض (team leader): مش شغال اليوم ده');
 
     // غير المسند (tl2) ممنوع، والسبب إلزامي
-    const denied = await request(app).post(`/api/approvals/${id}/rows/reject`).set(auth(tl2.token)).send({ sheetIndex: 0, row: 8, label: 'الأربعاء 2026-08-12', note: 'x' });
+    const denied = await request(app).post(`/api/approvals/${id}/rows/reject`).set(auth(tl2.token)).send({ disposition: 'FINAL', sheetIndex: 0, row: 8, label: 'الأربعاء 2026-08-12', note: 'x' });
     expect(denied.status).toBe(403);
-    const noNote = await request(app).post(`/api/approvals/${id}/rows/reject`).set(auth(tl.token)).send({ sheetIndex: 0, row: 8, label: 'الأربعاء 2026-08-12', note: '' });
+    const noNote = await request(app).post(`/api/approvals/${id}/rows/reject`).set(auth(tl.token)).send({ disposition: 'FINAL', sheetIndex: 0, row: 8, label: 'الأربعاء 2026-08-12', note: '' });
     expect(noNote.status).toBe(400);
     // المسند (tl) يشطب سطر → الكشف لسه IN_REVIEW، والملف من مسار الاعتمادات فيه الشطب
-    const ok = await request(app).post(`/api/approvals/${id}/rows/reject`).set(auth(tl.token)).send({ sheetIndex: 0, row: 8, label: 'الأربعاء 2026-08-12 — 300 ج.م', note: 'مش شغال اليوم ده' });
+    const ok = await request(app).post(`/api/approvals/${id}/rows/reject`).set(auth(tl.token)).send({ disposition: 'FINAL', sheetIndex: 0, row: 8, label: 'الأربعاء 2026-08-12 — 300 ج.م', note: 'مش شغال اليوم ده' });
     expect(ok.status).toBe(201);
     expect(ok.body.fullyRejected).toBe(false);
-    const again = await request(app).post(`/api/approvals/${id}/rows/reject`).set(auth(tl.token)).send({ sheetIndex: 0, row: 8, label: 'x', note: 'y' });
+    const again = await request(app).post(`/api/approvals/${id}/rows/reject`).set(auth(tl.token)).send({ disposition: 'FINAL', sheetIndex: 0, row: 8, label: 'x', note: 'y' });
     expect(again.status).toBe(400); // مشطوب بالفعل — مفيش إلغاء ولا تكرار
     const q = await request(app).get('/api/approvals/queue').set(auth(tl.token));
     const row = q.body.data.find((s: { id: string }) => s.id === id);
@@ -284,7 +284,7 @@ describe('اعتمادات المديرين', () => {
     const m = mine.body.data.find((s: { id: string }) => s.id === id);
     expect(m.rowRejections[0].note).toBe('مش شغال اليوم ده');
     // شطب السطر الأخير → رفض كامل تلقائي
-    const last = await request(app).post(`/api/approvals/${id}/rows/reject`).set(auth(tl.token)).send({ sheetIndex: 0, row: 10, label: 'الجمعة 2026-08-14 — 200 ج.م', note: 'كمان' });
+    const last = await request(app).post(`/api/approvals/${id}/rows/reject`).set(auth(tl.token)).send({ disposition: 'FINAL', sheetIndex: 0, row: 10, label: 'الجمعة 2026-08-14 — 200 ج.م', note: 'كمان' });
     expect(last.status).toBe(201);
     expect(last.body.fullyRejected).toBe(true);
     const after = await prisma.submission.findUnique({ where: { id: BigInt(id) }, include: { reviews: true } });
@@ -351,7 +351,7 @@ describe('اعتمادات المديرين', () => {
     // 403 قبل أي فحص تاني — حتى على كشف مسند أصلًا لمعتمد تاني
     const decide = await request(app).post(`/api/approvals/${other.id}/decide`).set(auth(viewerAcc.token)).send({ decision: 'APPROVED' });
     expect(decide.status).toBe(403);
-    const rowReject = await request(app).post(`/api/approvals/${other.id}/rows/reject`).set(auth(viewerAcc.token)).send({ sheetIndex: 0, row: 1, label: 'صف', note: 'سبب' });
+    const rowReject = await request(app).post(`/api/approvals/${other.id}/rows/reject`).set(auth(viewerAcc.token)).send({ disposition: 'FINAL', sheetIndex: 0, row: 1, label: 'صف', note: 'سبب' });
     expect(rowReject.status).toBe(403);
 
     // مش موجود كمعتمد مقترح في أي مستوى بالمصفوفة (مالوش درجة معتمِدة أصلًا)

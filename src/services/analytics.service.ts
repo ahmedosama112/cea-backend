@@ -676,6 +676,7 @@ export async function approvedTotalsReport(
   const subs = await prisma.submission.findMany({
     where: {
       userId: { in: ids },
+      reviewState: 'SENT',
       kind: 'labor', // إجمالي المعدات ساعات مش فلوس — مزجه هنا مايبقاش له معنى
       ...(hasRange ? { weekStart: dateFilter } : {}),
       reviews: { some: { level: PM_LEVEL, decision: { in: ['APPROVED', 'APPROVED_NOTES'] } } },
@@ -816,6 +817,7 @@ export async function laborReport(allIds: bigint[], range: { from?: string; to?:
     where: {
       userId: { in: ids },
       kind: 'labor',
+      reviewState: 'SENT',
       ...(hasRange ? { weekStart: dateFilter } : {}),
       reviews: { some: { level: PM_LEVEL, decision: { in: ['APPROVED', 'APPROVED_NOTES'] } } },
     },
