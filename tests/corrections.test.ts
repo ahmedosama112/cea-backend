@@ -6,15 +6,17 @@ import { storage } from '../src/services/storage';
 import { pushSubmissionToSheet } from '../src/services/approvalChain';
 import { approvedTotalsReport, laborReport } from '../src/services/analytics.service';
 import { saveLaborDays } from '../src/services/laborContractors';
+import { rowDate } from '../src/services/rowReject';
 import * as google from '../src/services/googleSheet';
 
 let admin: TestUser, eng: TestUser, pm: TestUser, other: TestUser;
-async function file(kind='labor', rows=[8,9,10], move=false): Promise<Buffer> {
+async function file(kind='labor', rows=[8,9,10], move=false, dates?: ExcelJS.CellValue[]): Promise<Buffer> {
   const wb=new ExcelJS.Workbook();const ws=wb.addWorksheet('مقاول - مكان');
   ws.getCell(3,10).value='مقاول'; ws.getCell(4,10).value='مكان';
   for (const [i,r] of rows.entries()) {
-    ws.getCell(r,13).value=`2026-10-${String((move?i+8:r)+1).padStart(2,'0')}`;
-    ws.getCell(r,12).value='يوم';
+    const date = dates ? dates[i] : `2026-10-${String(move?i+7:r-1).padStart(2,'0')}`;
+    ws.getCell(r,kind==='labor'?12:13).value=date;
+    ws.getCell(r,kind==='labor'?13:12).value=typeof date==='string' && /^\d{4}-\d{2}-\d{2}$/.test(date) ? new Date(date+'T00:00:00Z').toLocaleDateString('ar-EG',{weekday:'long',timeZone:'UTC'}) : 'الأربعاء';
     if(kind==='labor') {ws.getCell(r,11).value='1 يومية';ws.getCell(r,9).value=10;ws.getCell(r,8).value=10;ws.getCell(r,3).value='أعمال';}
     else { ws.mergeCells(r,8,r,9);ws.mergeCells(r,10,r,11);ws.getCell(r,8).value='08:00 – 10:00';ws.getCell(r,10).value='مكان';ws.getCell(r,7).value='2:00'; }
   }
@@ -22,11 +24,11 @@ async function file(kind='labor', rows=[8,9,10], move=false): Promise<Buffer> {
   else {ws.mergeCells(13,8,13,13);ws.getCell(13,7).value=`${rows.length*2}:00`;}
   return Buffer.from(await wb.xlsx.writeBuffer());
 }
-async function submit(kind='labor', rows=[8,9,10]) {
+async function submit(kind='labor', rows=[8,9,10], buffer?: Buffer, total?: number) {
   const r=await request(app).post('/api/submissions').set(auth(eng.token))
     .field('contractorName','مقاول').field('placeName','مكان').field('kind',kind).field('projectId','1')
-    .field('weekStart','2026-10-01').field('weekEnd','2026-10-31').field('total',String(kind==='labor'?rows.length*10:rows.length*2)).field('recordsCount',String(rows.length))
-    .attach('file',await file(kind,rows),'source.xlsx');expect(r.status,r.body.message).toBe(201);return r.body.data.id as string;
+    .field('weekStart','2026-10-01').field('weekEnd','2026-10-31').field('total',String(total ?? (kind==='labor'?rows.length*10:rows.length*2))).field('recordsCount',String(rows.length))
+    .attach('file',buffer ?? await file(kind,rows),'source.xlsx');expect(r.status,r.body.message).toBe(201);return r.body.data.id as string;
 }
 async function strike(id:string,row=8,disposition='CORRECTION') {
   return request(app).post(`/api/approvals/${id}/rows/reject`).set(auth(pm.token)).send({sheetIndex:0,row,label:'يوم',note:'راجع العدد',disposition});
@@ -38,8 +40,8 @@ async function tasks(state='OPEN',token=eng.token) {
   return request(app).get('/api/submissions/corrections?state='+state).set(auth(token));
 }
 async function draft(ids:string[]) {return request(app).post('/api/submissions/corrections/drafts').set(auth(eng.token)).send({taskIds:ids});}
-async function ready(kind='labor', count=1) {
-  const id=await submit(kind);
+async function ready(kind='labor', count=1, buffer?: Buffer, total?: number) {
+  const id=await submit(kind,[8,9,10],buffer,total);
   for(let row=8;row<8+count;row++)expect((await strike(id,row)).status).toBe(201);
   expect((await decide(id)).status).toBe(200);
   const t=(await tasks()).body.data;
@@ -124,6 +126,50 @@ describe('correction obligations use the existing approval chain',()=>{
     expect(wb.worksheets[0].getCell(8,8).value).toBe(22);expect(wb.worksheets[0].getCell(9,8).value).toBeNull();expect(wb.worksheets[0].getCell(10,8).value).toBeNull();
     expect((await prisma.submission.findUniqueOrThrow({where:{id:BigInt(id)}})).revision).toBe(0);expect((await tasks('RESENT')).body.data).toHaveLength(1);
   });
+  it.each([
+    {qty:'1',price:'100',net:80},
+    {qty:'2',price:'100',net:180},
+    {qty:'1',price:'120',net:100},
+  ])('retains the fixed deduction through saving notes, repeated saves, preview and submit ($qty × $price)',async({qty,price,net})=>{
+    const source=new ExcelJS.Workbook();await source.xlsx.load(await file() as unknown as ArrayBuffer);
+    const ws=source.worksheets[0];ws.getCell(8,9).value=100;ws.getCell(8,8).value=80;ws.getCell(15,8).value=100;
+    ws.getCell(8,2).value='مقاول الخصم\nخصم ثابت';
+    const {id,t,d}=await ready('labor',1,Buffer.from(await source.xlsx.writeBuffer()),100);
+    const url=`/api/submissions/corrections/drafts/${d.id}`;
+    // The browser sends qty/price even when only notes changed.
+    for(let version=0;version<2;version++) {
+      const saved=await request(app).patch(url).set(auth(eng.token)).send({version,edits:[{taskId:t[0].id,qty,price,notes:'بيان مصحح'}]});
+      expect(saved.status,saved.body.message).toBe(200);
+    }
+    const opened=await request(app).get(url).set(auth(eng.token));
+    expect(Number(opened.body.data.total)).toBe(net);expect(opened.body.data.rows[0].discount).toBe('20');
+    expect(opened.body.data.rows[0].label).toContain('2026-10-07');
+    const preview=await request(app).get(url+'/file').set(auth(eng.token)).buffer(true).parse((res,done)=>{
+      const chunks:Buffer[]=[];res.on('data',(chunk:Buffer)=>chunks.push(chunk));res.on('end',()=>done(null,Buffer.concat(chunks)));
+    });
+    expect(preview.status).toBe(200);
+    const check=async(buffer:Buffer)=>{
+      const wb=new ExcelJS.Workbook();await wb.xlsx.load(buffer as unknown as ArrayBuffer);
+      expect(wb.worksheets[0].getCell(8,8).value).toBe(net);expect(wb.worksheets[0].getCell(15,8).value).toBe(net);
+      expect(wb.worksheets[0].getCell(8,3).value).toBe('بيان مصحح');expect(wb.worksheets[0].getCell(8,2).value).toBe('مقاول الخصم\nخصم ثابت');
+    };
+    await check(preview.body);
+    const sent=await send({...d,version:2});expect(sent.status,sent.body.message).toBe(201);
+    const replacement=await prisma.submission.findUniqueOrThrow({where:{id:BigInt(sent.body.data.id)},include:{file:true}});
+    expect(Number(replacement.total)).toBe(net);await check(await storage.read(replacement.file.filePath));
+    const original=await prisma.submission.findUniqueOrThrow({where:{id:BigInt(id)},include:{file:true}});
+    const originalWb=new ExcelJS.Workbook();await originalWb.xlsx.load(await storage.read(original.file.filePath) as unknown as ArrayBuffer);
+    expect(originalWb.worksheets[0].getCell(8,8).value).toBe(80);
+  });
+  it('rejects financial changes below the retained deduction without saving or consuming the task',async()=>{
+    const source=new ExcelJS.Workbook();await source.xlsx.load(await file() as unknown as ArrayBuffer);
+    source.worksheets[0].getCell(8,9).value=100;source.worksheets[0].getCell(8,8).value=80;source.worksheets[0].getCell(15,8).value=100;
+    const {t,d}=await ready('labor',1,Buffer.from(await source.xlsx.writeBuffer()),100);
+    const r=await request(app).patch(`/api/submissions/corrections/drafts/${d.id}`).set(auth(eng.token)).send({version:0,edits:[{taskId:t[0].id,qty:'0',price:'100'}]});
+    expect(r.status).toBe(400);expect(r.body.message).toContain('الخصم الأصلي');
+    expect((await prisma.correctionDraft.findUniqueOrThrow({where:{id:BigInt(d.id)}})).version).toBe(0);
+    expect((await tasks()).body.summary.days).toBe(1);
+  });
   it('concurrent draft creation and submission reserve a single replacement; retry is idempotent',async()=>{
     const id=await submit();await strike(id);await decide(id);const ts=(await tasks()).body.data;
     const ds=await Promise.all([draft([ts[0].id]),draft([ts[0].id])]);expect(ds.map(r=>r.status).sort()).toEqual([201,409]);
@@ -196,6 +242,50 @@ describe('correction obligations use the existing approval chain',()=>{
     expect(await prisma.correctionTask.count()).toBe(2);expect((await tasks()).body.summary.days).toBe(1);
     const t=(await tasks()).body.data;const d=(await draft([t[0].id])).body.data;const sent=await send(d);await decide(sent.body.data.id);
     expect((await tasks('RESENT')).body.data).toHaveLength(0);expect((await tasks('RESOLVED')).body.data).toHaveLength(2);
+  });
+  it.each(['labor','equipment'])('matches %s corrections by full date, never the same weekday next week',async(kind)=>{
+    const id=await submit(kind);await strike(id,8);await decide(id,'REJECTED');
+    const endpoint=`/api/submissions/${id}/resend`;
+    const wrong=await request(app).post(endpoint).set(auth(eng.token)).attach('file',await file(kind,[10],false,['2026-10-14']),'wrong-week.xlsx');
+    expect(wrong.status,wrong.body.message).toBe(409);expect(await prisma.submissionRevision.count()).toBe(0);
+    const correct=await request(app).post(endpoint).set(auth(eng.token)).attach('file',await file(kind,[10],false,['2026-10-07']),'moved.xlsx');
+    expect(correct.status,correct.body.message).toBe(200);
+    const link=await prisma.correctionLink.findFirstOrThrow({where:{row:{gt:0}}});expect(link.row).toBe(10);
+  });
+  it.each(['labor','equipment'])('applies FINAL exclusions to the exact %s date even when rows move',async(kind)=>{
+    const id=await submit(kind);await strike(id,8,'FINAL');await strike(id,9);await decide(id,'REJECTED');
+    const endpoint=`/api/submissions/${id}/resend`;
+    const same=await request(app).post(endpoint).set(auth(eng.token)).attach('file',await file(kind,[10,11],false,['2026-10-08','2026-10-07']),'excluded.xlsx');
+    expect(same.status).toBe(400);expect(same.body.message).toContain('مستبعدًا نهائيًا');
+    const different=await request(app).post(endpoint).set(auth(eng.token)).attach('file',await file(kind,[10,11],false,['2026-10-08','2026-10-14']),'next-week.xlsx');
+    expect(different.status,different.body.message).toBe(200);
+    expect((await prisma.correctionLink.findFirstOrThrow({where:{row:{gt:0}}})).row).toBe(10);
+  });
+  it.each(['labor','equipment'])('refuses an unreliable %s date on either side of a resend match',async(kind)=>{
+    const id=await submit(kind);await strike(id,8);await decide(id,'REJECTED');
+    const endpoint=`/api/submissions/${id}/resend`;
+    for(const date of [null,'الأربعاء','2026-02-30','2026-10-07 extra',{formula:'"2026-10-07"',result:'2026-10-07'}]) {
+      const r=await request(app).post(endpoint).set(auth(eng.token)).attach('file',await file(kind,[10],false,[date]),'invalid.xlsx');
+      expect(r.status,r.body.message).toBe(400);expect(r.body.message).toContain('التاريخ');
+    }
+    // The archived/source weekday must not rescue a missing or invalid actual date.
+    const sub=await prisma.submission.findUniqueOrThrow({where:{id:BigInt(id)},include:{file:true}});
+    const wb=new ExcelJS.Workbook();await wb.xlsx.load(await storage.read(sub.file.filePath) as unknown as ArrayBuffer);
+    wb.worksheets[0].getCell(8,kind==='labor'?12:13).value='2026-02-30';
+    const stored=await storage.save(Buffer.from(await wb.xlsx.writeBuffer()),'bad-source.xlsx');
+    await prisma.file.update({where:{id:sub.fileId},data:{filePath:stored.storedPath}});
+    const r=await request(app).post(endpoint).set(auth(eng.token)).attach('file',await file(kind,[10],false,['2026-10-07']),'valid.xlsx');
+    expect(r.status,r.body.message).toBe(400);expect(await prisma.submissionRevision.count()).toBe(0);
+  });
+  it('normalizes actual Excel date cells and rejects impossible or ambiguous dates',()=>{
+    const wb=new ExcelJS.Workbook(),ws=wb.addWorksheet('dates');
+    ws.getCell(8,12).value=new Date('2026-10-07T00:00:00Z');ws.getCell(8,13).value='الأربعاء';
+    expect(rowDate(ws,8,'labor')).toBe('2026-10-07');
+    ws.getCell(8,12).value='2026-02-29';expect(rowDate(ws,8,'labor')).toBeNull();
+    ws.getCell(8,12).value='2028-02-29';expect(rowDate(ws,8,'labor')).toBe('2028-02-29');
+    ws.getCell(8,12).value='07/10/2026';expect(rowDate(ws,8,'labor')).toBeNull();
+    ws.getCell(8,12).value=null;ws.getCell(8,13).value='2026-10-07';expect(rowDate(ws,8,'labor')).toBeNull();
+    expect(rowDate(ws,8,'equipment')).toBe('2026-10-07');
   });
   it('stale draft edits conflict and invalid financial input never consumes a request',async()=>{
     const {d,t}=await ready();

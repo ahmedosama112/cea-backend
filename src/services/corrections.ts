@@ -3,7 +3,7 @@ import ExcelJS from 'exceljs';
 import { prisma } from '../config/prisma';
 import { AppError } from '../utils/AppError';
 import { storage } from './storage';
-import { dataRowsOf, Kind, readLaborRow } from './rowReject';
+import { dataRowsOf, Kind, readLaborRow, rowDate } from './rowReject';
 import { validateWorkbook } from './workbookSafety';
 
 type Tx = Prisma.TransactionClient;
@@ -142,21 +142,34 @@ export async function buildDraft(sourceId: bigint, revision: number, ids: bigint
       if (!rows.includes(r)) { for (let c = 1; c <= 11; c++) ws.getCell(r, c).value = null; continue; }
       const task = tasks.find((t) => t.sheetIndex === index && t.row === r)!;
       const edit = edits.find((e) => e.taskId === String(task.id));
+      const date = rowDate(ws, r, kind);
+      if (!date) throw AppError.validation('تاريخ يوم التصحيح مفقود أو غير صالح — يلزم مراجعة المسؤول');
       if (kind === 'labor') {
         const current = readLaborRow(ws, r);
         if ((edit?.qty !== undefined || edit?.price !== undefined) && (current.multi || current.qty == null || current.price == null)) throw AppError.validation('اليوم يحتوي سجلات متعددة أو قيمًا غير قابلة للتحرير — عدّل البيان فقط أو راجع المسؤول');
+        // The exported workbook has only net H, quantity K and price I. Retain
+        // their original monetary difference as a fixed deduction, never a percent.
+        let discount: Prisma.Decimal | null = null;
+        const net = decimal(cellText(ws.getCell(r, 8).value), true);
+        if (!current.multi && current.qty != null && current.price != null) {
+          const originalGross = decimal(String(current.qty)).mul(decimal(String(current.price))).toDecimalPlaces(2);
+          discount = originalGross.sub(net);
+        }
         if (edit?.qty !== undefined || edit?.price !== undefined) {
+          if (!discount || discount.isNegative()) throw AppError.validation('تعذّر تحديد الخصم الأصلي بشكل موثوق — عدّل البيان فقط أو راجع المسؤول');
           const q = decimal(edit.qty ?? String(current.qty));
           const p = decimal(edit.price ?? String(current.price));
           ws.getCell(r, 11).value = `${q} ${current.qtyType}`;
           ws.getCell(r, 9).value = p.toNumber();
-          const amount = q.mul(p).toDecimalPlaces(2);
+          const unchanged = q.equals(current.qty!) && p.equals(current.price!);
+          const amount = unchanged ? net : q.mul(p).toDecimalPlaces(2).sub(discount);
+          if (amount.isNegative()) throw AppError.validation('الإجمالي الجديد أقل من الخصم الأصلي — راجع العدد والسعر أو المسؤول');
           if (amount.greaterThan('9999999999.99')) throw AppError.validation('قيمة اليوم أكبر من الحد المالي المدعوم');
           ws.getCell(r, 8).value = amount.toNumber();
         }
         if (edit?.notes !== undefined) ws.getCell(r, 3).value = edit.notes;
         total = total.add(decimal(cellText(ws.getCell(r, 8).value), true));
-        details.push({ taskId: String(task.id), label: `${ws.name} — ${cellText(ws.getCell(r, 13).value)}`, qty: current.multi ? null : current.qty, price: current.multi ? null : current.price, notes: cellText(ws.getCell(r, 3).value), ...edit });
+        details.push({ taskId: String(task.id), label: `${ws.name} — ${date}`, qty: current.multi ? null : current.qty, price: current.multi ? null : current.price, notes: cellText(ws.getCell(r, 3).value), ...edit, discount: discount?.isNegative() ? null : discount?.toString() ?? null, total: cellText(ws.getCell(r, 8).value) });
       } else {
         // Equipment layout: H:I = time range, J:K = place, G = duration.
         const range = cellText(ws.getCell(r, 8).value);
@@ -173,7 +186,7 @@ export async function buildDraft(sourceId: bigint, revision: number, ids: bigint
         const duration = cellText(ws.getCell(r, 7).value).match(/^(\d+):(\d{2})$/);
         if (!duration) throw AppError.validation('مدة المعدات غير قابلة للقراءة');
         total = total.add(Number(duration[1]) * 60 + Number(duration[2]));
-        details.push({ taskId: String(task.id), label: `${ws.name} — ${cellText(ws.getCell(r, 13).value)}`, timeFrom: times?.[1] ?? null, timeTo: times?.[2] ?? null, notes: cellText(ws.getCell(r, 1).value), ...edit });
+        details.push({ taskId: String(task.id), label: `${ws.name} — ${date}`, timeFrom: times?.[1] ?? null, timeTo: times?.[2] ?? null, notes: cellText(ws.getCell(r, 1).value), ...edit });
       }
       recordsCount++;
       mapping.push({ taskId: task.id, sheetIndex: targetSheet, row: r });
@@ -228,12 +241,24 @@ export async function prepareResend(sub: Submission, buffer: Buffer) {
     return value;
   }
   const next = await workbook(buffer);
-  const key = (ws: ExcelJS.Worksheet, row: number) => JSON.stringify([cellText(ws.getCell(3, 10).value), cellText(ws.getCell(4, 10).value), ...(sub.kind === 'equipment' ? [cellText(ws.getCell(3, 4).value), cellText(ws.getCell(row, 10).value)] : []), cellText(ws.getCell(row, 13).value)]);
-  const positions = next.worksheets.flatMap((ws, sheetIndex) => dataRowsOf(ws, sub.kind as Kind).map((row) => ({ sheetIndex, row, key: key(ws, row) })));
+  const key = (ws: ExcelJS.Worksheet, row: number) => {
+    const date = rowDate(ws, row, sub.kind as Kind);
+    if (!date) throw AppError.validation('تعذّر ربط يوم التصحيح: التاريخ مفقود أو غير صالح في عموده الصحيح');
+    return JSON.stringify([cellText(ws.getCell(3, 10).value), cellText(ws.getCell(4, 10).value), ...(sub.kind === 'equipment' ? [cellText(ws.getCell(3, 4).value), cellText(ws.getCell(row, 10).value)] : []), date]);
+  };
+  // Include populated value rows even when their date cell is empty: otherwise an
+  // undated row could slip past FINAL exclusions simply by disappearing from the index.
+  const positions = next.worksheets.flatMap((ws, sheetIndex) => {
+    const rows = Array.from({ length: sub.kind === 'equipment' ? 5 : 7 }, (_, i) => i + 8)
+      .filter((row) => cellText(ws.getCell(row, sub.kind === 'equipment' ? 7 : 8).value) !== '');
+    return rows.map((row) => ({ sheetIndex, row, key: key(ws, row) }));
+  });
   for (const strike of strikes.filter((r) => r.disposition === 'FINAL')) {
     const archived = await getOriginal(sub.id, strike.revision);
     const ws = archived.wb.worksheets[strike.sheetIndex];
-    if (ws && positions.some((p) => p.key === key(ws, strike.row))) throw AppError.validation('الكشف يحتوي يومًا مستبعدًا نهائيًا — احذفه من النسخة الجديدة');
+    if (!ws) throw AppError.validation('ورقة اليوم المستبعد نهائيًا مفقودة — يلزم مراجعة المسؤول');
+    const excludedKey = key(ws, strike.row);
+    if (positions.some((p) => p.key === excludedKey)) throw AppError.validation('الكشف يحتوي يومًا مستبعدًا نهائيًا — احذفه من النسخة الجديدة');
   }
   const mapping = [];
   for (const task of tasks) {

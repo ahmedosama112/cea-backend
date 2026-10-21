@@ -17,11 +17,11 @@ async function submit(token: string) {
     .attach('file', xlsx, 'k.xlsx');
   return res;
 }
-// كشف عمالة حقيقي بتخطيط الواجهة: 7 صفوف أيام (8..14) بتاريخ في العمود 13، واتنين منهم فيهم إجمالي في العمود 8، وإجمالي الورقة صف 15
+// كشف عمالة حقيقي بتخطيط الواجهة: 7 صفوف أيام (8..14) بتاريخ في العمود 12، واتنين منهم فيهم إجمالي في العمود 8، وإجمالي الورقة صف 15
 async function realLaborXlsx(): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet('مقاول');
-  for (let i = 0; i < 7; i++) { const r = 8 + i; ws.getCell(r, 13).value = '2026-08-' + (12 + i); ws.getCell(r, 12).value = 'يوم'; }
+  for (let i = 0; i < 7; i++) { const r = 8 + i; ws.getCell(r, 12).value = '2026-08-' + (12 + i); ws.getCell(r, 13).value = 'يوم'; }
   ws.getCell(8, 8).value = 300; ws.getCell(8, 3).value = 'أعمال أ';
   ws.getCell(10, 8).value = 200; ws.getCell(10, 3).value = 'أعمال ب';
   ws.getCell(15, 8).value = 500;
@@ -38,8 +38,8 @@ async function twoSheetLaborXlsx(): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
   for (const name of ['شيت1', 'شيت2']) {
     const ws = wb.addWorksheet(name);
-    ws.getCell(8, 13).value = '2026-08-12'; ws.getCell(8, 12).value = 'يوم';
-    ws.getCell(10, 13).value = '2026-08-14'; ws.getCell(10, 12).value = 'يوم';
+    ws.getCell(8, 12).value = '2026-08-12'; ws.getCell(8, 13).value = 'يوم';
+    ws.getCell(10, 12).value = '2026-08-14'; ws.getCell(10, 13).value = 'يوم';
     ws.getCell(8, 8).value = 300; ws.getCell(8, 3).value = 'أعمال أ';
     ws.getCell(10, 8).value = 200; ws.getCell(10, 3).value = 'أعمال ب';
     ws.getCell(15, 8).value = 500;
@@ -252,8 +252,8 @@ describe('اعتمادات المديرين', () => {
     const cleanBuf = await applyRowRejections(raw, [{ sheetIndex: 0, row: 8, level: 'team leader', note: 'x' }], 'labor', 'clear');
     const wbc = new ExcelJS.Workbook(); await wbc.xlsx.load(cleanBuf as unknown as ArrayBuffer);
     const wsc = wbc.worksheets[0];
-    expect(String(wsc.getCell(8, 13).value)).toBe('2026-08-12');
-    expect(String(wsc.getCell(8, 12).value)).toBe('يوم');
+    expect(String(wsc.getCell(8, 12).value)).toBe('2026-08-12');
+    expect(String(wsc.getCell(8, 13).value)).toBe('يوم');
     expect(wsc.getCell(8, 8).value).toBeNull();
     expect(wsc.getCell(8, 3).value).toBeNull();
     expect(wsc.getCell(8, 13).font?.strike).toBeFalsy();
@@ -457,7 +457,7 @@ describe('اعتمادات المديرين', () => {
       const wb = new ExcelJS.Workbook();
       const ws = wb.addWorksheet('مقاول');
       ws.columns = [12, 10, 12, 6, 6, 6, 6, 12, 14, 9, 14, 12, 11].map((width) => ({ width }));
-      ws.getCell(8, 13).value = '2026-08-12'; ws.getCell(8, 8).value = 500; ws.getCell(15, 8).value = 500;
+      ws.getCell(8, 12).value = '2026-08-12'; ws.getCell(8, 13).value = 'يوم'; ws.getCell(8, 8).value = 500; ws.getCell(15, 8).value = 500;
       ws.getRow(16).height = 55;
       ws.mergeCells(17, 1, 17, 5); ws.getCell(17, 1).value = 'توقيع مدير المشروع';
       ws.mergeCells(17, 7, 17, 9); ws.getCell(17, 7).value = 'توقيع مدير التنفيذ';
