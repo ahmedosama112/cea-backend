@@ -5,7 +5,7 @@ import ExcelJS from 'exceljs';
 // المعتمد يشطب سطر يوم معيّن بدل ما يرفض الكشف كله: السطر بيتلوّن أحمر بخط في النص، إجماليه يبقى صفر،
 // السبب بيتكتب في خانة الملاحظات، وإجمالي الورقة بيتعاد حسابه. الكشف يكمّل السلسلة ويوصل الـ DC مشطوب.
 // التخطيط معروف من الواجهة (buildApprovedSheet / buildEquipmentSheet):
-//   العمالة:  صفوف الأيام 8..14، التاريخ عمود 13، إجمالي السطر عمود 8، بيان الأعمال (مدموج 3..7) → الملاحظة في 3، إجمالي الورقة صف 15 عمود 8
+//   العمالة:  صفوف الأيام 8..14، التاريخ عمود 12 واليوم عمود 13، إجمالي السطر عمود 8، بيان الأعمال (مدموج 3..7) → الملاحظة في 3، إجمالي الورقة صف 15 عمود 8
 //   المعدات:  صفوف الأيام 8..12، التاريخ عمود 13، المدة عمود 7 ("h:mm")، الملاحظات عمود 1، إجمالي الورقة صف 13 عمود 7، إجمالي الشهر صف 13 عمود 6
 
 export type Kind = 'labor' | 'equipment';
@@ -23,6 +23,20 @@ function text(v: ExcelJS.CellValue): string {
   if (v == null) return '';
   if (typeof v === 'object' && 'richText' in (v as object)) return (v as { richText: { text: string }[] }).richText.map((x) => x.text).join('');
   return String(v);
+}
+// Generated labor sheets put the date in L; equipment sheets put it in M.
+// Never fall back to the weekday column, a cached formula, or a partial date.
+export function rowDate(ws: ExcelJS.Worksheet, row: number, kind: Kind): string | null {
+  const value = ws.getCell(row, kind === 'labor' ? 12 : 13).value;
+  if (value instanceof Date) {
+    if (!Number.isFinite(value.getTime()) || value.toISOString().slice(11) !== '00:00:00.000Z') return null;
+    return value.toISOString().slice(0, 10);
+  }
+  if (typeof value !== 'string') return null;
+  const raw = value.replace(/[\u200e\u200f]/g, '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null;
+  const parsed = new Date(raw + 'T00:00:00.000Z');
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === raw ? raw : null;
 }
 function minutesOf(v: ExcelJS.CellValue): number {
   const m = text(v).replace(/‏/g, '').match(/(\d+):(\d{2})/);
@@ -48,7 +62,8 @@ export function readLaborRow(ws: ExcelJS.Worksheet, row: number): { qtyText: str
   return { qtyText, qty, qtyType, price, total, notes, deduct, multi };
 }
 
-// صفوف الأيام اللي فيها بيانات فعلًا في ورقة (تاريخ + قيمة) — الأساس لحساب "كل السطور اتشطبت"
+// صفوف الأيام الظاهرة مع قيمة — عمود 13 يحمل اليوم للعمالة والتاريخ للمعدات.
+// مطابقة التصحيحات وحساب تواريخ العمالة يتحققان من التاريخ الفعلي عبر rowDate.
 export function dataRowsOf(ws: ExcelJS.Worksheet, kind: Kind): number[] {
   const L = LAYOUT[kind];
   const out: number[] = [];
@@ -102,7 +117,7 @@ export async function workbookLaborDaysByContractor(buffer: Buffer): Promise<Map
 
 // زي workbookLaborDaysByContractor بالظبط، بس بيرجّع كمان توزيع اليوميات على تواريخها لكل مقاول —
 // عشان تقرير "مقاولين العمالة" يقدر يكتشف نفس اليوم لو اتحسب في أكتر من كشف (بند "duplicates").
-// تاريخ الصف = عمود 12 (أول 10 حروف، لازم يبقى شكله YYYY-MM-DD وإلا مابيتحسبش في dates بس لسه محسوب في days).
+// تاريخ الصف = عمود 12، تاريخ تقويمي كامل وصالح عبر rowDate؛ غير الصالح لا يُدرج في dates لكنه يظل محسوبًا في days.
 export async function workbookLaborDaysDetail(buffer: Buffer): Promise<Map<string, { days: number; dates: Record<string, number> }> | null> {
   let wb: ExcelJS.Workbook;
   try {
@@ -120,8 +135,7 @@ export async function workbookLaborDaysDetail(buffer: Buffer): Promise<Map<strin
     let sum = 0;
     const dates: Record<string, number> = {};
     for (const row of dataRowsOf(ws, 'labor')) {
-      const dateRaw = text(ws.getCell(row, 12).value).trim().slice(0, 10);
-      const validDate = /^\d{4}-\d{2}-\d{2}$/.test(dateRaw) ? dateRaw : null;
+      const validDate = rowDate(ws, row, 'labor');
       // اليوم ممكن يبقى فيه أكتر من سجل (سطر لكل سجل في نفس الخانة) — readLaborRow بيقرا أول سطر بس، فبنجمع السطور كلها هنا
       for (const line of readLaborRow(ws, row).qtyText.split('\n')) {
         const m = line.replace(/‏/g, '').trim().match(/^([\d.]+)\s*(.*)$/);
@@ -175,7 +189,7 @@ export async function applyRowRejections(buffer: Buffer, rejections: RowRejectio
     if (!ws || rj.row < L.firstRow || rj.row > L.lastRow) continue;
     touched.add(rj.sheetIndex);
     if (mode === 'clear') {
-      // يوم فاضي: كل القيم تتمسح ماعدا التاريخ (13) واليوم (12) — والتنسيق يفضل زي أي يوم بلا شغل، والتوقيع يتشال
+      // يوم فاضي: كل القيم تتمسح ماعدا العمودين 12 و13 (تاريخ/يوم حسب نوع الكشف) — والتنسيق يفضل زي أي يوم بلا شغل، والتوقيع يتشال
       for (let c = 1; c <= 11; c++) ws.getCell(rj.row, c).value = null;
       removeImagesOnRow(ws, rj.row);
       continue;

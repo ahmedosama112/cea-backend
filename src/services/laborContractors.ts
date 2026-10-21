@@ -46,6 +46,7 @@ export async function checkLaborMix(contractorName: string, placeName: string): 
 export async function saveLaborDays(
   submissionId: bigint,
   daysByContractor: Map<string, number | { days: number; dates?: Record<string, number> }>,
+  revision?: number,
 ): Promise<void> {
   const labor = await laborNameSet();
   const rows = [...daysByContractor.entries()]
@@ -55,8 +56,13 @@ export async function saveLaborDays(
       const dates = typeof v === 'number' ? null : v.dates && Object.keys(v.dates).length ? JSON.stringify(v.dates) : null;
       return { submissionId, contractorName: name, days, dates };
     });
-  await prisma.$transaction([
-    prisma.submissionLaborDays.deleteMany({ where: { submissionId } }),
-    ...(rows.length ? [prisma.submissionLaborDays.createMany({ data: rows })] : []),
-  ]);
+  await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM submissions WHERE id = ${submissionId} FOR UPDATE`;
+    if (revision !== undefined) {
+      const sub = await tx.submission.findUnique({ where: { id: submissionId }, select: { revision: true, reviewState: true } });
+      if (!sub || sub.revision !== revision || sub.reviewState !== 'SENT') return;
+    }
+    await tx.submissionLaborDays.deleteMany({ where: { submissionId } });
+    if (rows.length) await tx.submissionLaborDays.createMany({ data: rows });
+  });
 }

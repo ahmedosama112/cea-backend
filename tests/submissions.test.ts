@@ -140,8 +140,8 @@ describe('تسليمات الكشوف المعتمدة', () => {
     expect(byUser.status).toBe(200);
     expect(byUser.body.data.some((s: { id: string }) => s.id === subId)).toBe(true);
     const adm = await request(app).delete(`/api/submissions/${subId}`).set(auth(admin.token));
-    expect(adm.status).toBe(200);
+    expect(adm.status).toBe(409); // سجل التصحيح محفوظ حتى لو غيّر الأدمن status القديم
     const gone = await request(app).get('/api/submissions/mine').set(auth(eng.token));
-    expect(gone.body.data.some((s: { id: string }) => s.id === subId)).toBe(false);
+    expect(gone.body.data.some((s: { id: string }) => s.id === subId)).toBe(true);
   });
 });
