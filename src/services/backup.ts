@@ -1,7 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../config/prisma';
 import { googleSyncEnabled } from './googleSheet';
-import { backupFiles } from './backupFiles';
+import { backupFiles, skipFileOwnerEmails, splitBackupFiles } from './backupFiles';
 
 // ── نسخة احتياطية كاملة لقاعدة البيانات → Google Drive (فولدر "CEA Backups") ──
 // بتتبعت يوميًا عبر نفس Web App بتاع الشيت (action: backup). الملف JSON واحد فيه كل الجداول —
@@ -267,7 +267,10 @@ async function performBackupAttempt(): Promise<UploadResult> {
     if (missingModels.length) throw new Error(`Incomplete backup table coverage: ${missingModels.join(', ')}`);
     const dump = await dumpDatabase();
     const missingFiles: string[] = [];
-    dump.fileManifest = await backupFiles((dump.tables as { files: Array<{ filePath: string }> }).files, async (name, contents) => {
+    const tables = dump.tables as { users: Array<{ id: unknown; email: string }>; files: Array<{ filePath: string; userId: unknown }> };
+    const { backed, skipped: skippedFiles } = splitBackupFiles(tables.users, tables.files, skipFileOwnerEmails());
+    dump.skippedFiles = skippedFiles;
+    dump.fileManifest = await backupFiles(backed, async (name, contents) => {
       for (let attempt = 0; attempt < 3; attempt++) {
         const uploaded = await uploadBackup(contents, name, 'backup-file');
         if (uploaded.ok) return;
@@ -276,7 +279,7 @@ async function performBackupAttempt(): Promise<UploadResult> {
       }
     }, filePath => missingFiles.push(filePath));
     dump.missingFiles = missingFiles;
-    dump.fileBackupStatus = missingFiles.length ? 'partial' : 'complete';
+    dump.fileBackupStatus = missingFiles.length || skippedFiles.length ? 'partial' : 'complete';
     dump.version = 2;
     const json = JSON.stringify(dump);
     const fileName = `cea-db-backup-${new Date().toISOString().slice(0, 10)}.json`;
@@ -286,13 +289,11 @@ async function performBackupAttempt(): Promise<UploadResult> {
       return result;
     }
 
-    const saved = JSON.stringify({ at: new Date().toISOString(), files: (dump.fileManifest as unknown[]).length, missing: missingFiles.length, complete: missingFiles.length === 0 });
+    const saved = JSON.stringify({ at: new Date().toISOString(), files: (dump.fileManifest as unknown[]).length, missing: missingFiles.length, skipped: skippedFiles.length, complete: missingFiles.length === 0 });
     await prisma.appConfig.upsert({ where: { key: 'lastBackupSaved' }, update: { value: saved }, create: { key: 'lastBackupSaved', value: saved } });
-    if (missingFiles.length) {
-      const detail = `تم حفظ قاعدة البيانات و${(dump.fileManifest as unknown[]).length} ملفًا — النسخة غير مكتملة: ${missingFiles.length} ملفات مفقودة من التخزين، موثقة في missingFiles`;
-      await recordBackupStatus(false, detail);
-      return { ok: false, detail, kind: 'http-json-error', retryable: false };
-    }
+    // (نوفمبر 2026 — طلب صاحب المشروع) الملفات المفقودة من التخزين مابقتش بتفشّل النسخة: بتتسجل في
+    // missingFiles وتظهر كملاحظة، والاستعادة بتكمل من غيرها (مراجعها في القاعدة بتفضل).
+    if (missingFiles.length) console.warn(`[backup] ${missingFiles.length} ملفات مفقودة من التخزين اتتجاهلت: ${missingFiles.join(', ')}`);
     const size = `${Math.round(Buffer.byteLength(json, 'utf8') / 1024)}KB`;
     const missing = missingBackupModels();
     if (missing.length) {
@@ -301,7 +302,11 @@ async function performBackupAttempt(): Promise<UploadResult> {
       await recordBackupStatus(false, detail);
       return { ok: false, detail, kind: 'http-json-error', retryable: false };
     }
-    const detail = `${fileName} (${size})`;
+    const notes = [
+      skippedFiles.length ? `${skippedFiles.length} ملف لحساب المالك مستثناة` : '',
+      missingFiles.length ? `${missingFiles.length} ملفات مفقودة اتتجاهلت` : '',
+    ].filter(Boolean).join(' · ');
+    const detail = `${fileName} (${size})${notes ? ` — ${notes}` : ''}`;
     console.log(`[backup] ✅ ${detail} → Drive`);
     await recordBackupStatus(true, detail);
     return { ok: true, detail: `${detail} → Drive`, kind: 'success', retryable: false };

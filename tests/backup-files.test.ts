@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { storage } from '../src/services/storage';
-import { backupFiles, decodeBackupFile } from '../src/services/backupFiles';
+import { backupFiles, decodeBackupFile, skipFileOwnerEmails, splitBackupFiles } from '../src/services/backupFiles';
 const png = Buffer.from('89504e470d0a1a0a00000000', 'hex');
 describe('Backup file integrity', () => {
   afterEach(() => vi.restoreAllMocks());
@@ -29,5 +29,19 @@ describe('Backup file integrity', () => {
     expect(missing).not.toHaveBeenCalled();
     vi.spyOn(storage, 'read').mockResolvedValue(png);
     await expect(backupFiles([{ filePath: 'present' }], async () => { throw new Error('Drive unavailable'); }, missing)).rejects.toThrow('Drive unavailable');
+  });
+  it('skips files of excluded owner accounts but keeps shared paths', () => {
+    const users = [{ id: 1n, email: 'Owner@Example.com' }, { id: 2n, email: 'eng@example.com' }];
+    const files = [
+      { filePath: 'owner-a.png', userId: 1n },
+      { filePath: 'owner-a.png', userId: 1n },
+      { filePath: 'shared.png', userId: 1n },
+      { filePath: 'shared.png', userId: 2n },
+      { filePath: 'eng.png', userId: 2n },
+    ];
+    const { backed, skipped } = splitBackupFiles(users, files, skipFileOwnerEmails(' owner@example.com , '));
+    expect(skipped).toEqual(['owner-a.png']);
+    expect(backed.map(f => f.filePath)).toEqual(['shared.png', 'eng.png']);
+    expect(splitBackupFiles(users, files, skipFileOwnerEmails('')).skipped).toEqual([]);
   });
 });

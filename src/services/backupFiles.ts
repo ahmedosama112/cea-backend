@@ -26,6 +26,27 @@ export async function backupFiles(
   return manifest;
 }
 
+// (نوفمبر 2026 — طلب صاحب المشروع) حسابات ملفاتها مش بتتنسخ: صاحب المشروع بطّل يكتب سراكي.
+// صفوف الجداول بتاعتها بتفضل في النسخة؛ الملفات نفسها بس اللي بتتخطى وبتتسجل في skippedFiles.
+const DEFAULT_SKIP_FILE_OWNERS = 'asepremong420@gmail.com';
+
+export function skipFileOwnerEmails(raw = process.env.BACKUP_SKIP_FILE_OWNERS ?? DEFAULT_SKIP_FILE_OWNERS): Set<string> {
+  return new Set(raw.split(',').map((e) => e.trim().toLowerCase()).filter(Boolean));
+}
+
+// يقسم صفوف الملفات: اللي هتتنسخ، ومسارات ملفات الحسابات المستثناة (مسار مشترك مع حساب تاني بيتنسخ عادي).
+export function splitBackupFiles(
+  users: Array<{ id: unknown; email: string }>,
+  files: Array<{ filePath: string; userId: unknown }>,
+  skipEmails: Set<string>,
+): { backed: Array<{ filePath: string }>; skipped: string[] } {
+  const skipIds = new Set(users.filter((u) => skipEmails.has(String(u.email).toLowerCase())).map((u) => String(u.id)));
+  const backed = files.filter((f) => !skipIds.has(String(f.userId)));
+  const backedPaths = new Set(backed.map((f) => f.filePath));
+  const skipped = [...new Set(files.filter((f) => skipIds.has(String(f.userId))).map((f) => f.filePath))].filter((p) => !backedPaths.has(p));
+  return { backed, skipped };
+}
+
 export function decodeBackupFile(json: string, entry: BackupFileEntry): Buffer {
   const object = JSON.parse(json);
   const data = Buffer.from(object.base64, 'base64');
