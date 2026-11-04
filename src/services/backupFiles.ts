@@ -28,7 +28,7 @@ export async function backupFiles(
 
 // (نوفمبر 2026 — طلب صاحب المشروع) حسابات ملفاتها مش بتتنسخ: صاحب المشروع بطّل يكتب سراكي.
 // صفوف الجداول بتاعتها بتفضل في النسخة؛ الملفات نفسها بس اللي بتتخطى وبتتسجل في skippedFiles.
-const DEFAULT_SKIP_FILE_OWNERS = 'asepremong420@gmail.com';
+const DEFAULT_SKIP_FILE_OWNERS = 'ahmed.osama.2016@gmail.com';
 
 export function skipFileOwnerEmails(raw = process.env.BACKUP_SKIP_FILE_OWNERS ?? DEFAULT_SKIP_FILE_OWNERS): Set<string> {
   return new Set(raw.split(',').map((e) => e.trim().toLowerCase()).filter(Boolean));
