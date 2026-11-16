@@ -1,6 +1,8 @@
 import { prisma } from '../config/prisma';
 import { AppError } from '../utils/AppError';
 
+const DEFAULT_PROJECT_ID = 1;
+
 // ── إعدادات عامة: أسماء المواقع/المشاريع (يعدّلها الأدمن وتظهر في كل دروب داون "الموقع") ──
 export const SITE_NAME_DEFAULTS: Record<string, string> = { site1Name: 'كومباوند جريني', site2Name: 'أزاليا' };
 
@@ -29,6 +31,28 @@ export async function assertProjectExists(id: number | null | undefined): Promis
   if (id === null || id === undefined) return;
   const p = await prisma.project.findUnique({ where: { id }, select: { id: true } });
   if (!p) throw AppError.validation('المشروع غير موجود');
+}
+
+// (أمان — نوفمبر 2026) المهندس مايقدرش يختار مشروع مش بتاعه وقت إرسال الكشف: مشروع عليه noApproval
+// كان بيفضّي سلسلة الاعتماد لأي حد يكتب رقمه. "بتاعه" = محمّل على حسابه (UserProject) أو عنده مكان في المشروع ده
+// (الأماكن الأدمن بس اللي بيكتبها، و site=null معناها المشروع الافتراضي 1 — نفس اشتقاق الفرونت لـ projectId).
+export async function userBelongsToProject(userId: bigint, projectId: number): Promise<boolean> {
+  const up = await prisma.userProject.findUnique({ where: { userId_projectId: { userId, projectId } }, select: { id: true } });
+  if (up) return true;
+  const place = await prisma.place.findFirst({
+    where: { userId, OR: projectId === DEFAULT_PROJECT_ID ? [{ site: projectId }, { site: null }] : [{ site: projectId }] },
+    select: { id: true },
+  });
+  return !!place;
+}
+
+// مشروع عليه noApproval بيفضّي السلسلة — فمسموح بس لمهندس بتاع المشروع ده. أي مشروع تاني من غير UserProject
+// بياخد سلسلة الحساب الافتراضية أصلًا، فمفيش تخطّي هناك ومش بنكسر الإرسال القديم.
+export async function assertCanSubmitToProject(userId: bigint, projectId: number): Promise<void> {
+  const p = await prisma.project.findUnique({ where: { id: projectId }, select: { noApproval: true } });
+  if (p?.noApproval && !(await userBelongsToProject(userId, projectId))) {
+    throw AppError.forbidden('المشروع ده مش محمّل على حسابك');
+  }
 }
 
 // نفس اسم المكان (بعد trim) مينفعش يبقى في مشروعين مختلفين عبر كل الحسابات.

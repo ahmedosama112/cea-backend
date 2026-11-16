@@ -10,13 +10,26 @@ import { asyncHandler } from '../utils/asyncHandler';
 import { validate } from '../middlewares/validate';
 import { requireWindow } from '../middlewares/windowGuard';
 import { idParamSchema } from '../utils/crudFactory';
-import { getApprovalLevels, CHAIN_LEVELS, SENIOR_LEVEL, isApproverGrade, buildChain, nextLevel, resolveChainForUser, soleProjectManagerId, pushSubmissionToSheet, prepareApprovalAccounting, signedFileBuffer, ChainUser } from '../services/approvalChain';
+import { getApprovalLevels, CHAIN_LEVELS, SENIOR_LEVEL, isApproverGrade, buildChain, nextLevel, resolveChainForUser, soleProjectManagerId, pushSubmissionToSheet, prepareApprovalAccounting, signedFileBuffer, ChainUser, ChainSlot } from '../services/approvalChain';
 import { countDataRows, dataRowsOf, readLaborRow } from '../services/rowReject';
 import { storage } from '../services/storage';
 import { listProjects } from '../services/placeSite';
 
 // ═══════════ اعتمادات المديرين — تبويب المراجعة والاعتماد ═══════════
 // (authenticate + requireModule('approvals') مطبّقين في routes/index.ts)
+
+
+// (أمان — فحص نوفمبر 2026) دور الاعتماد بيتحسب من السلسلة الحالية، مش من currentApproverId المتخزّن لوحده:
+// لو الأدمن غيّر المعتمد المسند للمستوى أو نزّل درجته، القديم يفقد الدور والجديد ياخده.
+//  - كشف قديم من قبل الإسناد (currentApproverId = null): أي معتمد درجته = المستوى (السلوك القديم)
+//  - المستوى الحالي خرج من السلسلة خالص (stuck): نفس السلوك القديم — الاعتماد بيترفض بعدين والأدمن بيفكّه
+//  - غير كده: لازم يكون هو المسند للمستوى ده في السلسلة الحالية ودرجته لسه = المستوى
+function isMyTurn(sub: { currentLevel: string | null; currentApproverId: bigint | null }, chain: ChainSlot[], meId: bigint, grade: string | null | undefined): boolean {
+  if (sub.currentApproverId === null) return isApproverGrade(grade) && grade === sub.currentLevel;
+  const slot = chain.find((c) => c.level === sub.currentLevel);
+  if (!slot) return sub.currentApproverId === meId;
+  return slot.approverId === meId && grade === sub.currentLevel;
+}
 
 export const approvalsRoutes = Router();
 approvalsRoutes.get('/corrections', ...correctionList(true));
@@ -144,9 +157,7 @@ approvalsRoutes.get(
         const chain = noApproval ? [] : buildChain(chainUser, solePmId);
         const inChain = chain.some((c) => c.level === r.currentLevel);
         const canAct = myLevel !== 'viewer' && r.reviewState === 'IN_REVIEW'
-          && (isAdmin
-            || r.currentApproverId === myId
-            || (r.currentApproverId === null && isApprover && r.currentLevel === myLevel));
+          && (isAdmin || isMyTurn(r, chain, myId, myLevel));
         return {
           ...shape(r as never),
           projectName: projectNameOf(r.projectId as number | null),
@@ -251,9 +262,7 @@ approvalsRoutes.post(
     // درجة 'viewer' ممنوعة من أي إجراء اعتماد/رفض — قبل أي فحص تاني، حتى لو كان مسند أو مستوى قديم
     if (me?.grade === 'viewer') throw AppError.forbidden('حساب مشاهد — مالوش صلاحية اعتماد أو رفض');
     const isAdmin = req.user!.role === 'ADMIN';
-    const isApprover = isApproverGrade(me?.grade);
-    const mine = sub.currentApproverId === req.user!.id || (sub.currentApproverId === null && isApprover && me!.grade === sub.currentLevel);
-    if (!isAdmin && !mine) throw AppError.forbidden('مش دورك في الاعتماد على الكشف ده دلوقتي');
+    if (!isAdmin && !isMyTurn(sub, await resolveChainForUser(sub.userId, sub.projectId), req.user!.id, me?.grade)) throw AppError.forbidden('مش دورك في الاعتماد على الكشف ده دلوقتي');
     if (sub.rowRejections.some((r) => r.revision === sub.revision && r.sheetIndex === sheetIndex && r.row === row)) throw AppError.validation('السطر ده مشطوب بالفعل');
     const level = isAdmin && !sub.currentLevel ? 'admin' : (sub.currentLevel ?? 'admin');
     const original = await storage.read(sub.file.filePath).catch(() => null);
@@ -348,9 +357,7 @@ approvalsRoutes.post(
     const isAdmin = req.user!.role === 'ADMIN';
     if (!isAdmin) {
       if (me?.grade !== 'project manager') throw AppError.forbidden('تعديل السطور لمدير المشروع أو مدير النظام بس');
-      const isApprover = isApproverGrade(me.grade);
-      const mine = sub.currentApproverId === req.user!.id || (sub.currentApproverId === null && isApprover && me.grade === sub.currentLevel);
-      if (!mine) throw AppError.forbidden('مش دورك في الاعتماد على الكشف ده دلوقتي');
+      if (!isMyTurn(sub, await resolveChainForUser(sub.userId, sub.projectId), req.user!.id, me.grade)) throw AppError.forbidden('مش دورك في الاعتماد على الكشف ده دلوقتي');
     }
     if (sub.rowRejections.some((r) => r.revision === sub.revision && r.sheetIndex === sheetIndex && r.row === row)) throw AppError.validation('السطر ده مشطوب');
 
@@ -432,16 +439,12 @@ approvalsRoutes.post(
     // درجة 'viewer' ممنوعة من أي إجراء اعتماد/رفض — قبل أي فحص تاني، حتى لو كان مسند أو مستوى قديم
     if (me?.grade === 'viewer') throw AppError.forbidden('حساب مشاهد — مالوش صلاحية اعتماد أو رفض');
     const isAdmin = req.user!.role === 'ADMIN';
-    const isApprover = isApproverGrade(me?.grade);
-    const mine = sub.currentApproverId === req.user!.id
-      // كشف قديم من قبل نظام الإسناد: أي معتمد درجته = المستوى الحالي (السلوك القديم)
-      || (sub.currentApproverId === null && isApprover && me!.grade === sub.currentLevel);
-    if (!isAdmin && !mine) {
+    const chain = await resolveChainForUser(sub.userId, sub.projectId);
+    if (!isAdmin && !isMyTurn(sub, chain, req.user!.id, me?.grade)) {
       throw AppError.forbidden('مش دورك في الاعتماد على الكشف ده دلوقتي');
     }
 
     // نحدد نتيجة القرار الأول (قبل ما نسجّل أي حاجة) — عشان الكشف الواقف عند مستوى اتشال من سلسلته ما يتبعتش قبل أوانه
-    const chain = await resolveChainForUser(sub.userId, sub.projectId);
     let step = nextLevel(chain, sub.currentLevel);
     if (decision !== 'REJECTED' && step.kind === 'stuck') {
       if (!isAdmin) {

@@ -376,6 +376,37 @@ describe('اعتمادات المديرين', () => {
     expect(self.status).toBe(400);
   });
 
+  // (أمان — فحص نوفمبر 2026) الدور بيتحسب من السلسلة الحالية: لو الأدمن نقل مستوى مدير الفريق لشخص تاني،
+  // المعتمد القديم يفقد الدور على الكشوف الواقفة عنده، والجديد ياخده (قبل كده القديم كان بيعتمد والجديد بياخد 403)
+  it('نقل إسناد مدير الفريق: القديم مايقدرش يعتمد ولا يشطب الكشف الواقف، والجديد هو اللي يعتمد', async () => {
+    const res = await submit(eng.token);
+    const id = res.body.data.id;
+    expect(res.body.data.currentApproverId).toBe(tl.id);
+    expect((await patchUser(admin.token, eng.id, { approverTlId: tl2.id })).status).toBe(200);
+    try {
+      const q = (await request(app).get('/api/approvals/queue').set(auth(tl.token))).body.data.find((r: { id: string }) => r.id === id);
+      expect(q.canAct).toBe(false);
+      const q2 = (await request(app).get('/api/approvals/queue').set(auth(tl2.token))).body.data.find((r: { id: string }) => r.id === id);
+      expect(q2.canAct).toBe(true);
+
+      const oldTry = await request(app).post(`/api/approvals/${id}/decide`).set(auth(tl.token)).send({ decision: 'APPROVED' });
+      expect(oldTry.status, JSON.stringify(oldTry.body)).toBe(403);
+      const oldStrike = await request(app).post(`/api/approvals/${id}/rows/reject`).set(auth(tl.token))
+        .send({ sheetIndex: 0, row: 8, label: 'سطر', note: 'شطب', disposition: 'FINAL' });
+      expect(oldStrike.status, JSON.stringify(oldStrike.body)).toBe(403);
+      const still = await prisma.submission.findUniqueOrThrow({ where: { id: BigInt(id) } });
+      expect(still.currentLevel).toBe('team leader');
+
+      const newTry = await request(app).post(`/api/approvals/${id}/decide`).set(auth(tl2.token)).send({ decision: 'APPROVED' });
+      expect(newTry.status, JSON.stringify(newTry.body)).toBe(200);
+      const after = await prisma.submission.findUniqueOrThrow({ where: { id: BigInt(id) }, include: { reviews: true } });
+      expect(after.currentLevel).not.toBe('team leader');
+      expect(after.reviews.some((r) => r.level === 'team leader' && String(r.byUserId) === String(tl2.id))).toBe(true);
+    } finally {
+      await patchUser(admin.token, eng.id, { approverTlId: tl.id });
+    }
+  });
+
   it('الدرجة أو الإسناد اتغيّر والكشف واقف عند مستوى خرج من سلسلته: يفضل معلّقًا والأدمن بس يحرّكه', async () => {
     const res = await submit(eng.token);
     const id = res.body.data.id;

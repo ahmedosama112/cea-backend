@@ -68,6 +68,30 @@ describe('مشروع بدون اعتماد', () => {
     expect(s.currentApproverId).toBeNull();
   });
 
+  // (أمان — فحص نوفمبر 2026) projectId جاي من العميل: مهندس مش محمّل عليه المشروع ومالوش أماكن فيه
+  // مايقدرش يختار مشروع noApproval عشان يتخطى سلسلة الاعتماد بتاعته
+  it('مهندس مش بتاع مشروع noApproval مايقدرش يبعت عليه ويتخطى السلسلة', async () => {
+    const other = await createEngineer(admin.token, 'other@test.com');
+    await request(app).patch(`/api/admin/users/${other.id}`).set(auth(admin.token)).send({ grade: 'junior', approverTlId: tl.id });
+    await request(app).put(`/api/admin/users/${other.id}/settings`).set(auth(admin.token)).send({ enabledModules: ['records', 'submissions'] });
+    await request(app).post(`/api/admin/users/${other.id}/places`).set(auth(admin.token)).send({ name: 'مكان آخر', site: 1 });
+    const send = (projectId: number) => request(app).post('/api/submissions').set(auth(other.token))
+      .field('contractorName', 'مقاول').field('placeName', 'مكان آخر')
+      .field('weekStart', '2026-08-12').field('weekEnd', '2026-08-18')
+      .field('total', '500').field('recordsCount', '2')
+      .field('projectId', String(projectId))
+      .attach('file', xlsx, 'k.xlsx');
+    const before = await prisma.submission.count();
+    const bad = await send(2);
+    expect(bad.status, JSON.stringify(bad.body)).toBe(403);
+    expect(await prisma.submission.count()).toBe(before);
+    const ok = await send(1);
+    expect(ok.status, JSON.stringify(ok.body)).toBe(201);
+    const s = await prisma.submission.findFirstOrThrow({ orderBy: { id: 'desc' } });
+    expect(s.reviewState).toBe('IN_REVIEW');
+    expect(String(s.currentApproverId)).toBe(String(tl.id));
+  });
+
   it('نفس المهندس على مشروع عادي بيعدّي على السلسلة', async () => {
     const s = await submit(1, 'مكان ١');
     expect(s.reviewState).toBe('IN_REVIEW');
