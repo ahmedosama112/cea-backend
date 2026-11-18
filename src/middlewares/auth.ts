@@ -2,6 +2,7 @@ import { NextFunction, Request, Response } from 'express';
 import { AppError } from '../utils/AppError';
 import { verifyAccessToken } from '../utils/tokens';
 import { prisma } from '../config/prisma';
+import { assertServiceOpenFor } from '../services/maintenance';
 
 export interface AuthUser {
   id: bigint;
@@ -36,16 +37,23 @@ export async function authenticate(req: Request, _res: Response, next: NextFunct
     return next(AppError.unauthorized());
   }
   const token = header.slice('Bearer '.length);
+  let user: AuthUser | null;
   try {
     const payload = verifyAccessToken(token);
-    const user = await prisma.user.findUnique({ where: { id: BigInt(payload.sub) }, select: { id: true, email: true, role: true } });
-    if (!user) return next(AppError.unauthorized());
-    req.user = user;
-    touchLastSeen(req.user.id);
-    next();
+    user = await prisma.user.findUnique({ where: { id: BigInt(payload.sub) }, select: { id: true, email: true, role: true } });
   } catch {
-    next(AppError.unauthorized('انتهت صلاحية الجلسة أو التوكن غير صالح'));
+    return next(AppError.unauthorized('انتهت صلاحية الجلسة أو التوكن غير صالح'));
   }
+  if (!user) return next(AppError.unauthorized());
+  // وضع الإيقاف: غير الأدمن بياخد 503 MAINTENANCE على أي مسار محمي
+  try {
+    await assertServiceOpenFor(user.role);
+  } catch (e) {
+    return next(e);
+  }
+  req.user = user;
+  touchLastSeen(req.user.id);
+  next();
 }
 
 // يقرأ التوكن لو موجود بدون ما يرفض الطلب لو غايب — للمسارات اللي سلوكها بيختلف حسب الدور

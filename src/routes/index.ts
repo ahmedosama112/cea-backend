@@ -19,10 +19,16 @@ import { rentRequestsRoutes } from './rentRequests.routes';
 import { authenticate } from '../middlewares/auth';
 import { requireModule } from '../middlewares/moduleGuard';
 import { allWindowStates } from '../services/windows';
+import { getMaintenance } from '../services/maintenance';
 
 export const router = Router();
 
 router.use('/auth', authRoutes);
+// حالة الخدمة — من غير تسجيل دخول: الواجهة بتعرض صفحة "Service stopped" حتى قبل شاشة الدخول
+router.get('/status', asyncHandler(async (_req: Request, res: Response) => {
+  const m = await getMaintenance();
+  res.json({ success: true, data: { maintenance: m.on, message: m.on ? m.message : '' } });
+}));
 // إعدادات عامة (أسماء المواقع) — قراءة لأي مستخدم مسجّل؛ التعديل من /admin/config فقط
 router.get('/config', authenticate, asyncHandler(async (_req: Request, res: Response) => {
   res.json({ success: true, data: { ...(await readSiteNames()), projects: await listProjects() } });

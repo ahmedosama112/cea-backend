@@ -13,6 +13,10 @@ const NOISY = (status: number, path: string) =>
 // صيغة استجابة أخطاء موحدة للـ API كله — بدون تسريب stack traces أو تفاصيل DB للمستخدم
 export function errorHandler(err: unknown, _req: Request, res: Response, _next: NextFunction) {
   if (err instanceof AppError) {
+    // وضع الإيقاف: 503 متوقع ومتكرر لكل مستخدم — ما يتسجلش كخطأ ولا في سجل النشاط
+    if (err.code === 'MAINTENANCE') {
+      return res.status(503).json({ success: false, message: err.message, code: err.code });
+    }
     if (err.status >= 500) console.error(err);
     // سجل النشاط: عشان الأدمن يعرف سبب مشكلة عند حساب معيّن من كارت الحساب
     if (err.status >= 400 && !NOISY(err.status, _req.originalUrl)) {

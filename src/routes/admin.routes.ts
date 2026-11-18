@@ -16,6 +16,7 @@ export { readSiteNames };
 import { arabizeRateTypes, toEnum, RateTypeAr } from '../utils/rateType';
 import { storage } from '../services/storage';
 import { runBackupToDrive } from '../services/backup';
+import { getMaintenance, setMaintenance } from '../services/maintenance';
 import { GRADES, APPROVING_GRADES, CHAIN_LEVELS, SENIOR_LEVEL, isValidGrade, requiredLevelsFor, soleProjectManagerId, getApprovalMatrix, setApprovalMatrix } from '../services/approvalChain';
 
 // إدارة الأدمن لحسابات المهندسين — البديل الرسمي للوحة تحكم Supabase:
@@ -416,6 +417,23 @@ adminRoutes.get(
     let coverage: unknown = null;
     try { coverage = saved ? JSON.parse(saved.value) : null; } catch { /* invalid legacy value */ }
     res.json({ success: true, data, lastSuccessAt, coverage, stale: !Number.isFinite(timestamp) || Date.now() - timestamp > 36 * 60 * 60 * 1000 });
+  }),
+);
+
+// ── وضع الإيقاف (Service stopped): الأدمن بيشغّله ويطفيه — غير الأدمن بياخد 503 وصفحة الإيقاف ──
+adminRoutes.get(
+  '/maintenance',
+  asyncHandler(async (_req: Request, res: Response) => {
+    res.json({ success: true, data: await getMaintenance() });
+  }),
+);
+const maintenanceSchema = z.object({ on: z.boolean(), message: z.string().max(500).optional() });
+adminRoutes.put(
+  '/maintenance',
+  validate({ body: maintenanceSchema }),
+  asyncHandler(async (req: Request, res: Response) => {
+    const body = req.body as z.infer<typeof maintenanceSchema>;
+    res.json({ success: true, data: await setMaintenance(body.on, body.message ?? '') });
   }),
 );
 

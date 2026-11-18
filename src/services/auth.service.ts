@@ -1,5 +1,6 @@
 import { prisma } from '../config/prisma';
 import { AppError } from '../utils/AppError';
+import { assertServiceOpenFor } from './maintenance';
 import { hashPassword, verifyPassword } from '../utils/password';
 import {
   generateOpaqueToken,
@@ -92,6 +93,8 @@ export const authService = {
     const ok = await verifyPassword(password, user.passwordHash);
     if (!ok) { recordFailedLogin(key); throw AppError.unauthorized('الإيميل أو كلمة المرور غير صحيحة'); }
     failedLogins.delete(key);
+    // بعد التحقق من كلمة السر (عشان الرد ما يكشفش مين أدمن): وضع الإيقاف بيقفل دخول غير الأدمن
+    await assertServiceOpenFor(user.role);
     return issueTokens(user);
   },
 
@@ -106,6 +109,7 @@ export const authService = {
     if (!stored || stored.revokedAt || stored.expiresAt < new Date()) {
       throw AppError.unauthorized('انتهت الجلسة — سجّل الدخول مرة أخرى');
     }
+    await assertServiceOpenFor(stored.user.role);
     const accessToken = signAccessToken({
       sub: stored.user.id.toString(),
       email: stored.user.email,
